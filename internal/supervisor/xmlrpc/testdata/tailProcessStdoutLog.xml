@@ -1,0 +1,15 @@
+<?xml version='1.0'?>
+<methodResponse>
+<params>
+<param>
+<value><array><data>
+<value><string>[32m  INFO [39m Server running…
+progress 10%progress 99%
+&lt;b&gt;&amp;amp; ünïcødé 🚀
+</string></value>
+<value><int>1234</int></value>
+<value><boolean>0</boolean></value>
+</data></array></value>
+</param>
+</params>
+</methodResponse>
