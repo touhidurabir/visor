@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Visor
+Comment=A macOS menu-bar app for managing supervisord
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/visor %u
+Terminal=false
+Type=Application
+Icon=visor
+Categories=Utility;
+StartupWMClass=visor
+
+ 
