@@ -22,6 +22,13 @@ func (f *Fault) Error() string {
 	return fmt.Sprintf("xmlrpc fault %d: %s", f.Code, f.String)
 }
 
+// Is reports whether target is a *Fault with the same code, so callers can
+// match faults with errors.Is against sentinel values.
+func (f *Fault) Is(target error) bool {
+	t, ok := target.(*Fault)
+	return ok && t.Code == f.Code
+}
+
 // DecodeResponse reads a methodResponse and returns its single value, or a
 // *Fault if the server answered with one.
 //

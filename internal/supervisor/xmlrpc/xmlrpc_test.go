@@ -163,6 +163,19 @@ func TestDecodeFaultFixture(t *testing.T) {
 	}
 }
 
+func TestFaultIsMatchesByCode(t *testing.T) {
+	err := error(&Fault{Code: 70, String: "NOT_RUNNING: web"})
+	if !errors.Is(err, &Fault{Code: 70}) {
+		t.Error("want match on equal code")
+	}
+	if errors.Is(err, &Fault{Code: 10}) {
+		t.Error("want no match on different code")
+	}
+	if errors.Is(err, errors.New("NOT_RUNNING")) {
+		t.Error("want no match on a non-Fault target")
+	}
+}
+
 // supervisord writes log bytes into the XML unescaped, so ANSI colour codes
 // arrive as raw control characters that XML 1.0 forbids. They must survive
 // decoding byte-for-byte, as must \r (which an XML parser would turn into \n).
