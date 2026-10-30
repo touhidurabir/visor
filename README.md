@@ -5,8 +5,6 @@ View processes, start/stop/restart them, tail logs, and edit program configs saf
 
 > **Status:** early development (pre-v0.1.0). Nothing to install yet.
 
-- Website: [getvisor.dev](https://getvisor.dev)
-
 ## Development
 
 Requirements: macOS 13+, Go 1.26+ (1.27.3 recommended), Node 24 (see `.nvmrc`), and the Wails v3 CLI:
