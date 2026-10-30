@@ -11,8 +11,30 @@ CONF=$DIR/supervisord.conf
 SOCK=$DIR/s.sock
 PIDFILE=$DIR/supervisord.pid
 
+# True only if the pidfile names a live supervisord started with our config,
+# so a stale pidfile whose pid was reused is never trusted.
 is_running() {
-  [[ -f $PIDFILE ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null
+  [[ -f $PIDFILE ]] || return 1
+  local pid cmd
+  pid=$(cat "$PIDFILE")
+  [[ $pid =~ ^[0-9]+$ ]] || return 1
+  cmd=$(ps -o command= -p "$pid" 2>/dev/null) || return 1
+  [[ $cmd == *supervisord* && $cmd == *"$CONF"* ]]
+}
+
+# Process-group ids of every child. supervisord makes each child a group
+# leader, so its pid is the pgid. Prints nothing if the socket is dead.
+child_pgids() {
+  curl -sf --max-time 3 --unix-socket "$SOCK" http://localhost/RPC2 \
+    -H 'Content-Type: text/xml' \
+    -d '<?xml version="1.0"?><methodCall><methodName>supervisor.getAllProcessInfo</methodName></methodCall>' 2>/dev/null |
+    tr -d ' \n\t' | grep -o '<name>pid</name><value><int>[0-9]*' | grep -o '[0-9]*$' | grep -v '^0$' || true
+}
+
+# Fallback when supervisord is already gone: sample programs carry the marker
+# ": visor-sandbox;" in their sh -c command, so find their groups via ps.
+marked_pgids() {
+  ps -axo pgid=,command= | grep '[:] visor-sandbox;' | awk '{print $1}' | sort -u || true
 }
 
 write_programs() {
@@ -39,44 +61,60 @@ CONF
 
   cat >"$DIR/conf.d/shop-api.ini" <<'INI'
 [program:shop-queue]
-command=sh -c 'while :; do echo "working"; sleep 5; done'
+command=sh -c ': visor-sandbox; while :; do echo "working"; sleep 5; done'
+stopasgroup=true
+killasgroup=true
 numprocs=4
 process_name=%(program_name)s_%(process_num)02d
 
 [program:shop-scheduler]
-command=sh -c 'while :; do echo "tick"; sleep 5; done'
+command=sh -c ': visor-sandbox; while :; do echo "tick"; sleep 5; done'
+stopasgroup=true
+killasgroup=true
 INI
 
   cat >"$DIR/conf.d/mailer.ini" <<'INI'
 [program:mailer-worker]
-command=sh -c 'while :; do echo "sending"; sleep 5; done'
+command=sh -c ': visor-sandbox; while :; do echo "sending"; sleep 5; done'
+stopasgroup=true
+killasgroup=true
 numprocs=2
 process_name=%(program_name)s_%(process_num)02d
 
 [program:mailer-digest]
 command=sh -c 'echo boom >&2; exit 1'
+stopasgroup=true
+killasgroup=true
 startsecs=1
 startretries=3
 INI
 
   cat >"$DIR/conf.d/reports.ini" <<'INI'
 [program:reports-export]
-command=sh -c 'while :; do sleep 5; done'
+command=sh -c ': visor-sandbox; while :; do sleep 5; done'
+stopasgroup=true
+killasgroup=true
 autostart=false
 
 [program:reports-sync]
 command=/nonexistent/sync
+stopasgroup=true
+killasgroup=true
 INI
 
   cat >"$DIR/conf.d/notes.ini" <<'INI'
 [program:notes-indexer]
-command=sh -c 'sleep 2; exit 0'
+command=sh -c ': visor-sandbox; sleep 2; exit 0'
+stopasgroup=true
+killasgroup=true
 autorestart=false
 INI
 
   cat >"$DIR/conf.d/flaky.ini" <<'INI'
 [program:flaky]
-command=sh -c 'sleep 20; exit 2'
+command=sh -c ': visor-sandbox; sleep 20; exit 2'
+stopasgroup=true
+killasgroup=true
 autorestart=true
 startsecs=1
 INI
@@ -96,9 +134,9 @@ up() {
     status
     return
   fi
+  command -v supervisord >/dev/null || { echo "supervisord not found: brew install supervisor" >&2; exit 1; }
   rm -rf "$DIR"
   write_programs
-  command -v supervisord >/dev/null || { echo "supervisord not found: brew install supervisor" >&2; exit 1; }
   supervisord -c "$CONF"
   for _ in $(seq 1 50); do
     if count_processes >/dev/null 2>&1; then
@@ -121,22 +159,26 @@ status() {
 }
 
 down() {
-  if [[ -f $PIDFILE ]]; then
-    local pid
+  local pgids pid pg
+  pgids=$(child_pgids)
+  if is_running; then
     pid=$(cat "$PIDFILE")
+    # SIGTERM makes supervisord stop its children and exit.
+    kill -TERM "$pid" 2>/dev/null || true
+    for _ in $(seq 1 100); do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.1
+    done
     if kill -0 "$pid" 2>/dev/null; then
-      # SIGTERM makes supervisord stop its children and exit.
-      kill -TERM "$pid" 2>/dev/null || true
-      for _ in $(seq 1 100); do
-        kill -0 "$pid" 2>/dev/null || break
-        sleep 0.1
-      done
-      kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true
+      kill -KILL "$pid" 2>/dev/null || true
     fi
   fi
-  # Children that outlived supervisord: anything whose command line mentions
-  # the sandbox dir.
-  pkill -KILL -f "$DIR" 2>/dev/null || true
+  # Anything that outlived supervisord (it was killed, crashed, or a child
+  # ignored SIGTERM): kill whole process groups.
+  pgids=$(printf '%s\n%s\n' "$pgids" "$(marked_pgids)" | grep -E '^[0-9]+$' | sort -u || true)
+  for pg in $pgids; do
+    [[ $pg -gt 1 ]] && kill -KILL "-$pg" 2>/dev/null || true
+  done
   rm -rf "$DIR"
   echo "sandbox removed"
 }
