@@ -6,39 +6,45 @@ import (
 	"testing"
 	"time"
 
+	"github.com/touhidurabir/visor/internal/config"
 	"github.com/touhidurabir/visor/internal/supervisor"
 )
-
-// liveSockets are the Homebrew default socket paths (Apple Silicon, Intel).
-var liveSockets = []string{"/opt/homebrew/var/run/supervisor.sock", "/usr/local/var/run/supervisor.sock"}
 
 // TestLiveReadOnly checks the client against the supervisord on this
 // machine. It is opt-in (VISOR_LIVE=1) and calls read-only methods only:
 // never add a state-changing call here. VISOR_LIVE_SOCKET overrides the
-// socket path.
+// socket path; otherwise the socket comes from config.Discover.
 func TestLiveReadOnly(t *testing.T) {
 	if os.Getenv("VISOR_LIVE") != "1" {
 		t.Skip("set VISOR_LIVE=1 to run read-only checks against the local supervisord")
 	}
-	sock := os.Getenv("VISOR_LIVE_SOCKET")
-	for _, p := range liveSockets {
-		if sock != "" {
-			break
+	var (
+		tr    supervisor.Transport
+		where string
+		opts  []supervisor.Option
+	)
+	if sock := os.Getenv("VISOR_LIVE_SOCKET"); sock != "" {
+		tr, where = supervisor.UnixTransport{Path: sock}, sock
+	} else {
+		d, err := config.Discover(config.DefaultPaths)
+		if err != nil {
+			t.Fatalf("%v; set VISOR_LIVE_SOCKET", err)
 		}
-		if _, err := os.Stat(p); err == nil {
-			sock = p
+		if d.Transport == nil {
+			t.Fatalf("%s defines no socket or port; set VISOR_LIVE_SOCKET", d.ConfigPath)
 		}
-	}
-	if sock == "" {
-		t.Fatalf("no supervisord socket found in %v; set VISOR_LIVE_SOCKET", liveSockets)
+		tr, where = d.Transport, d.ConfigPath
+		if d.Username != "" {
+			opts = append(opts, supervisor.WithBasicAuth(d.Username, d.Password))
+		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	c := supervisor.New(supervisor.UnixTransport{Path: sock})
+	c := supervisor.New(tr, opts...)
 
 	v, err := c.GetSupervisorVersion(ctx)
 	if err != nil {
-		t.Fatalf("%s: %v", sock, err)
+		t.Fatalf("%s: %v", where, err)
 	}
 	st, err := c.GetState(ctx)
 	if err != nil {
@@ -57,5 +63,5 @@ func TestLiveReadOnly(t *testing.T) {
 	for _, p := range procs {
 		byState[p.State.String()]++
 	}
-	t.Logf("%s: supervisord %s, %s, %d methods, %d processes %v", sock, v, st.Name, len(methods), len(procs), byState)
+	t.Logf("%s: supervisord %s, %s, %d methods, %d processes %v", where, v, st.Name, len(methods), len(procs), byState)
 }
