@@ -3,9 +3,11 @@
 
 import * as IssueService from "./issueservice.js";
 import * as ServerService from "./serverservice.js";
+import * as ShellService from "./shellservice.js";
 export {
     IssueService,
-    ServerService
+    ServerService,
+    ShellService
 };
 
 export type {

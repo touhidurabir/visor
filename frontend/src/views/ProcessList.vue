@@ -1,32 +1,9 @@
 <script setup lang="ts">
 // Temporary dashboard: configs with their processes, kept live by the
 // visor:overview event. Task 15 replaces it with the designed dashboard.
-import { onMounted, onUnmounted, ref } from 'vue'
-import { Events } from '@wailsio/runtime'
-import { ServerService, type OverviewView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
-import { VisorOverview } from '../../bindings/events'
+import { useOverview } from '../lib/overview'
 
-const overview = ref<OverviewView | null>(null)
-const loadError = ref('')
-
-async function load() {
-  try {
-    overview.value = await ServerService.Overview()
-    loadError.value = ''
-  } catch (e) {
-    loadError.value = e instanceof Error ? e.message : String(e)
-  }
-}
-
-let stop: (() => void) | undefined
-onMounted(() => {
-  stop = Events.On(VisorOverview, (ev) => {
-    overview.value = ev.data
-    loadError.value = ''
-  })
-  void load()
-})
-onUnmounted(() => stop?.())
+const { overview, error: loadError, reload: load } = useOverview()
 </script>
 
 <template>

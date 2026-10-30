@@ -71,13 +71,16 @@ type ConfigView struct {
 // Unix milliseconds, 0 when supervisord reports none. Since is "up 6d 3h",
 // "failing 2h 12m" or "stopped 5d" ("" when it does not apply); Detail is
 // the spawn error, exit status or crash note; Program is the [program:x]
-// name ("" when no file defines it).
+// name ("" when no file defines it). Status is "running", "failing" (FATAL,
+// BACKOFF, or EXITED with an unexpected status), "stopped" (STOPPED, or
+// EXITED as expected) or "other" (STARTING, STOPPING, UNKNOWN).
 type ProcessView struct {
 	Name        string
 	Group       string
 	FullName    string
 	Program     string
 	State       string
+	Status      string
 	Description string
 	SpawnErr    string
 	PID         int
@@ -226,6 +229,7 @@ func buildOverview(in overviewInput) OverviewView {
 
 		ov.Stats.Processes++
 		classes[v.FullName] = classify(p.State, expected)
+		v.Status = classes[v.FullName].String()
 		switch classes[v.FullName] {
 		case classRunning:
 			ov.Stats.Running++
@@ -279,6 +283,18 @@ const (
 	classFailing
 	classStopped
 )
+
+func (c class) String() string {
+	switch c {
+	case classRunning:
+		return "running"
+	case classFailing:
+		return "failing"
+	case classStopped:
+		return "stopped"
+	}
+	return "other"
+}
 
 func classify(st supervisor.ProcessState, expectedExit bool) class {
 	switch st {

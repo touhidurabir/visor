@@ -52,7 +52,9 @@ export interface OverviewView {
  * Unix milliseconds, 0 when supervisord reports none. Since is "up 6d 3h",
  * "failing 2h 12m" or "stopped 5d" ("" when it does not apply); Detail is
  * the spawn error, exit status or crash note; Program is the [program:x]
- * name ("" when no file defines it).
+ * name ("" when no file defines it). Status is "running", "failing" (FATAL,
+ * BACKOFF, or EXITED with an unexpected status), "stopped" (STOPPED, or
+ * EXITED as expected) or "other" (STARTING, STOPPING, UNKNOWN).
  */
 export interface ProcessView {
     "Name": string;
@@ -60,6 +62,7 @@ export interface ProcessView {
     "FullName": string;
     "Program": string;
     "State": string;
+    "Status": string;
     "Description": string;
     "SpawnErr": string;
     "PID": number;
