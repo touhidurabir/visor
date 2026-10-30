@@ -31,6 +31,7 @@ type Tracker struct {
 	runningSince map[string]time.Time   // process -> when it was first seen RUNNING
 	restarts     map[string][]time.Time // process -> restart times inside the window
 	failedPolls  int
+	seq          int
 }
 
 // NewTracker loads the issues that are still open in s. expectedExit lists
@@ -105,6 +106,8 @@ func (t *Tracker) Apply(u monitor.Update) (opened, closed []Issue) {
 	// Reachability.
 	if u.Snapshot.Reachable {
 		t.failedPolls = 0
+		// First contact after starting unreachable emits no Reconnected.
+		closed = append(closed, t.closeWhere(func(i *Issue) bool { return i.Kind == KindUnreachable }, StatusResolvedAuto, now)...)
 	} else if !u.Snapshot.At.IsZero() {
 		t.failedPolls++
 		if t.failedPolls >= t.rules.UnreachablePolls {
@@ -195,6 +198,13 @@ func (t *Tracker) expected(proc string, status int) bool {
 
 func exitMessage(status int) string { return fmt.Sprintf("Exited with status %d", status) }
 
+// newID is unique within a tracker even when several issues open at one
+// instant: time in base36, kind, a counter and the process.
+func (t *Tracker) newID(k Kind, proc string, now time.Time) string {
+	t.seq++
+	return fmt.Sprintf("%s-%s-%d-%s", strconv.FormatInt(now.UnixNano(), 36), k, t.seq, proc)
+}
+
 func (t *Tracker) hasOpen(proc string, k Kind) bool {
 	for _, i := range t.open {
 		if i.Process == proc && i.Kind == k {
@@ -210,7 +220,7 @@ func (t *Tracker) openIssue(k Kind, proc, msg string, now time.Time) []Issue {
 		return nil
 	}
 	is := Issue{
-		ID:       strconv.FormatInt(now.UnixNano(), 36) + "-" + proc,
+		ID:       t.newID(k, proc, now),
 		Kind:     k,
 		Process:  proc,
 		Message:  msg,

@@ -374,3 +374,62 @@ func TestStoreFilterAndPaging(t *testing.T) {
 		}
 	}
 }
+
+func openUnreachable(t *testing.T, tr *Tracker, c *clock) {
+	t.Helper()
+	down := monitor.Update{Snapshot: monitor.Snapshot{At: c.now(), Err: supervisor.ErrUnreachable}}
+	tr.Apply(down)
+	c.advance(2 * time.Second)
+	if opened, _ := tr.Apply(down); len(opened) != 1 {
+		t.Fatalf("unreachable not opened: %+v", opened)
+	}
+}
+
+func firstContact(c *clock) monitor.Update {
+	pi := info(supervisor.StateRunning)
+	u := steady(c.now(), pi)
+	u.Events = []monitor.Event{{Kind: monitor.Added, At: c.now(), Process: "g:w", To: supervisor.StateRunning, Info: pi}}
+	return u
+}
+
+func TestUnreachableResolvesWithoutReconnectedEvent(t *testing.T) {
+	tr, _, c := newTracker(t, nil)
+	openUnreachable(t, tr, c)
+	c.advance(2 * time.Second)
+	_, closed := tr.Apply(firstContact(c))
+	if len(closed) != 1 || closed[0].Kind != KindUnreachable || closed[0].Status != StatusResolvedAuto || len(tr.Open()) != 0 {
+		t.Fatalf("closed = %+v, open = %+v", closed, tr.Open())
+	}
+}
+
+func TestReloadedUnreachableResolvesOnFirstContact(t *testing.T) {
+	tr, s, c := newTracker(t, nil)
+	openUnreachable(t, tr, c)
+	tr2 := NewTracker(s, DefaultRules, nil, nil, c.now)
+	if len(tr2.Open()) != 1 {
+		t.Fatal("not reloaded")
+	}
+	c.advance(time.Second)
+	if _, closed := tr2.Apply(firstContact(c)); len(closed) != 1 || len(tr2.Open()) != 0 {
+		t.Fatalf("closed = %+v", closed)
+	}
+	if open, _ := s.Issues(Filter{Status: "open"}); len(open) != 0 {
+		t.Fatalf("store still open: %+v", open)
+	}
+}
+
+func TestSimultaneousIssuesHaveDistinctIDs(t *testing.T) {
+	tr, s, c := newTracker(t, nil)
+	for i := 0; i < 4; i++ {
+		tr.Apply(restartEvent(c.now(), supervisor.StateRunning, 0))
+		c.advance(time.Second)
+	}
+	opened, _ := tr.Apply(restartEvent(c.now(), supervisor.StateRunning, 3))
+	if len(opened) != 2 || opened[0].ID == opened[1].ID {
+		t.Fatalf("opened = %+v", opened)
+	}
+	stored, _ := s.Issues(Filter{Status: "open"})
+	if len(tr.Open()) != 2 || len(stored) != 2 {
+		t.Fatalf("open %d, stored %d", len(tr.Open()), len(stored))
+	}
+}
