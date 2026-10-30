@@ -331,6 +331,28 @@ func TestRunTwicePanics(t *testing.T) {
 	m.Run(ctx)
 }
 
+// Starting unreachable and then reaching supervisord is a first contact,
+// not a reconnect: Unreachable, then only Added.
+func TestMonitorFirstContactIsNotReconnected(t *testing.T) {
+	src := &fakeSource{procs: func(n int) ([]supervisor.ProcessInfo, error) {
+		if n == 1 {
+			return nil, supervisor.ErrUnreachable
+		}
+		return []supervisor.ProcessInfo{proc("a", supervisor.StateRunning)}, nil
+	}}
+	m := New(src, time.Hour)
+	ch, unsub := m.Subscribe()
+	defer unsub()
+	start(t, m)
+	if got := kinds(recv(t, ch, 5*time.Second).Events); len(got) != 1 || got[0] != Unreachable {
+		t.Fatalf("first poll kinds = %v, want [Unreachable]", got)
+	}
+	m.Poke()
+	if got := kinds(recv(t, ch, 5*time.Second).Events); len(got) != 1 || got[0] != Added {
+		t.Errorf("first contact kinds = %v, want [Added]", got)
+	}
+}
+
 // lingerer takes about a second to stop after SIGTERM. supervisor.restart
 // runs in-process: while supervisord stops its programs every RPC fails with
 // SHUTDOWN_STATE, then it reopens its socket. With only quick programs that
@@ -341,10 +363,23 @@ var lingerer = supervisortest.Program{
 	Command: `sh -c 'trap "sleep 1; exit 0" TERM; while :; do sleep 0.1; done'`,
 }
 
-// Review Focus 2: supervisord restarting under the monitor shows up as
-// Unreachable then Reconnected, with fresh state afterwards.
+// Review Focus 2: supervisord restarting under the monitor shows up with
+// fresh state afterwards, whether or not a poll lands in the outage.
 func TestMonitorSurvivesDaemonRestart(t *testing.T) {
 	t.Parallel()
+	t.Run("outage seen", func(t *testing.T) {
+		t.Parallel()
+		restartWithOutage(t)
+	})
+	t.Run("between polls", func(t *testing.T) {
+		t.Parallel()
+		restartBetweenPolls(t)
+	})
+}
+
+// A slow-stopping program makes the outage visible: Unreachable, then
+// Reconnected, then the sleeper running with a new pid.
+func restartWithOutage(t *testing.T) {
 	i := supervisortest.Start(t, supervisortest.Sleeper, lingerer)
 	before := i.WaitFor(t, "sleeper", supervisor.StateRunning)
 	i.WaitFor(t, "lingerer", supervisor.StateRunning)
@@ -394,5 +429,47 @@ func TestMonitorSurvivesDaemonRestart(t *testing.T) {
 			t.Logf("outage error: %v", downErr)
 			return
 		}
+	}
+}
+
+// A restart that completes between two polls shows no outage and no state
+// change, only a new pid: the monitor reports it as Restarted. Polling is
+// on Poke only, so the test controls exactly when the polls happen.
+func restartBetweenPolls(t *testing.T) {
+	i := supervisortest.Start(t, supervisortest.Sleeper)
+	before := i.WaitFor(t, "sleeper", supervisor.StateRunning)
+
+	m := New(i.Client(), time.Hour)
+	ch, unsub := m.Subscribe()
+	defer unsub()
+	start(t, m)
+	if p, ok := find(recv(t, ch, 15*time.Second).Snapshot, "sleeper:sleeper"); !ok || p.PID != before.PID {
+		t.Fatalf("first poll: sleeper = %+v, want pid %d", p, before.PID)
+	}
+
+	ctx := context.Background()
+	if err := i.Client().Restart(ctx); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		p, err := i.Client().GetProcessInfo(ctx, "sleeper")
+		if err == nil && p.State == supervisor.StateRunning && p.PID != before.PID {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("sleeper not running again with a new pid: %+v, %v", p, err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	m.Poke()
+	u := recv(t, ch, 15*time.Second)
+	if !u.Snapshot.Reachable || len(u.Events) != 1 {
+		t.Fatalf("after restart: reachable=%v events=%+v, want one Restarted", u.Snapshot.Reachable, u.Events)
+	}
+	e := u.Events[0]
+	if e.Kind != Restarted || e.Process != "sleeper:sleeper" || e.To != supervisor.StateRunning || e.Info.PID == before.PID {
+		t.Errorf("event = %+v, want sleeper Restarted with a new pid", e)
 	}
 }

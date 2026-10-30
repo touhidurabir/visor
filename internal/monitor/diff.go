@@ -34,6 +34,10 @@ const (
 	Unreachable
 	// Reconnected: supervisord answers again after being unreachable.
 	Reconnected
+	// Restarted: a process is in the same state as before but was started
+	// again (new pid or start time), e.g. a crash and autorestart, or a
+	// daemon restart, between two polls. From and To are that state.
+	Restarted
 )
 
 func (k EventKind) String() string {
@@ -48,6 +52,8 @@ func (k EventKind) String() string {
 		return "Unreachable"
 	case Reconnected:
 		return "Reconnected"
+	case Restarted:
+		return "Restarted"
 	}
 	return "EventKind(?)"
 }
@@ -73,9 +79,13 @@ type Event struct {
 //   - The zero prev (no poll yet) counts as reachable with no processes:
 //     the first poll yields Added for every process, or Unreachable.
 //
-// Only state transitions count as changes; a new pid or description in
-// the same state is not an event. Events follow next's process order, with
-// removals last.
+// A process in the same state with a different pid or start time is
+// Restarted; any other change in the same state (description, uptime) is
+// not an event. Events follow next's process order, with removals last.
+//
+// Diff is pure, so it cannot tell a first contact from a reconnect when
+// prev is a non-zero unreachable snapshot; callers that have never reached
+// supervisord pass the zero Snapshot as prev (Monitor.Run does).
 func Diff(prev, next Snapshot) []Event {
 	first := prev.At.IsZero()
 	if !next.Reachable {
@@ -103,6 +113,8 @@ func Diff(prev, next Snapshot) []Event {
 			evs = append(evs, Event{Kind: Added, At: next.At, Process: name, To: p.State, Info: p})
 		case was.State != p.State:
 			evs = append(evs, Event{Kind: StateChanged, At: next.At, Process: name, From: was.State, To: p.State, Info: p})
+		case was.PID != p.PID || !was.Start.Equal(p.Start):
+			evs = append(evs, Event{Kind: Restarted, At: next.At, Process: name, From: was.State, To: p.State, Info: p})
 		}
 	}
 	for _, p := range prev.Processes {

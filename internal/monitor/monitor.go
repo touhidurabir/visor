@@ -72,23 +72,30 @@ func (m *Monitor) Run(ctx context.Context) {
 	ticker := time.NewTicker(m.interval)
 	defer ticker.Stop()
 	var (
-		prev  Snapshot                 // last published snapshot
-		known []supervisor.ProcessInfo // processes from the last reachable poll
+		prev    Snapshot                 // last published snapshot
+		known   []supervisor.ProcessInfo // processes from the last reachable poll
+		reached bool                     // some poll has reached supervisord
 	)
 	for {
 		next := m.poll(ctx)
 		if ctx.Err() != nil {
 			return // the poll was cut short by our own cancellation
 		}
-		// Diff across an outage against the processes seen before it, so a
-		// reconnect reports what changed instead of re-adding everything.
 		base := prev
-		if !base.Reachable {
+		switch {
+		case !base.Reachable && !reached && next.Reachable:
+			// First contact after starting unreachable is not a reconnect:
+			// diff against "no poll yet", which yields only Added.
+			base = Snapshot{}
+		case !base.Reachable:
+			// Diff across an outage against the processes seen before it,
+			// so a reconnect reports what changed instead of re-adding
+			// everything.
 			base.Processes = known
 		}
 		events := Diff(base, next)
 		if next.Reachable {
-			known = next.Processes
+			known, reached = next.Processes, true
 		}
 		prev = next
 		m.publish(Update{Snapshot: next, Events: events})
@@ -174,7 +181,7 @@ func (m *Monitor) Latest() Update {
 func (m *Monitor) publish(u Update) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.latest = u
+	m.latest = u // shares Processes' backing array with Run's prev and known: never mutate it in place
 	for ch := range m.subs {
 		out := u.clone()
 		select {

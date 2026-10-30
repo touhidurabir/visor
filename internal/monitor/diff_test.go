@@ -121,10 +121,10 @@ func TestDiffReconnectedReportsChanges(t *testing.T) {
 
 func TestDiffIgnoresUnchanged(t *testing.T) {
 	a := proc("a", supervisor.StateRunning)
-	a.PID = 10
+	a.PID, a.Start = 10, t0
 	b := a
-	b.PID = 11 // only details changed, not the state
-	b.Description = "pid 11, uptime 0:00:05"
+	b.Description = "pid 10, uptime 0:00:05" // only details changed
+	b.Now = t0.Add(5 * time.Second)
 	if evs := Diff(up(0, a), up(time.Second, b)); len(evs) != 0 {
 		t.Errorf("events = %+v, want none", evs)
 	}
@@ -135,5 +135,48 @@ func TestDiffIgnoresUnchanged(t *testing.T) {
 	errB.Err = errors.New("a different error")
 	if evs := Diff(errA, errB); len(evs) != 0 {
 		t.Errorf("still down with another error: events = %+v, want none", evs)
+	}
+}
+
+func TestDiffRestartedSameState(t *testing.T) {
+	a := proc("a", supervisor.StateRunning)
+	a.PID, a.Start = 10, t0
+	b := a
+	b.PID, b.Start = 11, t0.Add(time.Minute) // crashed and autorestarted between polls
+	evs := Diff(up(0, a), up(time.Second, b))
+	if len(evs) != 1 {
+		t.Fatalf("events = %+v, want one Restarted", evs)
+	}
+	e := evs[0]
+	if e.Kind != Restarted || e.Process != "a:a" || e.From != supervisor.StateRunning ||
+		e.To != supervisor.StateRunning || e.Info.PID != 11 || !e.Info.Start.Equal(b.Start) {
+		t.Errorf("event = %+v", e)
+	}
+
+	// A new start time alone counts too: an EXITED job that ran again.
+	j := exited("job", 0)
+	j.Start = t0
+	k := j
+	k.Start = t0.Add(time.Minute)
+	if got := kinds(Diff(up(0, j), up(time.Second, k))); len(got) != 1 || got[0] != Restarted {
+		t.Errorf("EXITED with new start: kinds = %v, want [Restarted]", got)
+	}
+}
+
+func TestDiffNoRestartWhenUnchanged(t *testing.T) {
+	a := proc("a", supervisor.StateRunning)
+	a.PID, a.Start = 10, t0
+	if evs := Diff(up(0, a), up(time.Second, a)); len(evs) != 0 {
+		t.Errorf("same pid and start: events = %+v, want none", evs)
+	}
+	never := proc("idle", supervisor.StateStopped) // pid 0, zero start: never started
+	if evs := Diff(up(0, never), up(time.Second, never)); len(evs) != 0 {
+		t.Errorf("never started: events = %+v, want none", evs)
+	}
+	// A state change that also has a new pid is only a StateChanged.
+	b := a
+	b.State, b.PID, b.Start = supervisor.StateStarting, 11, t0.Add(time.Minute)
+	if got := kinds(Diff(up(0, a), up(time.Second, b))); len(got) != 1 || got[0] != StateChanged {
+		t.Errorf("state change with new pid: kinds = %v, want [StateChanged]", got)
 	}
 }
