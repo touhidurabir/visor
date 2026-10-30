@@ -1,0 +1,119 @@
+package config
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/touhidurabir/visor/internal/supervisor"
+)
+
+// Discovery is what Visor needs from a supervisord.conf to connect and to
+// find program configs.
+type Discovery struct {
+	ConfigPath         string
+	Transport          supervisor.Transport // nil if the config defines no socket or port
+	Username, Password string
+	IncludeGlobs       []string // absolute
+	PidFile            string   // [supervisord] pidfile=, absolute; "" if unset
+}
+
+// DefaultPaths are the usual supervisord.conf locations, in search order.
+var DefaultPaths = []string{
+	"/opt/homebrew/etc/supervisord.conf",
+	"/usr/local/etc/supervisord.conf",
+	"/etc/supervisord.conf",
+	"/etc/supervisor/supervisord.conf",
+}
+
+// ErrNoConfig means none of the candidate paths could be read.
+var ErrNoConfig = errors.New("no supervisord config found")
+
+// Discover reads the first readable path in paths. A file that exists but
+// doesn't parse is an error, not a reason to try the next path.
+func Discover(paths []string) (Discovery, error) {
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		return fromConfig(p, string(data))
+	}
+	return Discovery{}, fmt.Errorf("%w (looked in %s)", ErrNoConfig, strings.Join(paths, ", "))
+}
+
+// Resolve is Discover for a user-chosen path: a non-empty override is the
+// only path tried; otherwise DefaultPaths are searched.
+func Resolve(override string) (Discovery, error) {
+	if override != "" {
+		return Discover([]string{override})
+	}
+	return Discover(DefaultPaths)
+}
+
+func fromConfig(path, src string) (Discovery, error) {
+	f, err := ParseINI(strings.NewReader(src), path)
+	if err != nil {
+		return Discovery{}, err
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return Discovery{}, err
+	}
+	here := filepath.Dir(abs)
+	vars := map[string]string{"here": here}
+	get := func(section, key string) string {
+		s, ok := f.Section(section)
+		if !ok {
+			return ""
+		}
+		v, _ := s.Get(key)
+		return Expand(v, vars)
+	}
+	absolute := func(p string) string {
+		if filepath.IsAbs(p) {
+			return filepath.Clean(p)
+		}
+		return filepath.Join(here, p)
+	}
+
+	d := Discovery{
+		ConfigPath: path,
+		Username:   get("supervisorctl", "username"),
+		Password:   get("supervisorctl", "password"),
+	}
+	if p := get("supervisord", "pidfile"); p != "" {
+		d.PidFile = absolute(p)
+	}
+	for _, g := range strings.Fields(get("include", "files")) {
+		d.IncludeGlobs = append(d.IncludeGlobs, absolute(g))
+	}
+
+	switch url := get("supervisorctl", "serverurl"); {
+	case strings.HasPrefix(url, "unix://"):
+		d.Transport = supervisor.UnixTransport{Path: absolute(strings.TrimPrefix(url, "unix://"))}
+	case strings.HasPrefix(url, "http://"):
+		d.Transport = supervisor.TCPTransport{Addr: strings.TrimSuffix(strings.TrimPrefix(url, "http://"), "/")}
+	case get("unix_http_server", "file") != "":
+		d.Transport = supervisor.UnixTransport{Path: absolute(get("unix_http_server", "file"))}
+	case get("inet_http_server", "port") != "":
+		d.Transport = supervisor.TCPTransport{Addr: inetAddr(get("inet_http_server", "port"))}
+	}
+	return d, nil
+}
+
+// inetAddr turns an inet_http_server port value (":9001", "*:9001", "9001",
+// "host:9001") into a dialable address; a missing or wildcard host means
+// loopback.
+func inetAddr(port string) string {
+	host, p, found := strings.Cut(port, ":")
+	if !found {
+		host, p = "", port
+	}
+	if host == "" || host == "*" {
+		host = "127.0.0.1"
+	}
+	return host + ":" + p
+}

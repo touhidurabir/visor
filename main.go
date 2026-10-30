@@ -3,8 +3,11 @@ package main
 import (
 	"embed"
 	"log"
+	"os"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+
+	"github.com/touhidurabir/visor/internal/app"
 )
 
 // The built frontend (frontend/dist) is embedded into the binary.
@@ -13,9 +16,13 @@ import (
 var assets embed.FS
 
 func main() {
-	app := application.New(application.Options{
+	wails := application.New(application.Options{
 		Name:        "Visor",
 		Description: "A macOS menu-bar app for managing supervisord",
+		Services: []application.Service{
+			// VISOR_CONFIG is set by `task dev` to point at the sandbox.
+			application.NewService(app.NewServerService(os.Getenv("VISOR_CONFIG"))),
+		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
@@ -24,7 +31,7 @@ func main() {
 		},
 	})
 
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
+	wails.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "Visor",
 		Width:  1000,
 		Height: 640,
@@ -36,7 +43,7 @@ func main() {
 		URL: "/",
 	})
 
-	if err := app.Run(); err != nil {
+	if err := wails.Run(); err != nil {
 		log.Fatal(err)
 	}
 }
