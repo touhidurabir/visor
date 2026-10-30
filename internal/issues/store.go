@@ -1,0 +1,239 @@
+package issues
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+)
+
+const (
+	issuesFile  = "issues.jsonl"
+	historyFile = "history.jsonl"
+)
+
+// Filter selects issues. Status is "open", "resolved" (anything closed) or
+// "all" (also the empty string). Before keeps issues opened before that time
+// (a paging cursor); zero means no limit. Limit 0 means no limit. Query is a
+// case-insensitive substring of the process, kind or message.
+type Filter struct {
+	Status string
+	Before time.Time
+	Limit  int
+	Query  string
+}
+
+// Store keeps issues and history as append-only JSONL files in one directory.
+// An issue status change appends a new record with the same ID; readers keep
+// the last record per ID.
+type Store struct {
+	dir string
+	mu  sync.Mutex
+}
+
+// OpenStore creates dir (mode 0700) if needed and compacts it: issues closed,
+// and history recorded, longer ago than retention are dropped. Open issues
+// are always kept.
+func OpenStore(dir string, retention time.Duration) (*Store, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("create issues dir: %w", err)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("secure issues dir: %w", err)
+	}
+	s := &Store{dir: dir}
+	if err := s.compact(time.Now().Add(-retention)); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+func (s *Store) path(name string) string { return filepath.Join(s.dir, name) }
+
+// Issues returns the matching issues, newest opened first.
+func (s *Store) Issues(f Filter) ([]Issue, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	all, err := s.readIssues()
+	if err != nil {
+		return nil, err
+	}
+	q := strings.ToLower(f.Query)
+	var out []Issue
+	for _, is := range all {
+		switch f.Status {
+		case "open":
+			if is.Status != StatusOpen {
+				continue
+			}
+		case "resolved":
+			if is.Status == StatusOpen {
+				continue
+			}
+		}
+		if !f.Before.IsZero() && !is.OpenedAt.Before(f.Before) {
+			continue
+		}
+		if q != "" && !strings.Contains(strings.ToLower(is.Process+" "+string(is.Kind)+" "+is.Message), q) {
+			continue
+		}
+		out = append(out, is)
+		if f.Limit > 0 && len(out) >= f.Limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+// History returns state transitions, newest first. An empty process means
+// every process. A limit of 0 or less means no limit.
+func (s *Store) History(process string, limit int) ([]Transition, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	all, err := readJSONL[Transition](s.path(historyFile))
+	if err != nil {
+		return nil, err
+	}
+	var out []Transition
+	for i := len(all) - 1; i >= 0; i-- {
+		if process != "" && all[i].Process != process {
+			continue
+		}
+		out = append(out, all[i])
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) putIssue(is Issue) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return appendJSONL(s.path(issuesFile), is)
+}
+
+func (s *Store) addTransitions(ts []Transition) error {
+	if len(ts) == 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, t := range ts {
+		if err := appendJSONL(s.path(historyFile), t); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// readIssues folds the log to the last record per ID, newest opened first.
+func (s *Store) readIssues() ([]Issue, error) {
+	recs, err := readJSONL[Issue](s.path(issuesFile))
+	if err != nil {
+		return nil, err
+	}
+	idx := map[string]int{}
+	var out []Issue
+	for _, r := range recs {
+		if i, ok := idx[r.ID]; ok {
+			out[i] = r
+			continue
+		}
+		idx[r.ID] = len(out)
+		out = append(out, r)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].OpenedAt.After(out[j].OpenedAt) })
+	return out, nil
+}
+
+func (s *Store) compact(cutoff time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	all, err := s.readIssues()
+	if err != nil {
+		return err
+	}
+	var keep []Issue
+	for i := len(all) - 1; i >= 0; i-- { // oldest first, like the log
+		if is := all[i]; is.Status == StatusOpen || !is.ClosedAt.Before(cutoff) {
+			keep = append(keep, is)
+		}
+	}
+	if err := rewriteJSONL(s.path(issuesFile), keep); err != nil {
+		return err
+	}
+	hist, err := readJSONL[Transition](s.path(historyFile))
+	if err != nil {
+		return err
+	}
+	var hkeep []Transition
+	for _, t := range hist {
+		if !t.At.Before(cutoff) {
+			hkeep = append(hkeep, t)
+		}
+	}
+	return rewriteJSONL(s.path(historyFile), hkeep)
+}
+
+func appendJSONL(path string, v any) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(append(b, '\n')); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+func rewriteJSONL[T any](path string, recs []T) error {
+	var buf bytes.Buffer
+	for _, r := range recs {
+		b, err := json.Marshal(r)
+		if err != nil {
+			return err
+		}
+		buf.Write(b)
+		buf.WriteByte('\n')
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, buf.Bytes(), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// readJSONL reads every record; a missing file is empty and a line that does
+// not parse (e.g. torn by a crash) is skipped.
+func readJSONL[T any](path string) ([]T, error) {
+	f, err := os.Open(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	var out []T
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	for sc.Scan() {
+		var v T
+		if json.Unmarshal(sc.Bytes(), &v) == nil {
+			out = append(out, v)
+		}
+	}
+	return out, sc.Err()
+}
