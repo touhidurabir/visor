@@ -200,8 +200,16 @@ func (c *Client) tail(ctx context.Context, m, name string, offset, length int) (
 	return TailResult{Bytes: bytes, Offset: off, Overflow: overflow}, nil
 }
 
-// TailProcessStdoutLog reads up to length bytes of a process's stdout log
-// starting at offset.
+// TailProcessStdoutLog returns the end of a process's stdout log. offset is
+// how far the caller has already read:
+//   - If the log has not grown past offset, Bytes is empty.
+//   - Otherwise Bytes is the last min(length, log size) bytes of the log,
+//     which may overlap data the caller already has. The chunk covers
+//     [Offset-len(Bytes), Offset), and the result's Offset is the log size.
+//   - Overflow means more than length bytes were written since offset, so
+//     some output was skipped.
+//   - A result Offset below the caller's offset means the log was
+//     truncated or rotated.
 func (c *Client) TailProcessStdoutLog(ctx context.Context, name string, offset, length int) (TailResult, error) {
 	return c.tail(ctx, "supervisor.tailProcessStdoutLog", name, offset, length)
 }
