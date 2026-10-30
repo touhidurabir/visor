@@ -166,9 +166,19 @@ func (inv Inventory) FileForGroup(group string) (string, bool) {
 // ExpectedExit returns the exit codes the program behind fullName
 // ("group:process") treats as expected; [0] if it cannot be found.
 func (inv Inventory) ExpectedExit(fullName string) []int {
-	group, proc, ok := strings.Cut(fullName, ":")
-	if !ok {
-		return []int{0}
+	if _, p, ok := inv.Lookup(fullName); ok {
+		return p.ExitCodes
+	}
+	return []int{0}
+}
+
+// Lookup finds the program behind a process full name ("group:process")
+// and the file that defines it, expanding each program's process_name for
+// every process number in its numprocs range.
+func (inv Inventory) Lookup(fullName string) (path string, prog Program, ok bool) {
+	group, proc, found := strings.Cut(fullName, ":")
+	if !found {
+		return "", Program{}, false
 	}
 	for _, f := range inv.Files {
 		here := filepath.Dir(f.Path)
@@ -190,10 +200,10 @@ func (inv Inventory) ExpectedExit(fullName string) []int {
 					"here":         here,
 				})
 				if got == proc {
-					return p.ExitCodes
+					return f.Path, p, true
 				}
 			}
 		}
 	}
-	return []int{0}
+	return "", Program{}, false
 }

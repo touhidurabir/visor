@@ -16,12 +16,24 @@ import (
 var assets embed.FS
 
 func main() {
+	stateDir, err := app.StateDir()
+	if err != nil {
+		log.Fatal(err)
+	}
+	rt := app.NewRuntime(app.RuntimeOptions{
+		// VISOR_CONFIG and VISOR_STATE_DIR are set by `task dev` to point
+		// at the sandbox.
+		ConfigPath: os.Getenv("VISOR_CONFIG"),
+		StateDir:   stateDir,
+		Emit:       app.WailsEmit,
+	})
 	wails := application.New(application.Options{
 		Name:        "Visor",
 		Description: "A macOS menu-bar app for managing supervisord",
 		Services: []application.Service{
-			// VISOR_CONFIG is set by `task dev` to point at the sandbox.
-			application.NewService(app.NewServerService(os.Getenv("VISOR_CONFIG"))),
+			// ServerService starts and stops rt with the app.
+			application.NewService(app.NewServerService(rt)),
+			application.NewService(app.NewIssueService(rt)),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

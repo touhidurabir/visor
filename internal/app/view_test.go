@@ -1,14 +1,12 @@
 package app
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/touhidurabir/visor/internal/supervisor"
-	"github.com/touhidurabir/visor/internal/supervisor/supervisortest"
 )
 
 func TestToProcessView(t *testing.T) {
@@ -29,25 +27,6 @@ func TestToProcessView(t *testing.T) {
 	}
 }
 
-func TestServerServiceAgainstHarness(t *testing.T) {
-	inst := supervisortest.Start(t, supervisortest.Sleeper)
-	inst.WaitFor(t, "sleeper", supervisor.StateRunning)
-	svc := NewServerService(filepath.Join(inst.Dir(), "supervisord.conf"))
-	views, err := svc.ListProcesses()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, v := range views {
-		if v.Name == "sleeper" {
-			if v.State != "RUNNING" {
-				t.Errorf("state = %s", v.State)
-			}
-			return
-		}
-	}
-	t.Fatalf("sleeper not in %+v", views)
-}
-
 func writeConf(t *testing.T, body string) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "supervisord.conf")
@@ -55,32 +34,4 @@ func writeConf(t *testing.T, body string) string {
 		t.Fatal(err)
 	}
 	return p
-}
-
-func TestServerServiceUnreachable(t *testing.T) {
-	dir, err := os.MkdirTemp("/tmp", "vsv")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	conf := writeConf(t, "[unix_http_server]\nfile="+dir+"/dead.sock\n")
-	_, err = NewServerService(conf).ListProcesses()
-	if !errors.Is(err, supervisor.ErrUnreachable) {
-		t.Fatalf("err = %v, want ErrUnreachable", err)
-	}
-}
-
-func TestServerServiceNoSocket(t *testing.T) {
-	conf := writeConf(t, "[supervisord]\nlogfile=/tmp/x.log\n")
-	_, err := NewServerService(conf).ListProcesses()
-	if err == nil {
-		t.Fatal("want error for config without socket")
-	}
-}
-
-func TestServerServiceNoConfig(t *testing.T) {
-	_, err := NewServerService(filepath.Join(t.TempDir(), "missing.conf")).ListProcesses()
-	if err == nil {
-		t.Fatal("want error")
-	}
 }

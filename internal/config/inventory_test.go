@@ -374,3 +374,32 @@ func TestWatcherConcurrentCheckAndMarkLoaded(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestInventoryLookup(t *testing.T) {
+	dir := t.TempDir()
+	workers := writeConf(t, dir, "w.conf", fixture(t, "workers.conf"))
+	writeConf(t, dir, "1.conf", "[program:a]\ncommand=true\n")
+	writeConf(t, dir, "2.conf", "[group:g]\nprograms = a\n")
+	one := filepath.Join(dir, "1.conf")
+	inv, err := LoadInventory(disc(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		full, path, program string
+		ok                  bool
+	}{
+		{"worker:worker_01", workers, "worker", true},
+		{"plain:plain", workers, "plain", true},
+		{"g:a", one, "a", true}, // program lives in 1.conf, its [group:g] in 2.conf
+		{"worker:worker_03", "", "", false},
+		{"a:a", "", "", false}, // a belongs to g, not to a group of its own
+		{"garbage", "", "", false},
+	}
+	for _, c := range cases {
+		path, prog, ok := inv.Lookup(c.full)
+		if ok != c.ok || path != c.path || prog.Name != c.program {
+			t.Errorf("Lookup(%q) = %q, %q, %v; want %q, %q, %v", c.full, path, prog.Name, ok, c.path, c.program, c.ok)
+		}
+	}
+}
