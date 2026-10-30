@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 )
 
 // ChangeSet lists include files (by path) whose on-disk state differs from
@@ -23,18 +24,32 @@ type Watcher struct {
 	stateDir string
 
 	mu     sync.Mutex
-	loaded map[string]string // path -> content
-	known  map[string]bool   // paths seen by an earlier Check; nil before the first
+	loaded map[string]snapshot // path -> what supervisord runs
+	known  map[string]bool     // paths seen by an earlier Check; nil before the first
 	added  map[string]bool
+}
+
+// snapshot is the content supervisord is believed to run, and when it was
+// recorded (compared with the pidfile mtime to spot daemon restarts).
+type snapshot struct {
+	Content string    `json:"content"`
+	At      time.Time `json:"at"`
+}
+
+// stateFile is the loaded.json format. Version 1 (a bare path -> content map)
+// is discarded on read; its files are then treated as seen for the first time.
+type stateFile struct {
+	Version int                 `json:"version"`
+	Files   map[string]snapshot `json:"files"`
 }
 
 // NewWatcher reads any snapshots persisted in stateDir/loaded.json.
 func NewWatcher(d Discovery, stateDir string) *Watcher {
-	w := &Watcher{d: d, stateDir: stateDir, loaded: map[string]string{}, added: map[string]bool{}}
+	w := &Watcher{d: d, stateDir: stateDir, loaded: map[string]snapshot{}, added: map[string]bool{}}
 	if b, err := os.ReadFile(filepath.Join(stateDir, "loaded.json")); err == nil {
-		var m map[string]string
-		if json.Unmarshal(b, &m) == nil && m != nil {
-			w.loaded = m
+		var sf stateFile
+		if json.Unmarshal(b, &sf) == nil && sf.Version == 2 && sf.Files != nil {
+			w.loaded = sf.Files
 		}
 	}
 	return w
@@ -61,9 +76,21 @@ func (w *Watcher) Check() (ChangeSet, error) {
 			continue
 		}
 		if snap, ok := w.loaded[p]; ok {
-			if snap != string(data) {
-				cs.Changed = append(cs.Changed, p)
+			if snap.Content == string(data) {
+				continue
 			}
+			// supervisord restarted since the snapshot: it re-read the
+			// files then, so a file untouched since the restart is loaded.
+			if pm, ok := w.mtime(w.d.PidFile); ok && pm.After(snap.At) {
+				if fm, ok := w.mtime(p); ok && !fm.After(pm) {
+					w.loaded[p] = snapshot{Content: string(data), At: time.Now()}
+					dirty = true
+				} else {
+					cs.Uncertain = append(cs.Uncertain, p)
+				}
+				continue
+			}
+			cs.Changed = append(cs.Changed, p)
 			continue
 		}
 		if w.added[p] || (w.known != nil && !w.known[p]) {
@@ -72,7 +99,7 @@ func (w *Watcher) Check() (ChangeSet, error) {
 			continue
 		}
 		if w.olderThanPid(p) {
-			w.loaded[p] = string(data)
+			w.loaded[p] = snapshot{Content: string(data), At: time.Now()}
 			dirty = true
 			continue
 		}
@@ -98,19 +125,24 @@ func (w *Watcher) Check() (ChangeSet, error) {
 	return cs, nil
 }
 
-func (w *Watcher) olderThanPid(path string) bool {
-	if w.d.PidFile == "" {
-		return false
-	}
-	pi, err := os.Stat(w.d.PidFile)
-	if err != nil {
-		return false
+func (w *Watcher) mtime(path string) (time.Time, bool) {
+	if path == "" {
+		return time.Time{}, false
 	}
 	fi, err := os.Stat(path)
 	if err != nil {
+		return time.Time{}, false
+	}
+	return fi.ModTime(), true
+}
+
+func (w *Watcher) olderThanPid(path string) bool {
+	pm, ok := w.mtime(w.d.PidFile)
+	if !ok {
 		return false
 	}
-	return !fi.ModTime().After(pi.ModTime())
+	fm, ok := w.mtime(path)
+	return ok && !fm.After(pm)
 }
 
 // MarkLoaded snapshots the current content of each path as what supervisord
@@ -122,7 +154,7 @@ func (w *Watcher) MarkLoaded(paths ...string) error {
 		data, err := os.ReadFile(p)
 		switch {
 		case err == nil:
-			w.loaded[p] = string(data)
+			w.loaded[p] = snapshot{Content: string(data), At: time.Now()}
 			delete(w.added, p)
 		case errors.Is(err, os.ErrNotExist):
 			delete(w.loaded, p)
@@ -142,7 +174,7 @@ func (w *Watcher) Loaded(path string) ([]byte, bool) {
 	if !ok {
 		return nil, false
 	}
-	return []byte(s), true
+	return []byte(s.Content), true
 }
 
 // persist writes loaded.json atomically (temp file + rename).
@@ -150,7 +182,7 @@ func (w *Watcher) persist() error {
 	if err := os.MkdirAll(w.stateDir, 0o700); err != nil {
 		return err
 	}
-	b, err := json.Marshal(w.loaded)
+	b, err := json.Marshal(stateFile{Version: 2, Files: w.loaded})
 	if err != nil {
 		return err
 	}

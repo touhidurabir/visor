@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 )
@@ -165,7 +166,7 @@ func TestWatcherFirstSightOlderThanPid(t *testing.T) {
 	now := time.Now()
 	chtimes(t, d.PidFile, now)
 	f := writeConf(t, dir, "a.conf", "[program:a]\ncommand=true\n")
-	chtimes(t, f, now.Add(-time.Hour))
+	chtimes(t, f, now.Add(-2*time.Hour))
 	w := NewWatcher(d, state)
 	cs, err := w.Check()
 	if err != nil {
@@ -292,4 +293,84 @@ func mustReadDir(t *testing.T, dir string) []string {
 		out = append(out, e.Name())
 	}
 	return out
+}
+
+func TestWatcherRefreshesAfterDaemonRestart(t *testing.T) {
+	dir, state, d := newWatchFixture(t)
+	now := time.Now()
+	chtimes(t, d.PidFile, now.Add(-time.Hour))
+	f := writeConf(t, dir, "a.conf", "v1")
+	chtimes(t, f, now.Add(-2*time.Hour))
+	w := NewWatcher(d, state)
+	if cs, _ := w.Check(); len(cs.Changed)+len(cs.Uncertain) != 0 {
+		t.Fatalf("cs = %+v", cs)
+	}
+	writeConf(t, dir, "a.conf", "v2")
+	chtimes(t, f, now.Add(time.Minute))
+	if cs, _ := w.Check(); !reflect.DeepEqual(cs.Changed, []string{f}) {
+		t.Fatalf("want Changed, got %+v", cs)
+	}
+	// supervisord restarts after the edit
+	chtimes(t, d.PidFile, now.Add(time.Hour))
+	cs, _ := w.Check()
+	if len(cs.Changed)+len(cs.Uncertain)+len(cs.Added)+len(cs.Removed) != 0 {
+		t.Fatalf("after restart: %+v", cs)
+	}
+	if b, _ := w.Loaded(f); string(b) != "v2" {
+		t.Fatalf("Loaded = %q", b)
+	}
+	// persisted
+	if b, _ := NewWatcher(d, state).Loaded(f); string(b) != "v2" {
+		t.Fatalf("persisted Loaded = %q", b)
+	}
+}
+
+func TestWatcherEditAfterRestartStillChanged(t *testing.T) {
+	dir, state, d := newWatchFixture(t)
+	now := time.Now()
+	chtimes(t, d.PidFile, now.Add(-time.Hour))
+	f := writeConf(t, dir, "a.conf", "v1")
+	chtimes(t, f, now.Add(-2*time.Hour))
+	w := NewWatcher(d, state)
+	w.Check()
+	// restart, then an edit after it
+	chtimes(t, d.PidFile, now.Add(time.Hour))
+	writeConf(t, dir, "a.conf", "v2")
+	chtimes(t, f, now.Add(2*time.Hour))
+	cs, _ := w.Check()
+	if len(cs.Changed)+len(cs.Uncertain) != 1 {
+		t.Fatalf("edit after restart silently accepted: %+v", cs)
+	}
+	if b, _ := w.Loaded(f); string(b) != "v1" {
+		t.Fatalf("snapshot overwritten: %q", b)
+	}
+}
+
+func TestWatcherConcurrentCheckAndMarkLoaded(t *testing.T) {
+	dir, state, d := newWatchFixture(t)
+	var paths []string
+	for _, n := range []string{"a", "b", "c"} {
+		paths = append(paths, writeConf(t, dir, n+".conf", n))
+	}
+	w := NewWatcher(d, state)
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				if i%2 == 0 {
+					if _, err := w.Check(); err != nil {
+						t.Error(err)
+					}
+				} else {
+					if err := w.MarkLoaded(paths[j%3]); err != nil {
+						t.Error(err)
+					}
+					w.Loaded(paths[0])
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
 }
