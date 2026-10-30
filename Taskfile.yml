@@ -33,9 +33,10 @@ tasks:
       - task: "{{.GOOS}}:run"
 
   dev:
-    summary: Runs the application in development mode
+    summary: Runs the application in development mode against a throwaway sandbox supervisord
     cmds:
-      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+      - scripts/sandbox.sh up
+      - VISOR_CONFIG=/tmp/visor-sandbox/supervisord.conf wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
 
   install:msix:tools:
     summary: Installs tools required for Windows MSIX packaging
