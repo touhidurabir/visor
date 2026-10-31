@@ -12,7 +12,9 @@ import HistoryList from '../components/HistoryList.vue'
 import LastErrorCard from '../components/LastErrorCard.vue'
 import LogView from '../components/LogView.vue'
 import PathsCard from '../components/PathsCard.vue'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import { describeError } from '../lib/faults'
+import { bulkConfirm, type BulkConfirm } from '../lib/menus'
 import { sinceLabel } from '../lib/format'
 import type { Stream } from '../lib/logview'
 import { useOverview } from '../lib/overview'
@@ -151,9 +153,24 @@ async function run(fn: () => Promise<unknown>, done?: string): Promise<boolean> 
   }
 }
 
-const startAll = () => run(() => ServerService.StartFile(path.value))
-const stopAll = () => run(() => ServerService.StopFile(path.value))
-const restartAll = () => run(() => ServerService.RestartFile(path.value))
+const fileCalls = {
+  start: () => ServerService.StartFile(path.value),
+  stop: () => ServerService.StopFile(path.value),
+  restart: () => ServerService.RestartFile(path.value),
+}
+const pendingBulk = ref<{ what: keyof typeof fileCalls; ask: BulkConfirm } | null>(null)
+
+function bulk(what: keyof typeof fileCalls) {
+  const ask = bulkConfirm(what, procs.value.length, config.value?.FileName)
+  if (ask) pendingBulk.value = { what, ask }
+  else void run(fileCalls[what])
+}
+
+function confirmBulk() {
+  const p = pendingBulk.value
+  pendingBulk.value = null
+  if (p) void run(fileCalls[p.what])
+}
 /** Finder and editor actions change nothing in supervisord: no busy state, no reload. */
 async function finder(fn: () => Promise<unknown>) {
   try {
@@ -213,9 +230,9 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0" /></svg>
             {{ config.Watched ? 'Watching: notify on failure' : 'Watch for failures' }}
           </button>
-          <button type="button" class="btn" :disabled="busy" @click="startAll">Start all</button>
-          <button type="button" class="btn" :disabled="busy" @click="stopAll">Stop all</button>
-          <button type="button" class="btn" :disabled="busy" @click="restartAll">Restart all</button>
+          <button type="button" class="btn" :disabled="busy" @click="bulk('start')">Start all</button>
+          <button type="button" class="btn" :disabled="busy" @click="bulk('stop')">Stop all</button>
+          <button type="button" class="btn" :disabled="busy" @click="bulk('restart')">Restart all</button>
           <button type="button" class="btn" @click="reveal(config.Path)">Reveal in Finder</button>
         </div>
       </header>
@@ -328,6 +345,14 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
         </template>
       </div>
     </template>
+    <ConfirmDialog
+      v-if="pendingBulk"
+      :title="pendingBulk.ask.title"
+      :message="pendingBulk.ask.message"
+      :confirm-label="pendingBulk.ask.confirmLabel"
+      @confirm="confirmBulk"
+      @cancel="pendingBulk = null"
+    />
   </div>
 </template>
 

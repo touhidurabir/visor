@@ -81,6 +81,12 @@ describe('bulkConfirm', () => {
     expect(c.message).toContain('12 processes')
     expect(c.confirmLabel).toBe('Stop all')
   })
+  it('names the file when the action covers one config', () => {
+    const c = bulkConfirm('stop', 3, 'mailer.ini')!
+    expect(c.title).toBe('Stop all processes in mailer.ini?')
+    expect(c.message).toContain('all 3 processes in mailer.ini')
+    expect(bulkConfirm('start', 3, 'mailer.ini')).toBeNull()
+  })
   it('restarting everything asks first', () => {
     const c = bulkConfirm('restart', 1)!
     expect(c.message).toContain('1 process ')
