@@ -47,6 +47,14 @@ const (
 	minRestartGrace = 30 * time.Second
 	// rpcTimeout bounds quick calls made outside the poll loop.
 	rpcTimeout = 5 * time.Second
+	// exitReasonTimeout bounds reading supervisord's main log for why a
+	// process exited. The tracker waits on it, so it is short.
+	exitReasonTimeout = time.Second
+	// exitLogTail is how much of the main log's end is read for exit lines.
+	exitLogTail = 64 << 10
+	// exitLineSlack is how far an exit line's time may be from the
+	// process's stop time (whole seconds) and still be that exit.
+	exitLineSlack = 2 * time.Second
 )
 
 // StateDir is where Visor keeps its state: $VISOR_STATE_DIR if set,
@@ -85,7 +93,8 @@ type RuntimeOptions struct {
 //
 // Locking: mu is a leaf lock. It is never held while calling the tracker,
 // the watcher, the monitor or supervisord, because the tracker calls back
-// into the Runtime (configOf, expectedExit, autorestart) under its own lock.
+// into the Runtime (configOf, expectedExit, autorestart, exitReason) under
+// its own lock.
 type Runtime struct {
 	opts  RuntimeOptions
 	watch *watchStore
@@ -161,6 +170,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 			ConfigOf:     r.configOf,
 			ExpectedExit: r.expectedExit,
 			Autorestart:  r.autorestart,
+			ExitReason:   r.exitReason,
 		}, time.Now)
 	}
 	r.mon = monitor.New(r.client, r.opts.Interval)
@@ -271,6 +281,45 @@ func (r *Runtime) autorestart(process string) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.inv.Autorestart(process)
+}
+
+// exitReason reads why process last exited from supervisord's main log.
+// The tracker calls it while applying the update in r.last.
+func (r *Runtime) exitReason(_ string, info supervisor.ProcessInfo) (issues.ExitReason, bool) {
+	r.mu.Lock()
+	base, client, procs := r.ctx, r.client, r.last.Snapshot.Processes
+	r.mu.Unlock()
+	if client == nil {
+		return issues.ExitReason{}, false
+	}
+	ctx, cancel := context.WithTimeout(base, exitReasonTimeout)
+	defer cancel()
+	lines, err := client.RecentExits(ctx, exitLogTail)
+	if err != nil {
+		return issues.ExitReason{}, false
+	}
+	return exitReasonFrom(lines, info, procs)
+}
+
+// exitReasonFrom picks info's last exit from the main log's exit lines:
+// the latest line for its name within exitLineSlack of its stop time. Exit
+// lines name no group, so a name that procs has in two groups is never
+// matched.
+func exitReasonFrom(lines []supervisor.ExitLine, info supervisor.ProcessInfo, procs []supervisor.ProcessInfo) (issues.ExitReason, bool) {
+	if info.Stop.IsZero() {
+		return issues.ExitReason{}, false
+	}
+	for _, p := range procs {
+		if p.Name == info.Name && p.Group != info.Group {
+			return issues.ExitReason{}, false
+		}
+	}
+	for _, l := range slices.Backward(lines) {
+		if d := l.At.Sub(info.Stop); l.Name == info.Name && d.Abs() <= exitLineSlack {
+			return issues.ExitReason{Desc: l.Desc, Status: l.Status, Expected: l.Expected}, true
+		}
+	}
+	return issues.ExitReason{}, false
 }
 
 // Overview builds the dashboard view from the latest handled update.

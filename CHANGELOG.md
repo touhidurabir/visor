@@ -26,12 +26,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - An unreachable supervisord turns the tray icon red from the second failed poll in a row (when its issue opens); a single failed poll shows a warning.
 - `IssueService.List` takes a `beforeID` after `beforeMs`: "Load older" pages on (opened time, ID), so issues opened in the same millisecond are neither skipped nor repeated. Issues carry a `Note` saying why Visor closed them.
 - README: develop with `wails3 task dev` (sandbox supervisord); bare `wails3 dev` talks to the real one.
+- When supervisord restarts a process between two polls, Visor reads why it exited from supervisord's main log (`supervisor.readLog`, new `Client.RecentExits` and `ParseExitLines`). A planned exit (e.g. `queue:work --max-time` exiting 0) opens nothing, and a crash opens an unexpected exit under every `autorestart` setting, saying how it ended: "Exited with status 1 and was restarted by supervisord" or "Was terminated by SIGSEGV and restarted by supervisord". When the log can't tell (no `logfile`, logging to syslog, or two groups with the same process name), the restart opens "Exited and was restarted by supervisord" under `autorestart=unexpected` (the default) and only counts toward a crash loop under `autorestart=true`.
+- A retry while a program is still starting no longer opens an unexpected exit; FATAL and the crash loop cover programs that can't start.
 
 ### Fixed
-- A crash that supervisord restarts between two polls now opens an unexpected exit ("Exited and was restarted by supervisord") when `autorestart=unexpected` (the default). With `autorestart=true` such restarts only count toward a crash loop, because workers like `queue:work --max-jobs` exit on purpose. Every restart is written to the process history.
+- A crash that supervisord restarts between two polls now opens an unexpected exit (how Visor tells a crash from a planned exit is under Changed). Every restart is written to the process history.
 - Your own start, stop, restart, signal and daemon actions no longer count toward crash loops or open unexpected exits for the restarts they cause, so they no longer turn the tray red; history marks those changes "by you". A program you start that exits with an unexpected code still opens an issue. After you shut supervisord down, no unreachable issue opens until it is back; after you restart it, one opens if it is not back within 30 seconds.
 - A dismissed or resolved issue no longer reopens on the next launch when supervisord still shows the same failure; a new failure still opens one.
 - A process removed from supervisord closes its open issues ("program removed"), and a process restarted straight into FATAL opens a FATAL issue.
 - "Failing for" counts from the latest open FATAL or unexpected exit, not the oldest issue.
 - The config watcher stops listing a deleted config file as removed once supervisord restarts.
 - Opening Visor brings back a minimised main window.
+- A failure in the same second as you dismissed or resolved an earlier one now opens an issue, instead of counting as already dismissed.
+- The issue store no longer loses the record written after a line torn by a crash, and a record too large to read is skipped instead of stopping Visor from opening its issue history.

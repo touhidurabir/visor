@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -30,16 +31,35 @@ func openOfKind(ov OverviewView, kind string) []IssueView {
 	return out
 }
 
+// crashMessages are the two correct issues for crasher's exit 1: read
+// from supervisord's log after the restart, or (when a poll lands in the
+// few milliseconds it sits in EXITED) the observed exit.
+var crashMessages = []string{"Exited with status 1 and was restarted by supervisord", "Exited with status 1"}
+
 func TestAutoRestartedCrashOpensUnexpectedExit(t *testing.T) {
 	inst := supervisortest.Start(t, crasher(""))
 	rt, rec := startRuntime(t, confOf(inst), t.TempDir(), 500*time.Millisecond)
 	svc := NewServerService(rt)
+	assertOneCrashIssue(t, svc, rec)
+}
+
+func TestAutorestartTrueCrashOpensIssueHarness(t *testing.T) {
+	inst := supervisortest.Start(t, crasher("true"))
+	rt, rec := startRuntime(t, confOf(inst), t.TempDir(), 500*time.Millisecond)
+	svc := NewServerService(rt)
+	assertOneCrashIssue(t, svc, rec)
+}
+
+// assertOneCrashIssue waits for crasher's unexpected_exit, then checks a
+// second crash cycle opens no other.
+func assertOneCrashIssue(t *testing.T, svc *ServerService, rec *recorder) {
+	t.Helper()
 	ov := waitOverview(t, svc, 10*time.Second, "an unexpected_exit issue", func(ov OverviewView) bool {
 		return len(openOfKind(ov, "unexpected_exit")) > 0
 	})
 	got := openOfKind(ov, "unexpected_exit")
-	if len(got) != 1 || got[0].Process != "crasher:crasher" || got[0].Message != "Exited and was restarted by supervisord" {
-		t.Fatalf("unexpected_exit issues = %+v", got)
+	if len(got) != 1 || got[0].Process != "crasher:crasher" || !slices.Contains(crashMessages, got[0].Message) {
+		t.Fatalf("unexpected_exit issues = %+v, want one with a message in %q", got, crashMessages)
 	}
 	time.Sleep(3 * time.Second) // another crash cycle must not open a second one
 	n := 0
@@ -53,34 +73,36 @@ func TestAutoRestartedCrashOpensUnexpectedExit(t *testing.T) {
 	}
 }
 
-func TestAutoRestartTrueCrashOpensNoUnexpectedExit(t *testing.T) {
-	inst := supervisortest.Start(t, crasher("true"))
+// A planned exit 0 under autorestart=true (e.g. queue:work --max-time) is
+// in supervisord's log as expected, so its restarts open nothing.
+func TestAutorestartTruePlannedExitOpensNothingHarness(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Program{
+		Name: "finisher", Command: "sh -c 'sleep 2; exit 0'", Extra: map[string]string{"autorestart": "true"},
+	})
 	rt, rec := startRuntime(t, confOf(inst), t.TempDir(), 500*time.Millisecond)
 	svc := NewServerService(rt)
-	waitOverview(t, svc, 5*time.Second, "crasher running", procState("crasher:crasher", "RUNNING"))
-	time.Sleep(8 * time.Second) // about four crash cycles
-
-	hist, err := NewIssueService(rt).History("crasher:crasher", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	restarts := 0
-	for _, h := range hist {
-		if h.To == "EXITED" {
-			// A poll landed in the few milliseconds the process sat in
-			// EXITED: that observed exit rightly opens an issue.
-			t.Skip("a poll caught the brief EXITED state; nothing to assert")
+	waitOverview(t, svc, 5*time.Second, "finisher running", procState("finisher:finisher", "RUNNING"))
+	is := NewIssueService(rt)
+	deadline := time.Now().Add(12 * time.Second)
+	for restarts := 0; restarts < 2; {
+		if time.Now().After(deadline) {
+			t.Fatalf("saw %d restarts in 12s, want 2", restarts)
 		}
-		if h.Note == "Restarted by supervisord" || h.To == "STARTING" {
-			restarts++
+		time.Sleep(200 * time.Millisecond)
+		hist, err := is.History("finisher:finisher", 0)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	if restarts == 0 {
-		t.Errorf("no restarts recorded in history: %+v", hist)
+		restarts = 0
+		for _, h := range hist {
+			if h.Note == "Restarted by supervisord" || (h.From == "RUNNING" && h.To == "STARTING") {
+				restarts++
+			}
+		}
 	}
 	for _, is := range rec.issuesOpened() {
 		if is.Kind == "unexpected_exit" {
-			t.Errorf("autorestart=true restart opened %+v", is)
+			t.Errorf("a planned exit 0 opened %+v", is)
 		}
 	}
 }
