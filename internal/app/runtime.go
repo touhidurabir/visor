@@ -102,9 +102,9 @@ const reconnectWait = 5 * time.Second
 // tracker and the config watcher together, and turns every monitor update
 // into frontend events. Services share one Runtime.
 //
-// A connection (client, monitor, tracker, watcher and their goroutines) is
-// rebuilt by Reconnect and by settings that change how Visor connects. The
-// issue store lives as long as the Runtime.
+// A connection (client, monitor, watcher and their goroutines) is rebuilt
+// by Reconnect and by settings that change how Visor connects. The issue
+// store and tracker live as long as the Runtime.
 //
 // Locking: life serialises Start, Stop, Reconnect and ApplySettings, and is
 // never held while waiting on a poll. mu is a leaf lock. It is never held
@@ -317,11 +317,27 @@ func (r *Runtime) openStore() {
 		return
 	}
 	store, err := issues.OpenStore(r.opts.StateDir, retention)
+	var tracker *issues.Tracker
 	if err != nil {
 		err = fmt.Errorf("cannot open the issue history in %s: %w", r.opts.StateDir, err)
+	} else {
+		// One tracker for the Runtime's life, like the store: what it
+		// remembers (user actions in flight, a user's shutdown, restarts
+		// counted toward a crash loop, who closed what) must outlive a
+		// reconnect, and a Resolve racing a rebuild must not land in a
+		// tracker that is about to be dropped.
+		r.mu.Lock()
+		rules := rulesOf(r.prefs)
+		r.mu.Unlock()
+		tracker = issues.NewTracker(store, rules, issues.Programs{
+			ConfigOf:     r.configOf,
+			ExpectedExit: r.expectedExit,
+			Autorestart:  r.autorestart,
+			ExitReason:   r.exitReason,
+		}, time.Now)
 	}
 	r.mu.Lock()
-	r.store, r.storeErr = store, err
+	r.store, r.tracker, r.storeErr = store, tracker, err
 	r.mu.Unlock()
 }
 
@@ -329,7 +345,7 @@ func (r *Runtime) openStore() {
 // polling. Caller holds life, after disconnect (or at Start).
 func (r *Runtime) connect() {
 	r.mu.Lock()
-	prefs, store := r.prefs, r.store
+	prefs, tracker := r.prefs, r.tracker
 	ctx, cancel := context.WithCancel(r.parent)
 	first := make(chan struct{})
 	r.ctx, r.cancel, r.first = ctx, cancel, first
@@ -364,19 +380,13 @@ func (r *Runtime) connect() {
 	client := supervisor.New(d.Transport, copts...)
 	inv, _ := config.LoadInventory(d)
 	watcher := config.NewWatcher(d, r.opts.StateDir)
-	var tracker *issues.Tracker
-	if store != nil {
-		tracker = issues.NewTracker(store, rulesOf(prefs), issues.Programs{
-			ConfigOf:     r.configOf,
-			ExpectedExit: r.expectedExit,
-			Autorestart:  r.autorestart,
-			ExitReason:   r.exitReason,
-		}, time.Now)
+	if tracker != nil {
+		tracker.SetRules(rulesOf(prefs))
 	}
 	mon := monitor.New(client, prefs.PollInterval)
 
 	r.mu.Lock()
-	r.d, r.client, r.inv, r.watcher, r.tracker, r.mon = d, client, inv, watcher, tracker, mon
+	r.d, r.client, r.inv, r.watcher, r.mon = d, client, inv, watcher, mon
 	r.mu.Unlock()
 
 	updates, unsubscribe := mon.Subscribe()
@@ -411,7 +421,7 @@ func (r *Runtime) disconnect() {
 		client.Close()
 	}
 	r.mu.Lock()
-	r.cancel, r.client, r.mon, r.tracker, r.watcher = nil, nil, nil, nil, nil
+	r.cancel, r.client, r.mon, r.watcher = nil, nil, nil, nil // the tracker and store stay
 	r.d, r.connErr = config.Discovery{}, nil
 	r.inv, r.changes, r.last = config.Inventory{}, config.ChangeSet{}, monitor.Update{}
 	r.version, r.failedPolls = "", 0
@@ -600,6 +610,19 @@ func (r *Runtime) conn() (actionConn, error) {
 	return actionConn{r.ctx, r.client, r.mon, r.tracker}, nil
 }
 
+// errReconnecting replaces the bare "context canceled" of a call cut short
+// because its connection was rebuilt (Reconnect or a settings change).
+var errReconnecting = errors.New("reconnecting to supervisord: try again in a moment")
+
+// reconnecting maps err to errReconnecting when the connection it ran on
+// (conn, the context from Runtime.conn) has ended.
+func reconnecting(conn context.Context, err error) error {
+	if err != nil && conn.Err() != nil {
+		return errReconnecting
+	}
+	return err
+}
+
 // actionGrace is how long after a user action ends the changes it caused
 // are still the user's: two polls, at least minActionGrace (or e's own
 // minimum, e.g. minRestartGrace).
@@ -627,7 +650,7 @@ func (r *Runtime) act(e expectation, do func(ctx context.Context, c *supervisor.
 	settle := e.register(ac.tracker, time.Now().Add(actionTimeout+grace))
 	ctx, cancel := context.WithTimeout(ac.ctx, actionTimeout)
 	defer cancel()
-	err = do(ctx, ac.client)
+	err = reconnecting(ac.ctx, do(ctx, ac.client))
 	switch {
 	case err != nil && e.daemon:
 		// supervisord refused or never got the call: an outage from now

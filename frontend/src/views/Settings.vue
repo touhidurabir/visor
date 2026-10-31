@@ -5,12 +5,14 @@
 // the page shows what it kept.
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ServerService, SettingsService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
-import type { SettingsView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import type { ConnectionInput, SettingsView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { Settings } from '../../bindings/github.com/touhidurabir/visor/internal/settings'
 import { describeError } from '../lib/faults'
 import { useOverview } from '../lib/overview'
+import { createSaveQueue } from '../lib/save-queue'
 import {
   LIMITS,
+  type Limit,
   clampNote,
   currentSettings,
   loadSettings,
@@ -25,6 +27,7 @@ import { showToast } from '../lib/toast'
 const { overview } = useOverview()
 const view = ref<SettingsView | null>(null)
 const loadError = ref('')
+const warning = ref('')
 
 // Connection draft: edited freely, saved with "Save and reconnect".
 const conn = reactive({ configPath: '', username: '', password: '' })
@@ -32,8 +35,18 @@ const connBusy = ref(false)
 const connError = ref('')
 
 // Number fields keep the typed text until saved; notes explain clamping.
-const fields = reactive({ poll: '', restarts: '', window: '', retention: '' })
-const notes = reactive({ poll: '', restarts: '', window: '', retention: '' })
+type FieldKey = 'poll' | 'restarts' | 'window' | 'retention'
+const fields = reactive<Record<FieldKey, string>>({ poll: '', restarts: '', window: '', retention: '' })
+const notes = reactive<Record<FieldKey, string>>({ poll: '', restarts: '', window: '', retention: '' })
+// Fields typed in since their last change event: a save's response never
+// overwrites them.
+const editing = reactive(new Set<FieldKey>())
+// What was typed into each field saved in the current run, for the notes.
+let typed: Partial<Record<FieldKey, number | null>> = {}
+type NotifyKey = 'enabled' | 'fatal' | 'unexpectedExit' | 'crashLoop' | 'unreachable'
+// The switches show this local copy, so a click shows at once while its
+// save waits its turn.
+const notify = reactive<Record<NotifyKey, boolean>>({ enabled: true, fatal: true, unexpectedExit: true, crashLoop: true, unreachable: true })
 const saving = ref(false)
 const saveError = ref('')
 
@@ -46,16 +59,28 @@ const connDirty = computed(() => {
   return path !== v.Settings.configPath || conn.username !== v.Settings.username || conn.password !== ''
 })
 
-function adopt(v: SettingsView) {
+/** showSaved puts saved values into the fields nobody is typing in. */
+function showSaved(st: Settings) {
+  const text: Record<FieldKey, string> = {
+    poll: String(nsToSeconds(st.pollInterval)),
+    restarts: String(st.crashLoop.restarts),
+    window: String(nsToMinutes(st.crashLoop.window)),
+    retention: String(st.retentionDays),
+  }
+  for (const k of Object.keys(text) as FieldKey[]) if (!editing.has(k)) fields[k] = text[k]
+  Object.assign(notify, st.notify)
+}
+
+/** adopt takes a whole view (load, connection save, reconnect). */
+function adopt(v: SettingsView, keepDraft = false) {
   view.value = v
   currentSettings.value = v
-  conn.configPath = v.Settings.configPath
-  conn.username = v.Settings.username
-  conn.password = ''
-  fields.poll = String(nsToSeconds(v.Settings.pollInterval))
-  fields.restarts = String(v.Settings.crashLoop.restarts)
-  fields.window = String(nsToMinutes(v.Settings.crashLoop.window))
-  fields.retention = String(v.Settings.retentionDays)
+  if (!keepDraft) {
+    conn.configPath = v.Settings.configPath
+    conn.username = v.Settings.username
+    conn.password = ''
+  }
+  showSaved(v.Settings)
 }
 
 onMounted(async () => {
@@ -94,25 +119,43 @@ function cancelConnection() {
   connError.value = ''
 }
 
-async function saveConnection(opts: { forgetPassword?: boolean } = {}) {
+async function sendConnection(input: ConnectionInput, done: string, keepDraft = false) {
   if (connBusy.value) return
   connBusy.value = true
   connError.value = ''
   try {
-    const setPassword = opts.forgetPassword || conn.password !== ''
-    const v = await SettingsService.SaveConnection({
-      ConfigPath: conn.configPath,
-      Username: conn.username,
-      Password: opts.forgetPassword ? '' : conn.password,
-      SetPassword: setPassword,
-    })
+    const draft = { ...conn }
+    const v = await SettingsService.SaveConnection(input)
     adopt(v)
-    showToast(opts.forgetPassword ? 'Password removed from your Keychain' : 'Saved. Visor reconnected to supervisord.')
+    if (keepDraft && draft.configPath !== v.Settings.configPath) conn.configPath = draft.configPath
+    warning.value = v.Warning
+    showToast(v.Warning ? 'Saved, with a problem: see the note above' : done, v.Warning ? 'error' : 'info')
   } catch (e) {
     connError.value = describeError(e)
   } finally {
     connBusy.value = false
   }
+}
+
+function saveConnection() {
+  void sendConnection(
+    { ConfigPath: conn.configPath, Username: conn.username, Password: conn.password, SetPassword: conn.password !== '' },
+    'Saved. Visor reconnected to supervisord.',
+  )
+}
+
+/**
+ * removePassword forgets the saved password and the username with it, so
+ * the config's [supervisorctl] credentials apply again. It saves only that:
+ * an unsaved config path stays a draft.
+ */
+function removePassword() {
+  const saved = view.value!.Settings
+  void sendConnection(
+    { ConfigPath: saved.configPath, Username: '', Password: '', SetPassword: true },
+    'Password and username removed. Visor uses the config’s credentials.',
+    true,
+  )
 }
 
 async function reconnect() {
@@ -132,62 +175,66 @@ async function reconnect() {
 
 // --- Everything else: saved as it changes -------------------------------
 
-async function save(change: (next: Settings) => void, after?: (v: SettingsView) => void) {
-  if (!view.value) return
-  const next: Settings = JSON.parse(JSON.stringify(view.value.Settings))
-  change(next)
-  saving.value = true
-  saveError.value = ''
-  try {
-    const v = await SettingsService.Save(next)
-    const keep = { ...conn }
-    adopt(v)
-    Object.assign(conn, keep) // an unsaved connection draft survives
-    after?.(v)
-  } catch (e) {
-    saveError.value = describeError(e)
-  } finally {
+const queue = createSaveQueue<Settings, SettingsView>({
+  base: () => view.value!.Settings,
+  settingsOf: (v) => v.Settings,
+  send: (next) => SettingsService.Save(next),
+  done(v, errors) {
     saving.value = false
+    const cur = view.value!
+    if (v) {
+      // Save never changes the connection; keep what the page shows for
+      // it, which a connection save may have changed meanwhile.
+      const merged: SettingsView = {
+        ...cur,
+        Settings: { ...v.Settings, configPath: cur.Settings.configPath, username: cur.Settings.username },
+        LoadError: v.LoadError,
+        Warning: v.Warning,
+      }
+      view.value = merged
+      currentSettings.value = merged
+      warning.value = v.Warning
+    }
+    showSaved(view.value!.Settings) // after a failure, this puts the saved values back
+    const st = view.value!.Settings
+    const kept: Record<FieldKey, [number, Limit, string]> = {
+      poll: [nsToSeconds(st.pollInterval), LIMITS.pollSeconds, 'second'],
+      restarts: [st.crashLoop.restarts, LIMITS.restarts, 'restart'],
+      window: [nsToMinutes(st.crashLoop.window), LIMITS.windowMinutes, 'minute'],
+      retention: [st.retentionDays, LIMITS.retentionDays, 'day'],
+    }
+    for (const [k, t] of Object.entries(typed) as [FieldKey, number | null][]) notes[k] = clampNote(t, ...kept[k])
+    typed = {}
+    saveError.value = errors.length ? describeError(errors[errors.length - 1]) : ''
+  },
+})
+
+function save(change: (next: Settings) => void) {
+  if (!view.value) return
+  saving.value = true
+  void queue.enqueue(change)
+}
+
+/** saveField queues a number field's change; empty or junk text puts the saved value back. */
+function saveField(key: FieldKey, apply: (next: Settings, n: number) => void) {
+  editing.delete(key)
+  const n = typedNumber(fields[key])
+  if (n === null) {
+    showSaved(view.value!.Settings)
+    return
   }
+  typed[key] = n
+  save((next) => apply(next, n))
 }
 
-function savePoll() {
-  const typed = typedNumber(fields.poll)
-  if (typed === null) return void (fields.poll = String(nsToSeconds(view.value!.Settings.pollInterval)))
-  void save(
-    (n) => (n.pollInterval = secondsToNs(typed)),
-    (v) => (notes.poll = clampNote(typed, nsToSeconds(v.Settings.pollInterval), LIMITS.pollSeconds, 'second')),
-  )
-}
+const savePoll = () => saveField('poll', (next, n) => (next.pollInterval = secondsToNs(n)))
+const saveRestarts = () => saveField('restarts', (next, n) => (next.crashLoop.restarts = Math.round(n)))
+const saveWindow = () => saveField('window', (next, n) => (next.crashLoop.window = minutesToNs(n)))
+const saveRetention = () => saveField('retention', (next, n) => (next.retentionDays = Math.round(n)))
 
-function saveCrashLoop() {
-  const restarts = typedNumber(fields.restarts)
-  const minutes = typedNumber(fields.window)
-  const cur = view.value!.Settings.crashLoop
-  void save(
-    (n) => {
-      n.crashLoop.restarts = restarts === null ? cur.restarts : Math.round(restarts)
-      n.crashLoop.window = minutes === null ? cur.window : minutesToNs(minutes)
-    },
-    (v) => {
-      notes.restarts = clampNote(restarts, v.Settings.crashLoop.restarts, LIMITS.restarts, 'restart')
-      notes.window = clampNote(minutes, nsToMinutes(v.Settings.crashLoop.window), LIMITS.windowMinutes, 'minute')
-    },
-  )
-}
-
-function saveRetention() {
-  const typed = typedNumber(fields.retention)
-  if (typed === null) return void (fields.retention = String(view.value!.Settings.retentionDays))
-  void save(
-    (n) => (n.retentionDays = Math.round(typed)),
-    (v) => (notes.retention = clampNote(typed, v.Settings.retentionDays, LIMITS.retentionDays, 'day')),
-  )
-}
-
-type NotifyKey = 'enabled' | 'fatal' | 'unexpectedExit' | 'crashLoop' | 'unreachable'
 function setNotify(key: NotifyKey, on: boolean) {
-  void save((n) => (n.notify[key] = on))
+  notify[key] = on
+  save((next) => (next.notify[key] = on))
 }
 
 const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
@@ -219,6 +266,10 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
     <div v-if="saveError" class="alert" role="alert">
       <strong>Can’t save that change</strong>
       <p>{{ saveError }}</p>
+    </div>
+    <div v-if="warning" class="warn" role="status">
+      <strong>Saved, with a problem</strong>
+      <p>{{ describeError(warning) }}</p>
     </div>
 
     <template v-if="view && s">
@@ -279,7 +330,9 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
         <div class="row">
           <div class="what">
             <label class="name" for="conn-pass">Password</label>
-            <p class="hint">Saved in your Keychain, never in a file.</p>
+            <p class="hint">
+              Saved in your Keychain, never in a file.<template v-if="view.HasPassword"> Removing it also clears the username, so the config’s credentials apply again.</template>
+            </p>
           </div>
           <div class="ctl">
             <input
@@ -289,7 +342,7 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
               autocomplete="off"
               :placeholder="view.HasPassword ? 'Saved in your Keychain' : 'Not set'"
             />
-            <button v-if="view.HasPassword" type="button" class="btn" :disabled="connBusy" @click="saveConnection({ forgetPassword: true })">Remove</button>
+            <button v-if="view.HasPassword" type="button" class="btn" :disabled="connBusy" @click="removePassword">Remove password</button>
           </div>
         </div>
 
@@ -302,7 +355,7 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
         <div class="foot">
           <template v-if="connDirty">
             <button type="button" class="btn" :disabled="connBusy" @click="cancelConnection">Cancel</button>
-            <button type="button" class="btn primary" :disabled="connBusy" @click="saveConnection()">{{ connBusy ? 'Reconnecting…' : 'Save and reconnect' }}</button>
+            <button type="button" class="btn primary" :disabled="connBusy" @click="saveConnection">{{ connBusy ? 'Reconnecting…' : 'Save and reconnect' }}</button>
           </template>
           <button v-else type="button" class="btn" :disabled="connBusy" @click="reconnect">{{ connBusy ? 'Reconnecting…' : 'Reconnect' }}</button>
         </div>
@@ -318,7 +371,7 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
             <p v-if="notes.poll" class="note" role="status">{{ notes.poll }}</p>
           </div>
           <div class="ctl">
-            <input id="poll" v-model="fields.poll" class="num" type="number" inputmode="decimal" :min="LIMITS.pollSeconds.min" :max="LIMITS.pollSeconds.max" step="1" @change="savePoll" />
+            <input id="poll" v-model="fields.poll" class="num" @input="editing.add('poll')" type="number" inputmode="decimal" :min="LIMITS.pollSeconds.min" :max="LIMITS.pollSeconds.max" step="1" @change="savePoll" />
             <span class="unit">seconds</span>
           </div>
         </div>
@@ -333,13 +386,13 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
             <p class="hint">Only for configs you watch. Issues are recorded either way.</p>
           </div>
           <div class="ctl">
-            <input id="notify-on" class="switch" type="checkbox" role="switch" :checked="s.notify.enabled" @change="setNotify('enabled', ($event.target as HTMLInputElement).checked)" />
+            <input id="notify-on" class="switch" type="checkbox" role="switch" :checked="notify.enabled" @change="setNotify('enabled', ($event.target as HTMLInputElement).checked)" />
           </div>
         </div>
-        <fieldset class="types" :disabled="!s.notify.enabled">
+        <fieldset class="types" :disabled="!notify.enabled">
           <legend class="sr-only">Notify me when</legend>
           <label v-for="t in notifyTypes" :key="t.key" class="check">
-            <input type="checkbox" :checked="s.notify[t.key]" @change="setNotify(t.key, ($event.target as HTMLInputElement).checked)" />
+            <input type="checkbox" :checked="notify[t.key]" @change="setNotify(t.key, ($event.target as HTMLInputElement).checked)" />
             {{ t.label }}
           </label>
         </fieldset>
@@ -356,9 +409,9 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
             <p v-if="notes.window" class="note" role="status">{{ notes.window }}</p>
           </div>
           <div class="ctl">
-            <input id="loop-restarts" v-model="fields.restarts" aria-label="Restarts" class="num" type="number" inputmode="numeric" :min="LIMITS.restarts.min" :max="LIMITS.restarts.max" step="1" @change="saveCrashLoop" />
+            <input id="loop-restarts" v-model="fields.restarts" @input="editing.add('restarts')" aria-label="Restarts" class="num" type="number" inputmode="numeric" :min="LIMITS.restarts.min" :max="LIMITS.restarts.max" step="1" @change="saveRestarts" />
             <span class="unit">restarts within</span>
-            <input id="loop-window" v-model="fields.window" aria-label="Minutes" class="num" type="number" inputmode="numeric" :min="LIMITS.windowMinutes.min" :max="LIMITS.windowMinutes.max" step="1" @change="saveCrashLoop" />
+            <input id="loop-window" v-model="fields.window" @input="editing.add('window')" aria-label="Minutes" class="num" type="number" inputmode="numeric" :min="LIMITS.windowMinutes.min" :max="LIMITS.windowMinutes.max" step="1" @change="saveWindow" />
             <span class="unit">minutes</span>
           </div>
         </div>
@@ -374,7 +427,7 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
             <p v-if="notes.retention" class="note" role="status">{{ notes.retention }}</p>
           </div>
           <div class="ctl">
-            <input id="keep" v-model="fields.retention" class="num" type="number" inputmode="numeric" :min="LIMITS.retentionDays.min" :max="LIMITS.retentionDays.max" step="1" @change="saveRetention" />
+            <input id="keep" v-model="fields.retention" class="num" @input="editing.add('retention')" type="number" inputmode="numeric" :min="LIMITS.retentionDays.min" :max="LIMITS.retentionDays.max" step="1" @change="saveRetention" />
             <span class="unit">days</span>
           </div>
         </div>
@@ -459,6 +512,8 @@ input.num { width: 72px; text-align: right; }
 .stopped .dot { background: var(--stopped-dot); }
 .alert { margin: 0; padding: 12px; border: 1px solid var(--failing-dot); border-radius: var(--radius-md); background: var(--failing-bg); color: var(--failing-fg); }
 .alert p { margin: 4px 0 0; user-select: text; }
+.warn { margin: 0; padding: 12px; border: 1px solid var(--warning-dot); border-radius: var(--radius-md); background: var(--warning-bg); color: var(--warning-fg); }
+.warn p { margin: 4px 0 0; user-select: text; }
 .server-error { margin: 0; color: var(--failing-fg); font-size: 12px; user-select: text; }
 .sr-only { position: absolute; left: -9999px; }
 </style>

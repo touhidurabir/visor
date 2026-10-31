@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -33,6 +34,10 @@ type SettingsView struct {
 	// LoadError is set when settings.json could not be read at launch, so
 	// the defaults are in use.
 	LoadError string
+	// Warning is set when a save succeeded but something after it did
+	// not: the Keychain refused the password, or older issues could not
+	// be cleared.
+	Warning string
 }
 
 // ConnectionInput is what the Connection section saves. ConfigPath "" means
@@ -54,9 +59,14 @@ type SettingsService struct {
 	keychain settings.Keychain
 
 	// mu serialises saves, so two saves never interleave their
-	// read-modify-write of the settings.
+	// read-modify-write of the settings. It also guards the fields below.
 	mu      sync.Mutex
 	loadErr error
+	// The Keychain is read once per account and again after a change, not
+	// on every view: each read runs /usr/bin/security and may prompt.
+	pwKnown   bool
+	pwAccount string
+	pwSaved   bool
 }
 
 // NewSettingsService returns a service that saves to stateDir, with envPath
@@ -82,8 +92,21 @@ func (s *SettingsService) view() SettingsView {
 		v.LoadError = s.loadErr.Error()
 	}
 	if cur.Username != "" && path != "" && s.keychain != nil {
-		pw, err := settings.Password(s.keychain, path)
-		v.HasPassword = err == nil && pw != ""
+		if !s.pwKnown || s.pwAccount != path {
+			pw, err := settings.Password(s.keychain, path)
+			s.pwKnown, s.pwAccount, s.pwSaved = true, path, err == nil && pw != ""
+		}
+		v.HasPassword = s.pwSaved
+	}
+	return v
+}
+
+// withWarning returns the view after a save that succeeded, noting what
+// went wrong after it (err may be nil).
+func (s *SettingsService) withWarning(err error) SettingsView {
+	v := s.view()
+	if err != nil {
+		v.Warning = err.Error()
 	}
 	return v
 }
@@ -91,7 +114,9 @@ func (s *SettingsService) view() SettingsView {
 // Save saves everything but the connection (config path and username,
 // which SaveConnection changes) and puts it into use: the poll interval,
 // crash-loop thresholds and retention apply straight away. Out-of-range
-// values are clamped; the returned view shows what was saved.
+// values are clamped; the returned view shows what was saved. Once the
+// file is written the save has happened: a later problem (clearing older
+// issues) comes back as the view's Warning, not as an error.
 func (s *SettingsService) Save(in settings.Settings) (SettingsView, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -102,15 +127,18 @@ func (s *SettingsService) Save(in settings.Settings) (SettingsView, error) {
 		return s.view(), err
 	}
 	s.loadErr = nil
-	if err := s.rt.ApplySettings(in, false); err != nil {
-		return s.view(), err
-	}
-	return s.view(), nil
+	return s.withWarning(s.rt.ApplySettings(in, false)), nil
 }
 
 // SaveConnection checks and saves the config path and credentials, then
 // reconnects with them. A config path that does not exist, or is not a
 // supervisord config Visor can read, is refused and nothing is saved.
+//
+// settings.json is written first, then the Keychain, so a Keychain failure
+// never leaves a password for settings that were not saved. The password
+// belongs to a config file: when the config changes, a saved password moves
+// with it; clearing the username (or SetPassword with "") removes it. A
+// problem after settings.json is written comes back as the view's Warning.
 func (s *SettingsService) SaveConnection(in ConnectionInput) (SettingsView, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -118,48 +146,94 @@ func (s *SettingsService) SaveConnection(in ConnectionInput) (SettingsView, erro
 	next.ConfigPath, next.Username = strings.TrimSpace(in.ConfigPath), strings.TrimSpace(in.Username)
 	if s.envPath != "" {
 		next.ConfigPath = s.rt.Settings().ConfigPath // VISOR_CONFIG wins; keep the saved one
+	} else if err := checkConfigPath(next.ConfigPath); err != nil {
+		return s.view(), err
 	}
-	if s.envPath == "" {
-		if err := checkConfigPath(next.ConfigPath); err != nil {
-			return s.view(), err
+	setting := in.SetPassword && in.Password != ""
+	if setting && next.Username == "" {
+		return s.view(), errors.New("enter the username that goes with the password")
+	}
+	oldAccount, _ := s.rt.Connection()
+	newAccount, findErr := s.accountFor(next)
+	if setting {
+		switch {
+		case s.keychain == nil:
+			return s.view(), errors.New("cannot save the password: the Keychain is not available")
+		case findErr != nil:
+			return s.view(), fmt.Errorf("cannot save the password: %w. Choose the config file first", findErr)
 		}
 	}
-	if in.SetPassword {
-		if in.Password != "" && next.Username == "" {
-			return s.view(), errors.New("enter the username that goes with the password")
-		}
-		if err := s.savePassword(next, in.Password); err != nil {
-			return s.view(), err
-		}
-	}
+
 	if err := settings.Save(s.stateDir, next); err != nil {
 		return s.view(), err
 	}
 	s.loadErr = nil
-	if err := s.rt.ApplySettings(next, true); err != nil {
-		return s.view(), err
+	var warn error
+	if s.keychain != nil {
+		warn = s.updatePassword(oldAccount, newAccount, next.Username, in.Password, setting, in.SetPassword)
+		s.pwKnown = false
 	}
-	return s.view(), nil
+	if err := s.rt.ApplySettings(next, true); err != nil {
+		warn = errors.Join(warn, err)
+	}
+	if warn != nil {
+		warn = fmt.Errorf("saved the connection, but %w", warn)
+	}
+	return s.withWarning(warn), nil
 }
 
-// savePassword stores password in the Keychain for the config that next
-// connects to.
-func (s *SettingsService) savePassword(next settings.Settings, password string) error {
-	if s.keychain == nil {
-		return errors.New("cannot save the password: the Keychain is not available")
+// accountFor is the Keychain account (config path) next connects with:
+// VISOR_CONFIG, the chosen config, or the auto-detected one.
+func (s *SettingsService) accountFor(next settings.Settings) (string, error) {
+	switch {
+	case s.envPath != "":
+		return s.envPath, nil
+	case next.ConfigPath != "":
+		return next.ConfigPath, nil
 	}
-	path := s.envPath
-	if path == "" {
-		path = next.ConfigPath
-	}
-	if path == "" { // auto-detect: the password belongs to the config found
-		d, err := config.Resolve("")
-		if err != nil {
-			return fmt.Errorf("cannot save the password: %w. Choose the config file first", err)
+	d, err := config.Resolve("")
+	return d.ConfigPath, err
+}
+
+// updatePassword brings the Keychain in line with a saved connection:
+// store a new password, remove it (asked to, or no username any more), or
+// move a saved one from the old config's account to the new one.
+func (s *SettingsService) updatePassword(oldAccount, newAccount, username, password string, setting, asked bool) error {
+	k := s.keychain
+	removeFrom := func(accounts ...string) error {
+		var errs []error
+		for _, a := range slices.Compact(accounts) {
+			if a != "" {
+				errs = append(errs, settings.SetPassword(k, a, ""))
+			}
 		}
-		path = d.ConfigPath
+		return errors.Join(errs...)
 	}
-	return settings.SetPassword(s.keychain, path, password)
+	switch {
+	case setting:
+		if err := settings.SetPassword(k, newAccount, password); err != nil {
+			return err
+		}
+		if oldAccount != newAccount {
+			return removeFrom(oldAccount)
+		}
+		return nil
+	case asked || username == "":
+		return removeFrom(oldAccount, newAccount)
+	case oldAccount == "" || oldAccount == newAccount:
+		return nil
+	}
+	pw, err := settings.Password(k, oldAccount)
+	if err != nil || pw == "" {
+		return err
+	}
+	if newAccount == "" {
+		return errors.New("cannot move the saved password: Visor has not found the new config. Enter the password again")
+	}
+	if err := settings.SetPassword(k, newAccount, pw); err != nil {
+		return err
+	}
+	return removeFrom(oldAccount)
 }
 
 // checkConfigPath refuses a chosen config that is missing, a folder, or

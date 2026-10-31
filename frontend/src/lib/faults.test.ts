@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { describeError, faultMessage } from './faults'
+import { RECONNECTING, describeError, faultMessage } from './faults'
 
 describe('faultMessage', () => {
   it.each([
@@ -28,6 +28,10 @@ describe('describeError', () => {
     expect(describeError(new Error('supervisord: unreachable: dial unix /x.sock: no such file'))).toBe(
       faultMessage('UNREACHABLE'),
     )
+  })
+  it('says a call cut short by a reconnect can be tried again', () => {
+    expect(describeError(new Error('reconnecting to supervisord: try again in a moment'))).toBe(RECONNECTING)
+    expect(describeError('cannot follow: context canceled')).toBe('cannot follow: context canceled')
   })
   it('passes other messages through', () => {
     expect(describeError(new Error('boom'))).toBe('boom')

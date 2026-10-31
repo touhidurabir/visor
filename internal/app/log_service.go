@@ -149,7 +149,7 @@ func (s *LogService) start(ctx context.Context, c logs.TailClient, process strin
 	first, err := t.Poll(pctx)
 	cancel()
 	if err != nil {
-		return "", wrap("follow the "+string(st)+" log of "+process, err)
+		return "", reconnecting(ctx, wrap("follow the "+string(st)+" log of "+process, err))
 	}
 
 	s.mu.Lock()
@@ -306,7 +306,7 @@ func (s *LogService) Save(process, stream string) (string, error) {
 	ctx, cancel := context.WithTimeout(ac.ctx, rpcTimeout)
 	defer cancel()
 	if err := saveLog(ctx, ac.client, process, st, path); err != nil {
-		return "", err
+		return "", reconnecting(ac.ctx, err)
 	}
 	return path, nil
 }

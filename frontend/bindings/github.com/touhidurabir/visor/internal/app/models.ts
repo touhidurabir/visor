@@ -236,6 +236,13 @@ export interface SettingsView {
      * the defaults are in use.
      */
     "LoadError": string;
+
+    /**
+     * Warning is set when a save succeeded but something after it did
+     * not: the Keychain refused the password, or older issues could not
+     * be cleared.
+     */
+    "Warning": string;
 }
 
 /**

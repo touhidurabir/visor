@@ -12,11 +12,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/zalando/go-keyring"
 
+	"github.com/touhidurabir/visor/internal/issues"
+	"github.com/touhidurabir/visor/internal/monitor"
 	"github.com/touhidurabir/visor/internal/settings"
 	"github.com/touhidurabir/visor/internal/supervisor"
 	"github.com/touhidurabir/visor/internal/supervisor/supervisortest"
@@ -459,5 +462,311 @@ func TestTransportAddress(t *testing.T) {
 		if got := transportAddress(tr); got != want {
 			t.Errorf("transportAddress(%#v) = %q, want %q", tr, got, want)
 		}
+	}
+}
+
+func TestReconnectAfterUserShutdownOpensNoUnreachable(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	rt, rec := startRuntime(t, confOf(inst), t.TempDir(), 50*time.Millisecond)
+	svc := NewServerService(rt)
+	waitOverview(t, svc, 5*time.Second, "reachable", func(ov OverviewView) bool { return ov.Server.Reachable })
+	if err := svc.ShutdownDaemon(); err != nil {
+		t.Fatal(err)
+	}
+	waitOverview(t, svc, 5*time.Second, "unreachable", func(ov OverviewView) bool { return !ov.Server.Reachable })
+	// The person checks the connection again (Settings or Doctor) while
+	// supervisord is down because they shut it down.
+	if _, err := svc.Reconnect(); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond) // ten polls: well past UnreachablePolls
+	for _, is := range rec.issuesOpened() {
+		if is.Kind == "unreachable" {
+			t.Fatalf("Reconnect after a user shutdown opened %+v", is)
+		}
+	}
+}
+
+func TestDismissRacingReconnectStaysDismissed(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Failer)
+	rt, rec := startRuntime(t, confOf(inst), t.TempDir(), 50*time.Millisecond)
+	svc := NewServerService(rt)
+	ov := waitOverview(t, svc, 10*time.Second, "an open issue", func(ov OverviewView) bool { return len(ov.Issues) == 1 })
+	id := ov.Issues[0].ID
+	// A Dismiss that picked up the tracker just before a rebuild finishes
+	// after it.
+	_, tracker, err := rt.issueStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Reconnect(); err != nil {
+		t.Fatal(err)
+	}
+	if err := tracker.Dismiss(id); err != nil {
+		t.Fatal(err)
+	}
+	n := len(rec.issuesOpened())
+	time.Sleep(300 * time.Millisecond) // the same failure is seen again on every poll
+	if open := svc.Overview().Issues; len(open) != 0 {
+		t.Errorf("open issues after dismissing = %+v, want none", open)
+	}
+	if got := rec.issuesOpened(); len(got) != n {
+		t.Errorf("the dismissed failure reopened: %+v", got[n:])
+	}
+}
+
+func TestCrashLoopCountSurvivesReconnect(t *testing.T) {
+	start := settings.Defaults()
+	start.ConfigPath = deadConf(t)
+	rt, _ := newRuntimeWith(t, RuntimeOptions{Settings: start, Interval: 50 * time.Millisecond})
+	restart := func() []issues.Issue {
+		t.Helper()
+		_, tracker, err := rt.issueStore()
+		if err != nil || tracker == nil {
+			t.Fatalf("tracker = %v, %v", tracker, err)
+		}
+		pi := supervisor.ProcessInfo{Name: "w", Group: "g", State: supervisor.StateStarting}
+		now := time.Now()
+		opened, _ := tracker.Apply(monitor.Update{
+			Snapshot: monitor.Snapshot{At: now, Reachable: true, Processes: []supervisor.ProcessInfo{pi}},
+			Events:   []monitor.Event{{Kind: monitor.StateChanged, At: now, Process: "g:w", From: supervisor.StateBackoff, To: supervisor.StateStarting, Info: pi}},
+		})
+		return opened
+	}
+	for range 4 { // one short of the default 5
+		if opened := restart(); len(opened) != 0 {
+			t.Fatalf("opened early: %+v", opened)
+		}
+	}
+	if err := rt.Reconnect(); err != nil {
+		t.Fatal(err)
+	}
+	opened := restart()
+	if len(opened) != 1 || opened[0].Kind != issues.KindCrashLoop {
+		t.Errorf("fifth restart after a reconnect opened %+v, want a crash loop", opened)
+	}
+}
+
+func TestActionCutByReconnectSaysSo(t *testing.T) {
+	rt, _ := newRuntimeWith(t, RuntimeOptions{ConfigPath: deadConf(t), Interval: 50 * time.Millisecond})
+	started := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- rt.act(expectation{}, func(ctx context.Context, _ *supervisor.Client) error {
+			close(started)
+			<-ctx.Done()
+			return fmt.Errorf("cannot start x: %w", ctx.Err())
+		})
+	}()
+	<-started
+	if err := rt.Reconnect(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, errReconnecting) || strings.Contains(err.Error(), "context canceled") {
+			t.Errorf("err = %v, want %v", err, errReconnecting)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the action did not end when the connection was rebuilt")
+	}
+}
+
+func TestReconnectingErr(t *testing.T) {
+	live, cancel := context.WithCancel(context.Background())
+	boom := errors.New("boom")
+	if got := reconnecting(live, boom); got != boom {
+		t.Errorf("live connection: %v, want the error unchanged", got)
+	}
+	if got := reconnecting(live, nil); got != nil {
+		t.Errorf("nil error: %v", got)
+	}
+	cancel()
+	if got := reconnecting(live, fmt.Errorf("x: %w", context.Canceled)); !errors.Is(got, errReconnecting) {
+		t.Errorf("ended connection: %v", got)
+	}
+}
+
+// countingKeychain is an in-memory Keychain that counts reads.
+type countingKeychain struct {
+	mu    sync.Mutex
+	items map[string]string
+	gets  int
+	fail  error // returned by every call when set
+}
+
+func (k *countingKeychain) Get(service, account string) (string, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.gets++
+	if k.fail != nil {
+		return "", k.fail
+	}
+	pw, ok := k.items[service+"\x00"+account]
+	if !ok {
+		return "", keyring.ErrNotFound
+	}
+	return pw, nil
+}
+
+func (k *countingKeychain) Set(service, account, secret string) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.fail != nil {
+		return k.fail
+	}
+	if k.items == nil {
+		k.items = map[string]string{}
+	}
+	k.items[service+"\x00"+account] = secret
+	return nil
+}
+
+func (k *countingKeychain) Delete(service, account string) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.fail != nil {
+		return k.fail
+	}
+	if _, ok := k.items[service+"\x00"+account]; !ok {
+		return keyring.ErrNotFound
+	}
+	delete(k.items, service+"\x00"+account)
+	return nil
+}
+
+func (k *countingKeychain) password(account string) (string, bool) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	pw, ok := k.items[settings.KeychainService+"\x00"+account]
+	return pw, ok
+}
+
+func (k *countingKeychain) reads() int {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.gets
+}
+
+func TestSaveConnectionMovesPasswordToNewConfig(t *testing.T) {
+	a, b := deadConf(t), deadConf(t)
+	stateDir := t.TempDir()
+	kc := &countingKeychain{}
+	start := settings.Defaults()
+	start.ConfigPath = a
+	rt, _ := newRuntimeWith(t, RuntimeOptions{StateDir: stateDir, Settings: start, Keychain: kc})
+	svc := NewSettingsService(rt, stateDir, "", kc, nil)
+	if _, err := svc.SaveConnection(ConnectionInput{ConfigPath: a, Username: "me", Password: "s3cret", SetPassword: true}); err != nil {
+		t.Fatal(err)
+	}
+	v, err := svc.SaveConnection(ConnectionInput{ConfigPath: b, Username: "me"})
+	if err != nil || v.Warning != "" {
+		t.Fatalf("SaveConnection to b = %+v, %v", v, err)
+	}
+	if pw, ok := kc.password(b); !ok || pw != "s3cret" {
+		t.Errorf("password for the new config = %q, %v; want it moved", pw, ok)
+	}
+	if _, ok := kc.password(a); ok {
+		t.Error("the old config's entry was left behind")
+	}
+	if !v.HasPassword || v.ConfigPath != b {
+		t.Errorf("view = %+v", v)
+	}
+}
+
+func TestClearingUsernameRemovesPassword(t *testing.T) {
+	conf := deadConf(t)
+	stateDir := t.TempDir()
+	kc := &countingKeychain{}
+	start := settings.Defaults()
+	start.ConfigPath = conf
+	rt, _ := newRuntimeWith(t, RuntimeOptions{StateDir: stateDir, Settings: start, Keychain: kc})
+	svc := NewSettingsService(rt, stateDir, "", kc, nil)
+	if _, err := svc.SaveConnection(ConnectionInput{ConfigPath: conf, Username: "me", Password: "s3cret", SetPassword: true}); err != nil {
+		t.Fatal(err)
+	}
+	v, err := svc.SaveConnection(ConnectionInput{ConfigPath: conf})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := kc.password(conf); ok || v.HasPassword || v.Settings.Username != "" {
+		t.Errorf("after clearing the username: entry kept = %v, view = %+v", ok, v)
+	}
+}
+
+func TestSettingsWrittenBeforeKeychain(t *testing.T) {
+	conf := deadConf(t)
+	stateDir := t.TempDir()
+	kc := &countingKeychain{fail: errors.New("keychain locked")}
+	start := settings.Defaults()
+	start.ConfigPath = deadConf(t) // never auto-detect this machine's supervisord
+	rt, _ := newRuntimeWith(t, RuntimeOptions{StateDir: stateDir, Settings: start})
+	svc := NewSettingsService(rt, stateDir, "", kc, nil)
+	v, err := svc.SaveConnection(ConnectionInput{ConfigPath: conf, Username: "me", Password: "s3cret", SetPassword: true})
+	if err != nil {
+		t.Fatalf("SaveConnection = %v; the settings were saved, so want a warning, not an error", err)
+	}
+	if !strings.Contains(v.Warning, "Keychain") {
+		t.Errorf("warning = %q, want it to name the Keychain", v.Warning)
+	}
+	if got, _ := settings.Load(stateDir); got.ConfigPath != conf || got.Username != "me" {
+		t.Errorf("settings.json = %+v, want the connection saved", got)
+	}
+	if v.Settings.Username != "me" || v.ConfigPath != conf {
+		t.Errorf("view = %+v", v)
+	}
+}
+
+func TestHasPasswordReadOnce(t *testing.T) {
+	conf := deadConf(t)
+	stateDir := t.TempDir()
+	kc := &countingKeychain{}
+	start := settings.Defaults()
+	start.ConfigPath, start.Username = conf, "me"
+	_ = kc.Set(settings.KeychainService, conf, "s3cret")
+	rt, _ := newRuntimeWith(t, RuntimeOptions{StateDir: stateDir, Settings: start})
+	svc := NewSettingsService(rt, stateDir, "", kc, nil)
+	for range 3 {
+		if !svc.Get().HasPassword {
+			t.Fatal("HasPassword = false")
+		}
+	}
+	if _, err := svc.Save(svc.Get().Settings); err != nil {
+		t.Fatal(err)
+	}
+	if n := kc.reads(); n != 1 {
+		t.Errorf("Keychain read %d times for three Gets and a Save, want once", n)
+	}
+	// A password change is read again.
+	if _, err := svc.SaveConnection(ConnectionInput{ConfigPath: conf, Username: "me", SetPassword: true}); err != nil {
+		t.Fatal(err)
+	}
+	if svc.Get().HasPassword {
+		t.Error("HasPassword after removing it")
+	}
+}
+
+func TestSaveWarnsWhenRetentionCannotCompact(t *testing.T) {
+	stateDir := t.TempDir()
+	start := settings.Defaults()
+	start.ConfigPath = deadConf(t)
+	rt, _ := newRuntimeWith(t, RuntimeOptions{StateDir: stateDir, Settings: start})
+	// Compaction rewrites issues.jsonl through issues.jsonl.tmp; a folder
+	// there makes it fail.
+	if err := os.Mkdir(filepath.Join(stateDir, "issues.jsonl.tmp"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewSettingsService(rt, stateDir, "", nil, nil)
+	in := svc.Get().Settings
+	in.RetentionDays = 30
+	v, err := svc.Save(in)
+	if err != nil {
+		t.Fatalf("Save = %v; the settings were saved, so want a warning", err)
+	}
+	if v.Settings.RetentionDays != 30 || v.Warning == "" {
+		t.Errorf("view = %+v, want retention 30 and a warning", v)
+	}
+	if got, _ := settings.Load(stateDir); got.RetentionDays != 30 {
+		t.Errorf("saved retention = %d", got.RetentionDays)
 	}
 }

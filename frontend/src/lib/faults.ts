@@ -12,6 +12,9 @@ const MESSAGES: Record<string, string> = {
   UNREACHABLE: 'Can’t reach supervisord. Check that it is running, then try again.',
 }
 
+/** Go's errReconnecting: the call ran on a connection that was rebuilt. */
+export const RECONNECTING = 'Reconnecting to supervisord… try again.'
+
 export function faultMessage(code: string): string {
   return MESSAGES[code] ?? `supervisord refused the request (${code}).`
 }
@@ -22,5 +25,6 @@ export function describeError(e: unknown): string {
   const fault = /xmlrpc fault \d+: ([A-Z_]+)/.exec(text)
   if (fault) return faultMessage(fault[1])
   if (/supervisord: unreachable/.test(text)) return faultMessage('UNREACHABLE')
+  if (/reconnecting to supervisord: try again/.test(text)) return RECONNECTING
   return text
 }

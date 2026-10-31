@@ -134,9 +134,18 @@ func (m *Monitor) Run(ctx context.Context) {
 
 // wait blocks until the next poll is due: a tick, a Poke, or a new
 // interval that the last poll (started at last) is already older than. It
-// returns false when ctx is done.
+// returns false when ctx is done. A new interval is taken before a tick
+// that may be due at the old one.
 func (m *Monitor) wait(ctx context.Context, ticker *time.Ticker, last time.Time) bool {
 	for {
+		select {
+		case <-m.retime:
+			if m.retimed(ticker, last) {
+				return true
+			}
+			continue
+		default:
+		}
 		select {
 		case <-ctx.Done():
 			return false
@@ -146,13 +155,19 @@ func (m *Monitor) wait(ctx context.Context, ticker *time.Ticker, last time.Time)
 			ticker.Reset(m.Interval())
 			return true
 		case <-m.retime:
-			interval := m.Interval()
-			ticker.Reset(interval)
-			if time.Since(last) >= interval {
+			if m.retimed(ticker, last) {
 				return true
 			}
 		}
 	}
+}
+
+// retimed resets ticker to the current interval and reports whether a poll
+// is due now (the last one started at least an interval ago).
+func (m *Monitor) retimed(ticker *time.Ticker, last time.Time) bool {
+	interval := m.Interval()
+	ticker.Reset(interval)
+	return time.Since(last) >= interval
 }
 
 // poll takes one snapshot. Each call gets its own timeout of twice the

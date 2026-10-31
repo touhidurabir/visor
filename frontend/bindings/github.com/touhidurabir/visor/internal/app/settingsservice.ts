@@ -38,7 +38,9 @@ export function Get(): $CancellablePromise<$models.SettingsView> {
  * Save saves everything but the connection (config path and username,
  * which SaveConnection changes) and puts it into use: the poll interval,
  * crash-loop thresholds and retention apply straight away. Out-of-range
- * values are clamped; the returned view shows what was saved.
+ * values are clamped; the returned view shows what was saved. Once the
+ * file is written the save has happened: a later problem (clearing older
+ * issues) comes back as the view's Warning, not as an error.
  */
 export function Save($in: settings$0.Settings): $CancellablePromise<$models.SettingsView> {
     return $Call.ByID(2092722765, $in);
@@ -48,6 +50,12 @@ export function Save($in: settings$0.Settings): $CancellablePromise<$models.Sett
  * SaveConnection checks and saves the config path and credentials, then
  * reconnects with them. A config path that does not exist, or is not a
  * supervisord config Visor can read, is refused and nothing is saved.
+ * 
+ * settings.json is written first, then the Keychain, so a Keychain failure
+ * never leaves a password for settings that were not saved. The password
+ * belongs to a config file: when the config changes, a saved password moves
+ * with it; clearing the username (or SetPassword with "") removes it. A
+ * problem after settings.json is written comes back as the view's Warning.
  */
 export function SaveConnection($in: $models.ConnectionInput): $CancellablePromise<$models.SettingsView> {
     return $Call.ByID(2142484833, $in);
