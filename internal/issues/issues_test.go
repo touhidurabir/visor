@@ -2,6 +2,7 @@ package issues
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1434,5 +1435,45 @@ func TestDeletedIssueDoesNotReopenSameFailure(t *testing.T) {
 	again := fatalInfo(c.now().Add(-10*time.Second), c.now().Add(-5*time.Second))
 	if o, _ := tr.Apply(change(c.now(), supervisor.StateBackoff, supervisor.StateFatal, again)); len(o) != 1 {
 		t.Fatalf("a new failure: opened %+v", o)
+	}
+}
+
+func TestMarkNotified(t *testing.T) {
+	tr, s, c := newTracker(t, nil)
+	opened, _ := tr.Apply(change(c.now(), supervisor.StateBackoff, supervisor.StateFatal, info(0)))
+	if len(opened) != 1 || opened[0].Notified {
+		t.Fatalf("opened = %+v", opened)
+	}
+	id := opened[0].ID
+	if err := tr.MarkNotified(id); err != nil {
+		t.Fatal(err)
+	}
+	if open := tr.Open(); len(open) != 1 || !open[0].Notified {
+		t.Fatalf("open = %+v", open)
+	}
+	got, _ := s.Issues(Filter{})
+	if len(got) != 1 || !got[0].Notified || got[0].Status != StatusOpen {
+		t.Fatalf("store = %+v", got)
+	}
+	// A reopened store keeps it.
+	s2, err := OpenStore(s.dir, 90*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s2.Issues(Filter{}); len(got) != 1 || !got[0].Notified {
+		t.Fatalf("reopened store = %+v", got)
+	}
+	// Closing keeps it, and a closed or unknown issue is not open.
+	if err := tr.Resolve(id); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Issues(Filter{}); len(got) != 1 || !got[0].Notified || got[0].Status != StatusResolvedUser {
+		t.Fatalf("after resolve = %+v", got)
+	}
+	if err := tr.MarkNotified(id); !errors.Is(err, ErrNotOpen) {
+		t.Errorf("MarkNotified(closed) = %v, want ErrNotOpen", err)
+	}
+	if err := tr.MarkNotified("unknown"); !errors.Is(err, ErrNotOpen) {
+		t.Errorf("MarkNotified(unknown) = %v, want ErrNotOpen", err)
 	}
 }

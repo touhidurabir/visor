@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../bindings/github.com/touhidurabir/visor/internal/app', () => ({ SettingsService: { Get: vi.fn() } }))
 
-import { LIMITS, clampNote, minutesToNs, nsToMinutes, nsToSeconds, retentionChange, retentionConfirm, secondsToNs, typedNumber } from './settings'
+import { LIMITS, clampNote, minutesToNs, notifyPermission, nsToMinutes, nsToSeconds, retentionChange, retentionConfirm, secondsToNs, typedNumber } from './settings'
 
 describe('unit conversions', () => {
   it('turns nanoseconds into seconds and back', () => {
@@ -78,5 +78,17 @@ describe('retentionChange (R27)', () => {
       message: 'This can’t be undone.',
       confirmLabel: 'Delete older issues',
     })
+  })
+})
+
+describe('notifyPermission', () => {
+  it('words each permission', () => {
+    expect(notifyPermission('allowed')).toEqual({ text: 'Allowed', cls: 'running' })
+    expect(notifyPermission('denied')).toEqual({ text: 'Off in System Settings — open System Settings → Notifications → Visor', cls: 'failing' })
+    expect(notifyPermission('unavailable')).toEqual({ text: 'Not available in this build', cls: 'stopped' })
+  })
+  it('says it is checking before the answer comes', () => {
+    expect(notifyPermission('')).toEqual({ text: 'Checking…', cls: 'stopped' })
+    expect(notifyPermission('something new')).toEqual({ text: 'Checking…', cls: 'stopped' })
   })
 })

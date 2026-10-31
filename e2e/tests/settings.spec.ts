@@ -54,4 +54,13 @@ test.describe('settings', () => {
     await after.setChecked(was)
     await expect(page.getByText('All changes saved')).toBeVisible()
   })
+
+  test('notifications say the server build cannot show them', async ({ page }) => {
+    await page.goto('/#/settings')
+    const card = page.getByRole('group', { name: 'Notifications' })
+    await expect(card.getByTestId('notify-permission')).toHaveText('Not available in this build')
+    await card.getByRole('button', { name: 'Send a test notification' }).click()
+    await expect(page.getByText(/aren't available in this build\. Run the packaged Visor\.app/)).toBeVisible()
+    await expect(card.getByRole('button', { name: 'Send a test notification' })).toBeEnabled()
+  })
 })

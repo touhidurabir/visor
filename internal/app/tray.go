@@ -17,6 +17,7 @@ import (
 const (
 	RouteMain     = "#/"
 	RouteSettings = "#/settings"
+	RouteIssues   = "#/issues"
 	routeTray     = "#/tray"
 )
 

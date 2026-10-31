@@ -80,3 +80,22 @@ export async function loadSettings(): Promise<SettingsView> {
   currentSettings.value = v
   return v
 }
+
+/** How macOS treats Visor's notifications (NotifyService.NotificationStatus). */
+export type NotifyPermission = 'allowed' | 'denied' | 'unavailable' | ''
+
+/**
+ * notifyPermission words the notification permission for Settings, with
+ * the badge style to show it in. '' means it is still being checked.
+ */
+export function notifyPermission(status: string): { text: string; cls: 'running' | 'failing' | 'stopped' } {
+  switch (status) {
+    case 'allowed':
+      return { text: 'Allowed', cls: 'running' }
+    case 'denied':
+      return { text: 'Off in System Settings — open System Settings → Notifications → Visor', cls: 'failing' }
+    case 'unavailable':
+      return { text: 'Not available in this build', cls: 'stopped' }
+  }
+  return { text: 'Checking…', cls: 'stopped' }
+}

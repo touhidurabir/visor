@@ -384,6 +384,22 @@ func (t *Tracker) ResolveMany(ids []string) (int, error) {
 	return len(closed), nil
 }
 
+// MarkNotified records that a notification was shown for an open issue.
+// It returns ErrNotOpen when the issue is unknown or already closed.
+func (t *Tracker) MarkNotified(id string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	is, ok := t.open[id]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrNotOpen, id)
+	}
+	if is.Notified {
+		return nil
+	}
+	is.Notified = true
+	return t.store.putIssue(*is)
+}
+
 func (t *Tracker) closeByID(id string, st Status) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()

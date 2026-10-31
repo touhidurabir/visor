@@ -4,8 +4,8 @@
 // "Apply", because lowering it deletes history (R27: it asks first).
 // Everything else saves as it changes and applies straight away; Go clamps
 // out-of-range values and the page shows what it kept.
-import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { ServerService, SettingsService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { NotifyService, ServerService, SettingsService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { ConnectionInput, SettingsView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { Settings } from '../../bindings/github.com/touhidurabir/visor/internal/settings'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
@@ -20,6 +20,7 @@ import {
   currentSettings,
   loadSettings,
   minutesToNs,
+  notifyPermission,
   nsToMinutes,
   nsToSeconds,
   retentionChange,
@@ -96,12 +97,15 @@ watch(appearance, (a) => {
 })
 
 onMounted(async () => {
+  window.addEventListener('focus', checkPermission)
+  void checkPermission()
   try {
     adopt(await loadSettings())
   } catch (e) {
     loadError.value = describeError(e)
   }
 })
+onUnmounted(() => window.removeEventListener('focus', checkPermission))
 
 // --- Connection ---------------------------------------------------------
 
@@ -291,6 +295,33 @@ function setNotify(key: NotifyKey, on: boolean) {
   save((next) => (next.notify[key] = on))
 }
 
+// Whether macOS shows Visor's notifications. Checked again when the window
+// comes back to the front, e.g. from System Settings.
+const permission = ref('')
+const permissionView = computed(() => notifyPermission(permission.value))
+const testBusy = ref(false)
+
+async function checkPermission() {
+  try {
+    permission.value = await NotifyService.NotificationStatus()
+  } catch {
+    permission.value = 'unavailable'
+  }
+}
+
+async function sendTest() {
+  testBusy.value = true
+  try {
+    await NotifyService.SendTestNotification()
+    showToast('Sent a test notification')
+  } catch (e) {
+    showToast(describeError(e), 'error')
+  } finally {
+    testBusy.value = false
+    void checkPermission()
+  }
+}
+
 const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
   { key: 'fatal', label: 'A process can’t start (FATAL)' },
   { key: 'unexpectedExit', label: 'A process exits unexpectedly' },
@@ -461,6 +492,16 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
               {{ t.label }}
             </label>
           </fieldset>
+          <div class="row">
+            <div class="what">
+              <span class="name">macOS permission</span>
+              <p class="hint">Visor asks once, the first time it runs.</p>
+            </div>
+            <div class="ctl">
+              <span :class="['badge', 'wrap', permissionView.cls]" data-testid="notify-permission"><span class="dot" aria-hidden="true" />{{ permissionView.text }}</span>
+              <button type="button" class="btn" :disabled="testBusy" @click="sendTest">Send a test notification</button>
+            </div>
+          </div>
         </div>
 
           </div>
@@ -593,6 +634,7 @@ input.num { width: 72px; text-align: right; }
 .btn.primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
 .btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
 .badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.badge.wrap { white-space: normal; }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .running { background: var(--running-bg); color: var(--running-fg); }
 .running .dot { background: var(--running-dot); }

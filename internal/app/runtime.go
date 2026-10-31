@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,6 +18,7 @@ import (
 	"github.com/touhidurabir/visor/internal/config"
 	"github.com/touhidurabir/visor/internal/issues"
 	"github.com/touhidurabir/visor/internal/monitor"
+	"github.com/touhidurabir/visor/internal/notify"
 	"github.com/touhidurabir/visor/internal/settings"
 	"github.com/touhidurabir/visor/internal/supervisor"
 )
@@ -58,6 +60,9 @@ const (
 	// exitLineSlack is how far an exit line's time may be from the
 	// process's stop time (whole seconds) and still be that exit.
 	exitLineSlack = 2 * time.Second
+	// notifyWindow is how long after a notification about a process (or
+	// supervisord) another of the same kind about it is held back.
+	notifyWindow = 60 * time.Second
 )
 
 // noteNotHere closes the issues of processes that the supervisord Visor
@@ -101,6 +106,9 @@ type RuntimeOptions struct {
 	// Emit sends an event to the frontend; nil drops events. WailsEmit in
 	// the app, a recorder in tests.
 	Emit func(name string, data any)
+	// Notifier shows a native notification for each new issue that the
+	// notification settings and watched configs allow. nil sends none.
+	Notifier notify.Sender
 }
 
 // reconnectWait bounds how long Reconnect waits for the first poll.
@@ -155,6 +163,11 @@ type Runtime struct {
 	pruneAbsent bool
 
 	wg sync.WaitGroup
+
+	// limiter holds back repeat notifications; sends counts notifications
+	// in flight, which Stop waits for.
+	limiter *notify.Limiter
+	sends   sync.WaitGroup
 }
 
 // NewRuntime returns a Runtime that does nothing until Start.
@@ -170,7 +183,10 @@ func NewRuntime(o RuntimeOptions) *Runtime {
 	if o.Interval > 0 {
 		prefs.PollInterval = o.Interval
 	}
-	return &Runtime{opts: o, prefs: prefs, watch: newWatchStore(o.StateDir), ctx: context.Background()}
+	return &Runtime{
+		opts: o, prefs: prefs, watch: newWatchStore(o.StateDir), ctx: context.Background(),
+		limiter: notify.NewLimiter(notifyWindow),
+	}
 }
 
 // Start opens the issue store, connects and starts polling. A missing
@@ -197,6 +213,7 @@ func (r *Runtime) Stop() {
 	defer r.life.Unlock()
 	r.stopped = true
 	r.disconnect()
+	r.sends.Wait() // no poll is left to start another
 }
 
 // Reconnect drops the connection and builds a new one from the current
@@ -517,6 +534,42 @@ func (r *Runtime) handle(u monitor.Update) {
 	r.emitOverview()
 	for _, is := range opened {
 		r.opts.Emit(EventIssueOpened, toIssueView(is))
+	}
+	r.notifyOpened(opened, tracker)
+}
+
+// notifyOpened shows a notification for each newly opened issue that the
+// settings and watched configs allow, at most one per process and kind
+// every notifyWindow. Sending happens in the background, so a slow
+// notification centre never holds up the poll loop; a sent notification
+// marks its issue Notified and refreshes the overview.
+func (r *Runtime) notifyOpened(opened []issues.Issue, tracker *issues.Tracker) {
+	sender := r.opts.Notifier
+	if sender == nil || len(opened) == 0 {
+		return
+	}
+	r.mu.Lock()
+	prefs := r.prefs.Notify
+	r.mu.Unlock()
+	now := time.Now()
+	for _, is := range opened {
+		if !notify.ShouldNotify(is, prefs, r.watch.watched(is.Config)) || !r.limiter.Allow(is, now) {
+			continue
+		}
+		msg := notify.Compose(is)
+		r.sends.Add(1)
+		go func() {
+			defer r.sends.Done()
+			if err := sender.Send(msg); err != nil {
+				if !errors.Is(err, notify.ErrUnavailable) && !errors.Is(err, notify.ErrNotAllowed) {
+					log.Printf("visor: cannot show the notification for %s: %v", is.ID, err)
+				}
+				return
+			}
+			if tracker != nil && tracker.MarkNotified(is.ID) == nil {
+				r.emitOverview()
+			}
+		}()
 	}
 }
 
