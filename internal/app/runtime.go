@@ -904,10 +904,11 @@ func (r *Runtime) groupsInFile(path string) ([]string, error) {
 }
 
 // markAllLoaded records every include file, and every file supervisord
-// had loaded before, as what supervisord now runs (after a daemon restart).
+// had loaded before (including ones since deleted), as what supervisord
+// now runs: after a daemon restart, or after applying every change.
 func (r *Runtime) markAllLoaded() error {
 	r.mu.Lock()
-	d, watcher, old := r.d, r.watcher, r.inv
+	d, watcher, old, removed := r.d, r.watcher, r.inv, slices.Clone(r.changes.Removed)
 	r.mu.Unlock()
 	if watcher == nil {
 		return nil
@@ -916,11 +917,11 @@ func (r *Runtime) markAllLoaded() error {
 	if err != nil {
 		return err
 	}
-	var paths []string
+	paths := removed
 	for _, f := range append(old.Files, inv.Files...) {
 		paths = append(paths, f.Path)
 	}
-	return watcher.MarkLoaded(paths...)
+	return r.markLoaded(paths)
 }
 
 // loadedSnapshot is the content Visor believes supervisord runs for path.

@@ -218,6 +218,29 @@ func (s *ServerService) CheckForChanges() (supervisor.ConfigDiff, error) {
 	return diff, err
 }
 
+// ApplyChanges applies supervisord's re-read config (supervisorctl update):
+// changed groups restart, added ones are added (and start if autostart),
+// removed ones stop and go. groups limits it to those groups; nil applies
+// every change. The files applied are recorded as loaded, which clears
+// their "changed" badge. Per-group failures are in the result's Errors.
+// An error means nothing was applied (no connection, or supervisord could
+// not re-read its config), unless it says otherwise.
+func (s *ServerService) ApplyChanges(groups []string) (ApplyResultView, error) {
+	res, err := s.rt.applyChanges(groups)
+	return toApplyResultView(res), err
+}
+
+// RemoveFromSupervisor takes a config file out of supervisord: it stops
+// the file's processes, moves the file into Visor's backups (where
+// "Restore a backup…" can bring it back), and removes its groups from
+// supervisord, so a later update does not add them again. It never
+// deletes the file outright, and stops nothing when the file cannot be
+// moved (a folder Visor may not write).
+func (s *ServerService) RemoveFromSupervisor(path string) (ApplyResultView, error) {
+	res, err := s.rt.removeFromSupervisor(path)
+	return toApplyResultView(res), err
+}
+
 // RestartDaemon restarts supervisord, which re-reads every config file and
 // restarts every process.
 func (s *ServerService) RestartDaemon() error {

@@ -6,6 +6,17 @@
 import * as settings$0 from "../settings/models.js";
 
 /**
+ * ApplyResultView is the outcome of applying config changes: the groups
+ * supervisord added, changed and removed, and any per-group errors.
+ */
+export interface ApplyResultView {
+    "Added": string[] | null;
+    "Changed": string[] | null;
+    "Removed": string[] | null;
+    "Errors": string[] | null;
+}
+
+/**
  * ConfigDetailView is the config detail page: the config with its live
  * processes, the paths it refers to, each process's log files and, when a
  * process is failing, its last error.
