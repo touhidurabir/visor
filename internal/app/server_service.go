@@ -37,6 +37,15 @@ func (s *ServerService) ServiceShutdown() error {
 	return nil
 }
 
+// Reconnect drops the connection to supervisord and connects again with
+// the current settings, re-reading the config. It waits for the first poll
+// (a few seconds at most) and returns the overview after it, which says
+// whether supervisord answered. Doctor's "Check again" calls it.
+func (s *ServerService) Reconnect() (OverviewView, error) {
+	err := s.rt.Reconnect()
+	return s.rt.Overview(), err
+}
+
 // Overview returns the current dashboard view. The same view is pushed as
 // the visor:overview event after every poll and action.
 func (s *ServerService) Overview() OverviewView { return s.rt.Overview() }

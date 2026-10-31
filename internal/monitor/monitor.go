@@ -38,8 +38,9 @@ const (
 // subscribers can never block it.
 type Monitor struct {
 	src      Source
-	interval time.Duration
+	interval atomic.Int64 // time.Duration; see SetInterval
 	poke     chan struct{}
+	retime   chan struct{} // SetInterval wakes Run to reset its ticker
 	started  atomic.Bool
 
 	mu     sync.Mutex
@@ -51,14 +52,35 @@ type Monitor struct {
 // New returns a monitor that polls src every interval (2s if interval <= 0).
 // Nothing is polled until Run is called.
 func New(src Source, interval time.Duration) *Monitor {
-	if interval <= 0 {
-		interval = DefaultInterval
+	m := &Monitor{
+		src:    src,
+		poke:   make(chan struct{}, 1),
+		retime: make(chan struct{}, 1),
+		subs:   make(map[chan Update]struct{}),
 	}
-	return &Monitor{
-		src:      src,
-		interval: interval,
-		poke:     make(chan struct{}, 1),
-		subs:     make(map[chan Update]struct{}),
+	m.storeInterval(interval)
+	return m
+}
+
+func (m *Monitor) storeInterval(d time.Duration) {
+	if d <= 0 {
+		d = DefaultInterval
+	}
+	m.interval.Store(int64(d))
+}
+
+// Interval is the current poll interval.
+func (m *Monitor) Interval() time.Duration { return time.Duration(m.interval.Load()) }
+
+// SetInterval changes the poll interval (the default if d <= 0), also while
+// Run is running: if the last poll is already d ago, the next one is
+// straight away; otherwise polls continue every d from now. It never
+// blocks.
+func (m *Monitor) SetInterval(d time.Duration) {
+	m.storeInterval(d)
+	select {
+	case m.retime <- struct{}{}:
+	default:
 	}
 }
 
@@ -71,14 +93,16 @@ func (m *Monitor) Run(ctx context.Context) {
 	}
 	defer m.closeAll()
 
-	ticker := time.NewTicker(m.interval)
+	ticker := time.NewTicker(m.Interval())
 	defer ticker.Stop()
 	var (
+		last    time.Time                // when the last poll started
 		prev    Snapshot                 // last published snapshot
 		known   []supervisor.ProcessInfo // processes from the last reachable poll
 		reached bool                     // some poll has reached supervisord
 	)
 	for {
+		last = time.Now()
 		next := m.poll(ctx)
 		if ctx.Err() != nil {
 			return // the poll was cut short by our own cancellation
@@ -102,12 +126,31 @@ func (m *Monitor) Run(ctx context.Context) {
 		prev = next
 		m.publish(Update{Snapshot: next, Events: events})
 
+		if !m.wait(ctx, ticker, last) {
+			return
+		}
+	}
+}
+
+// wait blocks until the next poll is due: a tick, a Poke, or a new
+// interval that the last poll (started at last) is already older than. It
+// returns false when ctx is done.
+func (m *Monitor) wait(ctx context.Context, ticker *time.Ticker, last time.Time) bool {
+	for {
 		select {
 		case <-ctx.Done():
-			return
+			return false
 		case <-ticker.C:
+			return true
 		case <-m.poke:
-			ticker.Reset(m.interval)
+			ticker.Reset(m.Interval())
+			return true
+		case <-m.retime:
+			interval := m.Interval()
+			ticker.Reset(interval)
+			if time.Since(last) >= interval {
+				return true
+			}
 		}
 	}
 }
@@ -115,7 +158,7 @@ func (m *Monitor) Run(ctx context.Context) {
 // poll takes one snapshot. Each call gets its own timeout of twice the
 // interval (at least 1s), so a hung supervisord cannot stall the loop.
 func (m *Monitor) poll(ctx context.Context) Snapshot {
-	timeout := max(2*m.interval, minCallTimeout)
+	timeout := max(2*m.Interval(), minCallTimeout)
 
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	state, err := m.src.GetState(callCtx)

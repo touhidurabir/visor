@@ -156,6 +156,21 @@ func (t *Tracker) byUser(proc string, now time.Time) bool {
 	return false
 }
 
+// Rules returns the rules in use.
+func (t *Tracker) Rules() Rules {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.rules
+}
+
+// SetRules changes the rules from the next Apply on. Restarts already
+// counted stay counted, judged by the new window.
+func (t *Tracker) SetRules(r Rules) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.rules = r
+}
+
 // Apply records the update's transitions, opens and closes issues, and
 // returns what changed. Store write failures do not stop tracking.
 func (t *Tracker) Apply(u monitor.Update) (opened, closed []Issue) {

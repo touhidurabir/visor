@@ -40,6 +40,9 @@ const (
 	maxPollFailures = 5
 )
 
+// errReconnected ends a follow whose connection was rebuilt.
+const errReconnected = "Stopped following because Visor reconnected to supervisord. Retry to follow the log again."
+
 // LogChunkView is new output from one follow (ID from Follow). The first
 // chunk is the last 64 KiB of the log. Truncated means the log was cleared
 // or rotated and Text starts the new log; Skipped means some output was
@@ -231,6 +234,13 @@ func (s *LogService) run(ctx context.Context, f *follow, t *logs.Tailer, first l
 	for {
 		select {
 		case <-ctx.Done():
+			// Still registered: neither Unfollow, a replacing Follow nor
+			// shutdown stopped it, so the Runtime's connection ended
+			// (Reconnect or a settings change). Say so; the frontend
+			// offers Retry, which follows over the new connection.
+			if s.forget(f) {
+				s.emit(EventLog, LogChunkView{ID: f.id, Error: errReconnected})
+			}
 			return
 		case <-tick.C:
 		}
@@ -253,13 +263,16 @@ func (s *LogService) run(ctx context.Context, f *follow, t *logs.Tailer, first l
 	}
 }
 
-// forget drops f from the running follows (it is stopping by itself).
-func (s *LogService) forget(f *follow) {
+// forget drops f from the running follows (it is stopping by itself) and
+// reports whether it was still registered.
+func (s *LogService) forget(f *follow) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if i := slices.Index(s.follows, f); i >= 0 {
 		s.follows = slices.Delete(s.follows, i, i+1)
+		return true
 	}
+	return false
 }
 
 // Save asks where to save a process's stdout or stderr log (the newest

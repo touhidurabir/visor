@@ -5,6 +5,7 @@ import ConfigDetail from '../views/ConfigDetail.vue'
 import Dashboard from '../views/Dashboard.vue'
 import Issues from '../views/Issues.vue'
 import Placeholder from '../views/Placeholder.vue'
+import Settings from '../views/Settings.vue'
 import Tray from '../views/Tray.vue'
 
 export const routes: RouteRecordRaw[] = [
@@ -13,7 +14,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/issues', name: 'issues', component: Issues, meta: { title: 'Issues' } },
   { path: '/new', name: 'new', component: Placeholder, meta: { title: 'Add new' } },
   { path: '/new/form', name: 'new-form', component: Placeholder, meta: { title: 'Add new' } },
-  { path: '/settings', name: 'settings', component: Placeholder, meta: { title: 'Settings' } },
+  { path: '/settings', name: 'settings', component: Settings, meta: { title: 'Settings' } },
   { path: '/doctor', name: 'doctor', component: Placeholder, meta: { title: 'Doctor' } },
   { path: '/tray', name: 'tray', component: Tray, meta: { bare: true } },
   { path: '/:rest(.*)*', redirect: '/' },

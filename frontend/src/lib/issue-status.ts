@@ -39,6 +39,3 @@ export function lasted(i: IssueView, nowMs: number): string {
   if (i.Status === 'open' || i.ClosedMs <= 0) return `${formatDuration(nowMs - i.OpenedMs)} so far`
   return formatDuration(i.ClosedMs - i.OpenedMs)
 }
-
-/** Days finished issues are kept; Task 19 replaces this with the setting. */
-export const ISSUE_RETENTION_DAYS = 90

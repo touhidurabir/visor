@@ -10,9 +10,10 @@ import type { IssueCounts, IssueView } from '../../bindings/github.com/touhidura
 import { VisorIssueOpened } from '../../bindings/events'
 import { describeError } from '../lib/faults'
 import { historyTime } from '../lib/format'
-import { ISSUE_RETENTION_DAYS, issueKind, lasted, statusLabel } from '../lib/issue-status'
+import { issueKind, lasted, statusLabel } from '../lib/issue-status'
 import { configRoute } from '../lib/links'
 import { useOverview } from '../lib/overview'
+import { currentSettings, loadSettings } from '../lib/settings'
 import { showToast } from '../lib/toast'
 
 type Filter = 'open' | 'resolved' | 'all'
@@ -43,19 +44,26 @@ let offOpened: (() => void) | undefined
 async function load(keep = 0) {
   const mine = ++seq
   const limit = Math.max(PAGE, keep)
+  // The list and the counts load independently: failing counts only leave
+  // the filter labels stale, never blank the list.
+  const counted = IssueService.Counts().then(
+    (c) => {
+      if (mine === seq) counts.value = c
+    },
+    () => {}, // keep the last counts
+  )
   try {
-    const [res, c] = await Promise.all([IssueService.List(filter.value, 0, '', limit, query.value), IssueService.Counts()])
-    const list = res ?? []
+    const list = (await IssueService.List(filter.value, 0, '', limit, query.value)) ?? []
     if (mine !== seq) return
     rows.value = list
     hasMore.value = list.length >= limit
-    counts.value = c
     loadError.value = ''
   } catch (e) {
     if (mine === seq) loadError.value = describeError(e)
   } finally {
     if (mine === seq) loaded.value = true
   }
+  await counted
 }
 
 async function older() {
@@ -103,6 +111,7 @@ watch(
 
 onMounted(() => {
   void load()
+  loadSettings().catch(() => {}) // without it, the retention line stays hidden
   tick = setInterval(() => (nowMs.value = Date.now()), 10_000)
   offOpened = Events.On(VisorIssueOpened, () => void refresh())
 })
@@ -200,7 +209,10 @@ const empty = computed(() => {
         </div>
       </div>
     </div>
-    <p class="muted">Kept on this Mac for {{ ISSUE_RETENTION_DAYS }} days.</p>
+    <p v-if="currentSettings" class="muted">
+      Resolved issues are kept on this Mac for {{ currentSettings.Settings.retentionDays }} days.
+      <RouterLink to="/settings">Change in Settings</RouterLink>
+    </p>
   </section>
 </template>
 
@@ -225,6 +237,7 @@ input[type='search'] { min-height: 32px; width: 200px; box-sizing: border-box; p
 .msg { color: var(--stopped-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .soft { color: var(--stopped-fg); }
 .muted { margin: 0; color: var(--text-muted); }
+.muted a { color: var(--accent-text); }
 .none { margin: 0; padding: 14px; border-top: 1px solid var(--line); color: var(--text-muted); }
 .acts { display: flex; gap: 6px; justify-content: flex-end; }
 .foot { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-top: 1px solid var(--line); color: var(--text-muted); }

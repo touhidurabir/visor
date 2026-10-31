@@ -4,17 +4,20 @@
 import * as IssueService from "./issueservice.js";
 import * as LogService from "./logservice.js";
 import * as ServerService from "./serverservice.js";
+import * as SettingsService from "./settingsservice.js";
 import * as ShellService from "./shellservice.js";
 export {
     IssueService,
     LogService,
     ServerService,
+    SettingsService,
     ShellService
 };
 
 export type {
     ConfigDetailView,
     ConfigView,
+    ConnectionInput,
     IssueCounts,
     IssueView,
     LastErrorView,
@@ -24,6 +27,7 @@ export type {
     ProcessLogView,
     ProcessView,
     ServerView,
+    SettingsView,
     StatsView,
     TransitionView
 } from "./models.js";

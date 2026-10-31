@@ -60,6 +60,11 @@ func New(t Transport, opts ...Option) *Client {
 	return c
 }
 
+// Close drops the connections kept open for reuse. Calls made after Close
+// still work (they open a new connection); Close is for when the Client is
+// no longer used, so it leaves nothing running behind.
+func (c *Client) Close() { c.http.CloseIdleConnections() }
+
 // call runs a quick method under the default timeout.
 func (c *Client) call(ctx context.Context, method string, params ...any) (any, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)

@@ -102,7 +102,7 @@ func find(s Snapshot, fullName string) (supervisor.ProcessInfo, bool) {
 
 func TestNewDefaultsInterval(t *testing.T) {
 	for _, d := range []time.Duration{0, -time.Second} {
-		if got := New(&fakeSource{}, d).interval; got != 2*time.Second {
+		if got := New(&fakeSource{}, d).Interval(); got != 2*time.Second {
 			t.Errorf("New(%v).interval = %v, want 2s", d, got)
 		}
 	}
@@ -471,5 +471,35 @@ func restartBetweenPolls(t *testing.T) {
 	e := u.Events[0]
 	if e.Kind != Restarted || e.Process != "sleeper:sleeper" || e.To != supervisor.StateRunning || e.Info.PID == before.PID {
 		t.Errorf("event = %+v, want sleeper Restarted with a new pid", e)
+	}
+}
+
+func TestSetIntervalChangesCadence(t *testing.T) {
+	src := &fakeSource{procs: func(int) ([]supervisor.ProcessInfo, error) { return nil, nil }}
+	m := New(src, time.Hour)
+	ch, unsub := m.Subscribe()
+	defer unsub()
+	start(t, m)
+	recv(t, ch, 5*time.Second) // the immediate first poll; the next is an hour away
+
+	m.SetInterval(20 * time.Millisecond)
+	if got := m.Interval(); got != 20*time.Millisecond {
+		t.Errorf("Interval = %v, want 20ms", got)
+	}
+	for range 3 { // polls resume at the new cadence without a Poke
+		recv(t, ch, 5*time.Second)
+	}
+
+	m.SetInterval(time.Hour)
+	time.Sleep(50 * time.Millisecond) // let a poll that was already due finish
+	n := src.Calls()
+	time.Sleep(150 * time.Millisecond)
+	if got := src.Calls(); got != n {
+		t.Errorf("polls after slowing down = %d, want %d", got, n)
+	}
+
+	m.SetInterval(0) // <= 0 means the default
+	if got := m.Interval(); got != DefaultInterval {
+		t.Errorf("Interval after SetInterval(0) = %v, want %v", got, DefaultInterval)
 	}
 }

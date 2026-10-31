@@ -71,6 +71,16 @@ export function Overview(): $CancellablePromise<$models.OverviewView> {
 }
 
 /**
+ * Reconnect drops the connection to supervisord and connects again with
+ * the current settings, re-reading the config. It waits for the first poll
+ * (a few seconds at most) and returns the overview after it, which says
+ * whether supervisord answered. Doctor's "Check again" calls it.
+ */
+export function Reconnect(): $CancellablePromise<$models.OverviewView> {
+    return $Call.ByID(2689955699);
+}
+
+/**
  * Restart stops a process if it is running, then starts it.
  */
 export function Restart(name: string): $CancellablePromise<void> {

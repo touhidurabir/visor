@@ -185,6 +185,12 @@ func (s *Store) readIssues() ([]Issue, error) {
 	return out, nil
 }
 
+// Compact drops issues closed, and history recorded, longer ago than
+// retention, as OpenStore does. Open issues are always kept.
+func (s *Store) Compact(retention time.Duration) error {
+	return s.compact(time.Now().Add(-retention))
+}
+
 func (s *Store) compact(cutoff time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

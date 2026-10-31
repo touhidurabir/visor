@@ -1127,3 +1127,43 @@ func TestStoreCounts(t *testing.T) {
 		t.Errorf("Counts = open %d, closed %d, %v; want 1, 3", o, c, err)
 	}
 }
+
+func TestSetRulesAppliesToLaterRestarts(t *testing.T) {
+	tr, _, c := newTracker(t, nil)
+	r := DefaultRules
+	r.CrashLoopRestarts, r.CrashLoopWindow = 3, 2*time.Minute
+	tr.SetRules(r)
+	if got := tr.Rules(); got != r {
+		t.Errorf("Rules = %+v, want %+v", got, r)
+	}
+	var loops []Issue
+	for range 3 {
+		opened, _ := tr.Apply(change(c.now(), supervisor.StateBackoff, supervisor.StateStarting, info(0)))
+		loops = append(loops, opened...)
+		c.advance(10 * time.Second)
+	}
+	if len(loops) != 1 || loops[0].Message != "Restarted 3 times in 2 minutes" {
+		t.Fatalf("loops = %+v", loops)
+	}
+}
+
+func TestStoreCompactWithNewRetention(t *testing.T) {
+	s, err := OpenStore(t.TempDir(), 90*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-10 * 24 * time.Hour)
+	_ = s.putIssue(Issue{ID: "closed", OpenedAt: old, ClosedAt: old, Status: StatusResolvedAuto})
+	_ = s.putIssue(Issue{ID: "open", OpenedAt: old, Status: StatusOpen})
+	_ = s.addTransitions([]Transition{{At: old, Process: "p"}, {At: time.Now(), Process: "p"}})
+	if err := s.Compact(7 * 24 * time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.Issues(Filter{})
+	if len(got) != 1 || got[0].ID != "open" {
+		t.Errorf("issues after Compact = %+v, want only the open one", got)
+	}
+	if h, _ := s.History("", 0); len(h) != 1 {
+		t.Errorf("history after Compact = %+v, want 1", h)
+	}
+}
