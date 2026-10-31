@@ -80,7 +80,11 @@ jobs:
             e2e/package-lock.json
 
       - name: Install supervisor
-        run: pipx install supervisor==4.2.5
+        # supervisor 4.2.5 imports pkg_resources, which setuptools 82 removed.
+        run: |
+          pipx install supervisor==4.2.5
+          pipx inject supervisor setuptools==81.0.0
+          supervisord --version
 
       - name: Build the frontend
         working-directory: frontend
@@ -111,4 +115,5 @@ jobs:
           path: |
             e2e/playwright-report
             e2e/test-results
+            e2e/visor-server.log
           retention-days: 7

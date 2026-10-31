@@ -18,6 +18,7 @@ import (
 var assets embed.FS
 
 func main() {
+	guardEnvironment()
 	stateDir, err := app.StateDir()
 	if err != nil {
 		log.Fatal(err)

@@ -1,3 +1,4 @@
+import http from 'node:http'
 import { expect, type Locator, type Page } from '@playwright/test'
 
 /** Fails the test on console errors and uncaught page errors. Call before goto. */
@@ -37,4 +38,35 @@ export async function expectState(page: Page, fullName: string, state: string | 
 export async function processAction(page: Page, fullName: string, item: string) {
   await page.getByRole('button', { name: `Actions for ${fullName}` }).click()
   await page.getByRole('menuitem', { name: new RegExp(`^${item}`) }).click()
+}
+
+/**
+ * Asks the sandbox supervisord directly (XML-RPC over its unix socket) for
+ * every process's state, so a test can check what really happened, not just
+ * what the dashboard shows.
+ */
+export async function supervisorStates(): Promise<Record<string, string>> {
+  const body = '<?xml version="1.0"?><methodCall><methodName>supervisor.getAllProcessInfo</methodName></methodCall>'
+  const xml = await new Promise<string>((resolve, reject) => {
+    const req = http.request(
+      { socketPath: '/tmp/visor-e2e/s.sock', path: '/RPC2', method: 'POST', headers: { 'Content-Type': 'text/xml', 'Content-Length': Buffer.byteLength(body) } },
+      (res) => {
+        let data = ''
+        res.setEncoding('utf8')
+        res.on('data', (c) => (data += c))
+        res.on('end', () => resolve(data))
+      },
+    )
+    req.on('error', reject)
+    req.end(body)
+  })
+  const field = (s: string, name: string) => s.match(new RegExp(`<name>${name}</name>\\s*<value><string>([^<]*)</string>`))?.[1]
+  const states: Record<string, string> = {}
+  for (const s of xml.split('<struct>').slice(1)) {
+    const group = field(s, 'group')
+    const name = field(s, 'name')
+    const state = field(s, 'statename')
+    if (name && state) states[`${group}:${name}`] = state
+  }
+  return states
 }

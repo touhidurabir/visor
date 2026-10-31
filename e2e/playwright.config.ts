@@ -21,10 +21,10 @@ export default defineConfig({
     cwd: import.meta.dirname,
     url: 'http://127.0.0.1:8766',
     reuseExistingServer: false,
+    // serve.sh's trap removes the sandbox; give it time to do so.
+    gracefulShutdown: { signal: 'SIGTERM', timeout: 10_000 },
     timeout: 60_000,
-    // Visor's request log is noise unless a run needs debugging: DEBUG_SERVER=1.
-    stdout: process.env.DEBUG_SERVER ? 'pipe' : 'ignore',
+    stdout: 'ignore',
     stderr: 'pipe',
   },
-  globalTeardown: './global-teardown.ts',
 })

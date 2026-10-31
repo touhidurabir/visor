@@ -31,7 +31,7 @@ supervisord with the 12 sample processes of `scripts/sandbox.sh`.
 wails3 task test:e2e                                  # build, install WebKit, run everything
 wails3 task test:e2e -- tests/issues.spec.ts          # one spec
 wails3 task test:e2e -- --headed --debug              # watch it run
-DEBUG_SERVER=1 wails3 task test:e2e                   # also show Visor's own log
+DEBUG_SERVER=1 wails3 task test:e2e                   # also show Visor's own log (always saved in e2e/visor-server.log)
 ```
 
 The task builds the frontend, builds `bin/visor-e2e` with `-tags server`, and
@@ -41,7 +41,7 @@ sandbox in `/tmp/visor-sandbox` is left alone. Visor's state goes to
 `/tmp/visor-e2e/state`, and the server build keeps saved passwords in memory:
 a test run never touches your real supervisord, `~/Library/Application
 Support/Visor` or the Keychain. The sandbox is removed when the run ends,
-including after a failure or Ctrl-C.
+including after a failure or Ctrl-C, and a sandbox left by a run that was killed outright is replaced at the next start. The binary refuses to start unless `VISOR_CONFIG` and `VISOR_STATE_DIR` are set.
 
 What it covers (`e2e/tests`):
 
@@ -69,6 +69,6 @@ hand on a Mac (`wails3 task dev`) before a release:
 - [ ] Cmd+Q quits and leaves the sandbox supervisord running.
 - [ ] Reveal in Finder and Open in editor open the right file or folder.
 - [ ] Logs tab: Save… shows the save dialog and writes the file.
-- [ ] Settings: Choose… shows the file dialog (not applicable while `VISOR_CONFIG` is set).
+- [ ] Settings: Choose… shows the file dialog. `task dev` sets `VISOR_CONFIG`, which disables Choose…, so run `scripts/sandbox.sh up && VISOR_STATE_DIR=/tmp/visor-sandbox/state wails3 dev -config ./build/config.yml` instead and choose `/tmp/visor-sandbox/supervisord.conf` (a saved path wins over auto-detection).
 - [ ] Saving a username and password asks the Keychain once; remove the test entry with `security delete-generic-password -s dev.getvisor.visor -a <config path>`.
 - [ ] Notifications (when they ship): one per event, none for unwatched files.
