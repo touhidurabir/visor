@@ -18,6 +18,7 @@ import (
 var assets embed.FS
 
 func main() {
+	guardEnvironment()
 	stateDir, err := app.StateDir()
 	if err != nil {
 		log.Fatal(err)
@@ -31,7 +32,7 @@ func main() {
 	// VISOR_CONFIG and VISOR_STATE_DIR are set by `task dev` to point at
 	// the sandbox. VISOR_CONFIG overrides the config path in Settings.
 	envConfig := os.Getenv("VISOR_CONFIG")
-	keychain := settings.SystemKeychain{}
+	keychain := newKeychain()
 	// The shell (menu-bar icon, popover, Dock) watches every overview to
 	// keep the menu-bar icon's health current.
 	shell := app.NewShell()

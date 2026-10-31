@@ -3,6 +3,7 @@ package settings
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/zalando/go-keyring"
 )
@@ -65,5 +66,45 @@ func SetPassword(k Keychain, configPath, password string) error {
 	if err := k.Set(KeychainService, configPath, password); err != nil {
 		return fmt.Errorf("cannot save the supervisord password in the Keychain: %w", err)
 	}
+	return nil
+}
+
+// MemoryKeychain keeps secrets in memory only. It is for the server-mode
+// build the UI tests use, which must never touch the login Keychain.
+type MemoryKeychain struct {
+	mu      sync.Mutex
+	secrets map[[2]string]string
+}
+
+func (m *MemoryKeychain) Get(service, account string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	secret, ok := m.secrets[[2]string{service, account}]
+	if !ok {
+		return "", keyring.ErrNotFound
+	}
+	return secret, nil
+}
+
+func (m *MemoryKeychain) Set(service, account, secret string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.secrets == nil {
+		m.secrets = map[[2]string]string{}
+	}
+	m.secrets[[2]string{service, account}] = secret
+	return nil
+}
+
+// Delete reports keyring.ErrNotFound for a missing entry, like the system
+// Keychain.
+func (m *MemoryKeychain) Delete(service, account string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	k := [2]string{service, account}
+	if _, ok := m.secrets[k]; !ok {
+		return keyring.ErrNotFound
+	}
+	delete(m.secrets, k)
 	return nil
 }

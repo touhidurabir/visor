@@ -1,12 +1,22 @@
 #!/usr/bin/env bash
 # Throwaway supervisord for development: scripts/sandbox.sh up|down|status
 #
-# Lives entirely under /tmp/visor-sandbox. It never reads or writes the real
+# Lives entirely under /tmp/visor-sandbox (override with VISOR_SANDBOX_DIR,
+# which must be /tmp/visor-<name>; the UI tests use /tmp/visor-e2e). It never reads or writes the real
 # supervisord's config, socket or state. Dependency-free: bash, supervisord,
 # curl.
 set -euo pipefail
 
-DIR=/tmp/visor-sandbox
+DIR=${VISOR_SANDBOX_DIR:-/tmp/visor-sandbox}
+# DIR is rm -rf'd, so only a throwaway directory named visor-* under /tmp is
+# accepted.
+if ! [[ $DIR =~ ^(/private)?/tmp/visor-[a-z0-9-]+$ ]]; then
+  echo "refusing VISOR_SANDBOX_DIR=$DIR: it must match /tmp/visor-[a-z0-9-]+" >&2
+  exit 2
+fi
+# Marks the sample programs' commands so leftovers can be found by ps; one
+# marker per directory, so a second sandbox is never touched.
+MARK=$(basename "$DIR")
 CONF=$DIR/supervisord.conf
 SOCK=$DIR/s.sock
 PIDFILE=$DIR/supervisord.pid
@@ -32,9 +42,9 @@ child_pgids() {
 }
 
 # Fallback when supervisord is already gone: sample programs carry the marker
-# ": visor-sandbox;" in their sh -c command, so find their groups via ps.
+# ": $MARK;" in their sh -c command, so find their groups via ps.
 marked_pgids() {
-  ps -axo pgid=,command= | grep '[:] visor-sandbox;' | awk '{print $1}' | sort -u || true
+  ps -eo pgid=,command= | grep -F ": $MARK;"  | grep -v grep | awk '{print $1}' | sort -u || true
 }
 
 write_programs() {
@@ -59,23 +69,23 @@ serverurl=unix://$SOCK
 files = $DIR/conf.d/*.ini
 CONF
 
-  cat >"$DIR/conf.d/shop-api.ini" <<'INI'
+  cat >"$DIR/conf.d/shop-api.ini" <<INI
 [program:shop-queue]
-command=sh -c ': visor-sandbox; while :; do echo "working"; sleep 5; done'
+command=sh -c ': $MARK; while :; do echo "working"; sleep 5; done'
 stopasgroup=true
 killasgroup=true
 numprocs=4
 process_name=%(program_name)s_%(process_num)02d
 
 [program:shop-scheduler]
-command=sh -c ': visor-sandbox; while :; do echo "tick"; sleep 5; done'
+command=sh -c ': $MARK; while :; do echo "tick"; sleep 5; done'
 stopasgroup=true
 killasgroup=true
 INI
 
-  cat >"$DIR/conf.d/mailer.ini" <<'INI'
+  cat >"$DIR/conf.d/mailer.ini" <<INI
 [program:mailer-worker]
-command=sh -c ': visor-sandbox; while :; do echo "sending"; sleep 5; done'
+command=sh -c ': $MARK; while :; do echo "sending"; sleep 5; done'
 stopasgroup=true
 killasgroup=true
 numprocs=2
@@ -90,9 +100,9 @@ startsecs=1
 startretries=3
 INI
 
-  cat >"$DIR/conf.d/reports.ini" <<'INI'
+  cat >"$DIR/conf.d/reports.ini" <<INI
 [program:reports-export]
-command=sh -c ': visor-sandbox; while :; do sleep 5; done'
+command=sh -c ': $MARK; while :; do sleep 5; done'
 stopasgroup=true
 killasgroup=true
 autostart=false
@@ -103,17 +113,17 @@ stopasgroup=true
 killasgroup=true
 INI
 
-  cat >"$DIR/conf.d/notes.ini" <<'INI'
+  cat >"$DIR/conf.d/notes.ini" <<INI
 [program:notes-indexer]
-command=sh -c ': visor-sandbox; sleep 2; exit 0'
+command=sh -c ': $MARK; sleep 2; exit 0'
 stopasgroup=true
 killasgroup=true
 autorestart=false
 INI
 
-  cat >"$DIR/conf.d/flaky.ini" <<'INI'
+  cat >"$DIR/conf.d/flaky.ini" <<INI
 [program:flaky]
-command=sh -c ': visor-sandbox; sleep 20; exit 2'
+command=sh -c ': $MARK; sleep 20; exit 2'
 stopasgroup=true
 killasgroup=true
 autorestart=true
