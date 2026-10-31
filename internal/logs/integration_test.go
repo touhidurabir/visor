@@ -43,8 +43,17 @@ func TestTailSpammerNoGapsNoDupes(t *testing.T) {
 	tl := logs.NewTailer(i.Client(), "spammer", logs.Stdout, 0)
 	ctx := context.Background()
 
+	// At least minPolls polls, so reads cross many chunk boundaries, then on
+	// until enough lines have arrived: the spammer forks `sleep` per line,
+	// which is slow on a loaded CI runner, so a fixed time is not enough.
+	// Chunks are concatenated before parsing so a line split across two polls
+	// is whole again.
+	const minPolls, want = 20, 40
 	var got strings.Builder
-	for range 20 {
+	var nums []int
+	polls := 0
+	deadline := time.Now().Add(15 * time.Second)
+	for (polls < minPolls || len(nums) < want) && time.Now().Before(deadline) {
 		c, err := tl.Poll(ctx)
 		if err != nil {
 			t.Fatal(err)
@@ -53,17 +62,12 @@ func TestTailSpammerNoGapsNoDupes(t *testing.T) {
 			t.Fatalf("unexpected chunk flags: %+v", c)
 		}
 		got.WriteString(c.Text)
+		polls++
+		nums = lineNumbers(t, wholeLines(got.String()))
 		time.Sleep(60 * time.Millisecond)
 	}
-	// Chunks are concatenated before parsing so a line split across two
-	// polls is whole again.
-	text := got.String()
-	if nl := strings.LastIndexByte(text, '\n'); nl >= 0 {
-		text = text[:nl]
-	}
-	nums := lineNumbers(t, text)
-	if len(nums) < 20 {
-		t.Fatalf("only %d lines", len(nums))
+	if len(nums) < want {
+		t.Fatalf("only %d lines after %d polls", len(nums), polls)
 	}
 	for k := 1; k < len(nums); k++ {
 		if nums[k] != nums[k-1]+1 {
