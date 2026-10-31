@@ -70,7 +70,8 @@ var bundleExts = []string{".app", ".bundle", ".framework", ".plugin", ".prefpane
 // mounts even without an execute bit.
 var launchExts = []string{
 	".app", ".command", ".tool", ".terminal", ".jar", ".webloc", ".inetloc", ".fileloc",
-	".workflow", ".scpt", ".pkg", ".mpkg", ".dmg",
+	".workflow", ".scpt", ".pkg", ".mpkg", ".dmg", ".action", ".applescript",
+	".shortcut", ".mobileconfig", ".saver", ".xpc", ".kext",
 }
 
 // launches reports whether opening path would launch something: a bundle
