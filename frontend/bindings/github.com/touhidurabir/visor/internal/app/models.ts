@@ -63,6 +63,38 @@ export interface IssueCounts {
 }
 
 /**
+ * IssueQuery selects issues for List. Status is "open", "resolved" or
+ * "all" (or empty); Kind is an issue kind or empty for any. FromMs and ToMs
+ * bound OpenedMs to [FromMs, ToMs) (0 = unbounded). BeforeMs and BeforeID
+ * are the "Load older" cursor: the last issue shown (its OpenedMs and ID);
+ * only issues after it are returned, so issues opened in the same
+ * millisecond are neither skipped nor repeated. BeforeMs <= 0 means no
+ * cursor. Limit 0 means no limit; Query matches process, kind or message.
+ */
+export interface IssueQuery {
+    "Status": string;
+    "Kind": string;
+    "FromMs": number;
+    "ToMs": number;
+    "BeforeMs": number;
+    "BeforeID": string;
+    "Limit": number;
+    "Query": string;
+}
+
+/**
+ * IssueStats are the counts shown above the Issues list.
+ */
+export interface IssueStats {
+    "Total": number;
+    "Open": number;
+    "Resolved": number;
+    "Last24h": number;
+    "Last7d": number;
+    "Last30d": number;
+}
+
+/**
  * IssueView is one issue. Status is "open", "resolved_auto",
  * "resolved_user" or "dismissed"; ClosedMs is 0 while open. Note says why
  * Visor closed it, e.g. "program removed" ("" otherwise).

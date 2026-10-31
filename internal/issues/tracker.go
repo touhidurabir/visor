@@ -367,6 +367,23 @@ func (t *Tracker) Resolve(id string) error { return t.closeByID(id, StatusResolv
 // Dismiss closes an open issue without resolving it.
 func (t *Tracker) Dismiss(id string) error { return t.closeByID(id, StatusDismissed) }
 
+// ResolveMany resolves each open issue in ids like Resolve, so the same
+// failure does not reopen them. IDs that are not open are skipped. It
+// returns how many it resolved.
+func (t *Tracker) ResolveMany(ids []string) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	want := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		want[id] = true
+	}
+	closed := t.closeWhere(func(i *Issue) bool { return want[i.ID] }, StatusResolvedUser, "", t.now())
+	for _, is := range closed {
+		t.noteUserClosed(is)
+	}
+	return len(closed), nil
+}
+
 func (t *Tracker) closeByID(id string, st Status) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()

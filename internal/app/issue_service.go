@@ -20,20 +20,39 @@ func NewIssueService(rt *Runtime) *IssueService {
 	return &IssueService{rt: rt}
 }
 
-// List returns issues, newest first (by OpenedMs, then ID). status is
-// "open", "resolved" or "all"; limit 0 means no limit; query matches
-// process, kind or message. For "Load older", pass the last issue shown
-// as the cursor (beforeMs = its OpenedMs, beforeID = its ID): only issues
-// after it are returned, so issues opened in the same millisecond are
-// neither skipped nor repeated. beforeMs <= 0 means no cursor.
-func (s *IssueService) List(status string, beforeMs int64, beforeID string, limit int, query string) ([]IssueView, error) {
+// IssueQuery selects issues for List. Status is "open", "resolved" or
+// "all" (or empty); Kind is an issue kind or empty for any. FromMs and ToMs
+// bound OpenedMs to [FromMs, ToMs) (0 = unbounded). BeforeMs and BeforeID
+// are the "Load older" cursor: the last issue shown (its OpenedMs and ID);
+// only issues after it are returned, so issues opened in the same
+// millisecond are neither skipped nor repeated. BeforeMs <= 0 means no
+// cursor. Limit 0 means no limit; Query matches process, kind or message.
+type IssueQuery struct {
+	Status   string
+	Kind     string
+	FromMs   int64
+	ToMs     int64
+	BeforeMs int64
+	BeforeID string
+	Limit    int
+	Query    string
+}
+
+// List returns issues, newest first (by OpenedMs, then ID).
+func (s *IssueService) List(q IssueQuery) ([]IssueView, error) {
 	store, _, err := s.rt.issueStore()
 	if err != nil {
 		return nil, err
 	}
-	f := issues.Filter{Status: status, Limit: limit, Query: query}
-	if beforeMs > 0 {
-		f.Before, f.BeforeID = time.UnixMilli(beforeMs), beforeID
+	f := issues.Filter{Status: q.Status, Kind: issues.Kind(q.Kind), Limit: q.Limit, Query: q.Query}
+	if q.FromMs > 0 {
+		f.From = time.UnixMilli(q.FromMs)
+	}
+	if q.ToMs > 0 {
+		f.To = time.UnixMilli(q.ToMs)
+	}
+	if q.BeforeMs > 0 {
+		f.Before, f.BeforeID = time.UnixMilli(q.BeforeMs), q.BeforeID
 	}
 	list, err := store.Issues(f)
 	if err != nil {
@@ -44,6 +63,57 @@ func (s *IssueService) List(status string, beforeMs int64, beforeID string, limi
 		out = append(out, toIssueView(is))
 	}
 	return out, nil
+}
+
+// IssueStats are the counts shown above the Issues list.
+type IssueStats struct {
+	Total    int
+	Open     int
+	Resolved int
+	Last24h  int
+	Last7d   int
+	Last30d  int
+}
+
+// Stats counts every issue, ignoring any filter.
+func (s *IssueService) Stats() (IssueStats, error) {
+	store, _, err := s.rt.issueStore()
+	if err != nil {
+		return IssueStats{}, err
+	}
+	st, err := store.Stats(time.Now())
+	return IssueStats(st), err
+}
+
+// ResolveMany marks the open issues among ids resolved by the user and
+// returns how many it resolved; other ids are skipped.
+func (s *IssueService) ResolveMany(ids []string) (int, error) {
+	_, tracker, err := s.rt.issueStore()
+	if err != nil {
+		return 0, err
+	}
+	if tracker == nil {
+		return 0, errNoTracker
+	}
+	n, err := tracker.ResolveMany(ids)
+	if n > 0 {
+		s.rt.emitOverview()
+	}
+	return n, err
+}
+
+// Delete removes the closed issues among ids for good and returns how many
+// it removed; open issues and unknown ids are skipped. The history stays.
+func (s *IssueService) Delete(ids []string) (int, error) {
+	store, _, err := s.rt.issueStore()
+	if err != nil {
+		return 0, err
+	}
+	n, err := store.Delete(ids...)
+	if n > 0 {
+		s.rt.emitOverview()
+	}
+	return n, err
 }
 
 // IssueCounts is how many issues are open and how many are closed (resolved

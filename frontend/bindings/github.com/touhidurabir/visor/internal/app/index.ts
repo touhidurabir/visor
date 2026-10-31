@@ -19,6 +19,8 @@ export type {
     ConfigView,
     ConnectionInput,
     IssueCounts,
+    IssueQuery,
+    IssueStats,
     IssueView,
     LastErrorView,
     LogChunkView,

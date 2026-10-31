@@ -477,23 +477,23 @@ func TestIssueService(t *testing.T) {
 	is := NewIssueService(rt)
 	waitOverview(t, svc, 15*time.Second, "issue opened", func(ov OverviewView) bool { return ov.Stats.OpenIssues == 1 })
 
-	open, err := is.List("open", 0, "", 0, "")
+	open, err := is.List(IssueQuery{Status: "open"})
 	if err != nil || len(open) != 1 {
 		t.Fatalf("List(open) = %+v, %v", open, err)
 	}
 	if open[0].Config != filepath.Join(inst.Dir(), "conf.d", "failer.ini") || open[0].OpenedMs == 0 || open[0].Status != "open" {
 		t.Errorf("issue = %+v", open[0])
 	}
-	if got, _ := is.List("all", 0, "", 0, "no-such-text"); len(got) != 0 {
+	if got, _ := is.List(IssueQuery{Status: "all", Query: "no-such-text"}); len(got) != 0 {
 		t.Errorf("query filtered nothing: %+v", got)
 	}
-	if got, _ := is.List("all", open[0].OpenedMs, "", 0, ""); len(got) != 0 {
+	if got, _ := is.List(IssueQuery{Status: "all", BeforeMs: open[0].OpenedMs}); len(got) != 0 {
 		t.Errorf("before cursor kept the issue: %+v", got)
 	}
-	if got, _ := is.List("all", open[0].OpenedMs, open[0].ID, 0, ""); len(got) != 0 {
+	if got, _ := is.List(IssueQuery{Status: "all", BeforeMs: open[0].OpenedMs, BeforeID: open[0].ID}); len(got) != 0 {
 		t.Errorf("a cursor at the issue itself kept it: %+v", got)
 	}
-	if got, _ := is.List("all", open[0].OpenedMs, open[0].ID+"~", 0, ""); len(got) != 1 {
+	if got, _ := is.List(IssueQuery{Status: "all", BeforeMs: open[0].OpenedMs, BeforeID: open[0].ID + "~"}); len(got) != 1 {
 		t.Errorf("a cursor after the issue in the same millisecond dropped it: %+v", got)
 	}
 
@@ -510,7 +510,7 @@ func TestIssueService(t *testing.T) {
 	if ov := svc.Overview(); ov.Stats.OpenIssues != 0 || len(ov.Issues) != 0 {
 		t.Errorf("after Resolve: %+v / %+v", ov.Stats, ov.Issues)
 	}
-	if got, _ := is.List("resolved", 0, "", 0, ""); len(got) != 1 || got[0].Status != "resolved_user" || got[0].ClosedMs == 0 {
+	if got, _ := is.List(IssueQuery{Status: "resolved"}); len(got) != 1 || got[0].Status != "resolved_user" || got[0].ClosedMs == 0 {
 		t.Errorf("List(resolved) = %+v", got)
 	}
 	if c, err := is.Counts(); err != nil || c != (IssueCounts{Resolved: 1}) {
@@ -520,12 +520,71 @@ func TestIssueService(t *testing.T) {
 		t.Error("Dismiss of a closed issue: want error")
 	}
 
+	if got, _ := is.List(IssueQuery{Kind: open[0].Kind}); len(got) != 1 {
+		t.Errorf("kind=%s: %+v", open[0].Kind, got)
+	}
+	if got, _ := is.List(IssueQuery{Kind: "unreachable"}); len(got) != 0 {
+		t.Errorf("kind=unreachable: %+v", got)
+	}
+	if got, _ := is.List(IssueQuery{FromMs: open[0].OpenedMs + 1}); len(got) != 0 {
+		t.Errorf("From after the issue kept it: %+v", got)
+	}
+	if got, _ := is.List(IssueQuery{FromMs: open[0].OpenedMs, ToMs: open[0].OpenedMs + 1}); len(got) != 1 {
+		t.Errorf("range around the issue dropped it: %+v", got)
+	}
+	if st, err := is.Stats(); err != nil || st.Total != 1 || st.Resolved != 1 || st.Open != 0 || st.Last24h != 1 {
+		t.Errorf("Stats = %+v, %v", st, err)
+	}
+	// ResolveMany of a closed id resolves nothing; Delete removes it and emits.
+	if n, err := is.ResolveMany([]string{open[0].ID}); err != nil || n != 0 {
+		t.Errorf("ResolveMany(closed) = %d, %v", n, err)
+	}
 	hist, err := is.History("failer:failer", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(hist) == 0 || hist[0].Process != "failer:failer" || hist[0].AtMs == 0 {
 		t.Errorf("history = %+v", hist)
+	}
+}
+
+func TestIssueServiceBulk(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Failer)
+	rt, rec := startRuntime(t, confOf(inst), t.TempDir(), 100*time.Millisecond)
+	svc := NewServerService(rt)
+	is := NewIssueService(rt)
+	waitOverview(t, svc, 15*time.Second, "issue opened", func(ov OverviewView) bool { return ov.Stats.OpenIssues == 1 })
+	open, _ := is.List(IssueQuery{Status: "open"})
+	if len(open) != 1 {
+		t.Fatalf("open = %+v", open)
+	}
+
+	// An open issue is never deleted.
+	if n, err := is.Delete([]string{open[0].ID}); err != nil || n != 0 {
+		t.Fatalf("Delete(open) = %d, %v", n, err)
+	}
+	n := len(rec.overviews())
+	if got, err := is.ResolveMany([]string{open[0].ID, "unknown"}); err != nil || got != 1 {
+		t.Fatalf("ResolveMany = %d, %v", got, err)
+	}
+	if len(rec.overviews()) == n {
+		t.Error("ResolveMany emitted no overview")
+	}
+	if st, _ := is.Stats(); st.Open != 0 || st.Resolved != 1 {
+		t.Errorf("Stats = %+v", st)
+	}
+	n = len(rec.overviews())
+	if got, err := is.Delete([]string{open[0].ID, "unknown"}); err != nil || got != 1 {
+		t.Fatalf("Delete = %d, %v", got, err)
+	}
+	if len(rec.overviews()) == n {
+		t.Error("Delete emitted no overview")
+	}
+	if all, _ := is.List(IssueQuery{Status: "all"}); len(all) != 0 {
+		t.Errorf("after Delete: %+v", all)
+	}
+	if st, _ := is.Stats(); st != (IssueStats{}) {
+		t.Errorf("Stats after Delete = %+v", st)
 	}
 }
 
@@ -562,7 +621,7 @@ func TestOverviewWithoutUsableConfig(t *testing.T) {
 			if err := svc.StartAll(); err == nil {
 				t.Error("StartAll without a connection: want error")
 			}
-			if _, err := NewIssueService(rt).List("all", 0, "", 0, ""); err != nil {
+			if _, err := NewIssueService(rt).List(IssueQuery{Status: "all"}); err != nil {
 				t.Errorf("issue list should still work: %v", err)
 			}
 		})

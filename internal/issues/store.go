@@ -25,9 +25,13 @@ const (
 // newest-first order are kept (opened earlier, or opened in the same
 // millisecond with a smaller ID). A zero Before means no cursor; an empty
 // BeforeID keeps only issues opened earlier. Limit 0 means no limit. Query
-// is a case-insensitive substring of the process, kind or message.
+// is a case-insensitive substring of the process, kind or message. Kind
+// keeps one kind (empty means any); From and To keep issues opened within
+// [From, To) (a zero bound is open-ended).
 type Filter struct {
 	Status   string
+	Kind     Kind
+	From, To time.Time
 	Before   time.Time
 	BeforeID string
 	Limit    int
@@ -90,6 +94,15 @@ func (s *Store) Issues(f Filter) ([]Issue, error) {
 				continue
 			}
 		}
+		if f.Kind != "" && is.Kind != f.Kind {
+			continue
+		}
+		if !f.From.IsZero() && is.OpenedAt.Before(f.From) {
+			continue
+		}
+		if !f.To.IsZero() && !is.OpenedAt.Before(f.To) {
+			continue
+		}
 		if !f.Before.IsZero() && !pastCursor(is, f.Before, f.BeforeID) {
 			continue
 		}
@@ -121,6 +134,70 @@ func (s *Store) Counts() (open, closed int, err error) {
 		}
 	}
 	return open, closed, nil
+}
+
+// Stats counts issues for the Issues page. Resolved is any closed status;
+// LastNd count issues opened within N days of now, whatever their status.
+type Stats struct {
+	Total, Open, Resolved, Last24h, Last7d, Last30d int
+}
+
+// Stats counts the issues in one pass over the log.
+func (s *Store) Stats(now time.Time) (Stats, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	all, err := s.readIssues()
+	if err != nil {
+		return Stats{}, err
+	}
+	var st Stats
+	for _, is := range all {
+		st.Total++
+		if is.Status == StatusOpen {
+			st.Open++
+		} else {
+			st.Resolved++
+		}
+		age := now.Sub(is.OpenedAt)
+		if age <= 24*time.Hour {
+			st.Last24h++
+		}
+		if age <= 7*24*time.Hour {
+			st.Last7d++
+		}
+		if age <= 30*24*time.Hour {
+			st.Last30d++
+		}
+	}
+	return st, nil
+}
+
+// Delete removes closed issues by ID and returns how many it removed. Open
+// issues and unknown IDs are skipped, not errors. History is untouched.
+func (s *Store) Delete(ids ...string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	all, err := s.readIssues()
+	if err != nil {
+		return 0, err
+	}
+	drop := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		drop[id] = true
+	}
+	var keep []Issue
+	deleted := 0
+	for i := len(all) - 1; i >= 0; i-- { // oldest first, like the log
+		if is := all[i]; drop[is.ID] && is.Status != StatusOpen {
+			deleted++
+		} else {
+			keep = append(keep, is)
+		}
+	}
+	if deleted == 0 {
+		return 0, nil
+	}
+	return deleted, rewriteJSONL(s.path(issuesFile), keep)
 }
 
 // History returns state transitions, newest first. An empty process means

@@ -362,7 +362,7 @@ func TestSaveDoesNotLowerRetention(t *testing.T) {
 	if got, _ := settings.Load(stateDir); got.RetentionDays != 90 {
 		t.Errorf("saved retention = %d, want 90", got.RetentionDays)
 	}
-	if list, _ := issuesSvc.List("all", 0, "", 0, ""); len(list) != 1 {
+	if list, _ := issuesSvc.List(IssueQuery{Status: "all"}); len(list) != 1 {
 		t.Errorf("issues after Save = %+v, want the 30-day-old one kept", list)
 	}
 }
@@ -374,14 +374,14 @@ func TestApplyRetentionCompactsStore(t *testing.T) {
 	start.ConfigPath = deadConf(t)
 	rt, _ := newRuntimeWith(t, RuntimeOptions{StateDir: stateDir, Settings: start})
 	issuesSvc := NewIssueService(rt)
-	if list, _ := issuesSvc.List("all", 0, "", 0, ""); len(list) != 1 {
+	if list, _ := issuesSvc.List(IssueQuery{Status: "all"}); len(list) != 1 {
 		t.Fatalf("issues before = %+v, want the 30-day-old one (kept 90 days)", list)
 	}
 	svc := NewSettingsService(rt, stateDir, "", nil, nil)
 	if v, err := svc.ApplyRetention(120); err != nil || v.Settings.RetentionDays != 120 {
 		t.Fatalf("raise: %+v, %v", v.Settings, err)
 	}
-	if list, _ := issuesSvc.List("all", 0, "", 0, ""); len(list) != 1 {
+	if list, _ := issuesSvc.List(IssueQuery{Status: "all"}); len(list) != 1 {
 		t.Errorf("raising deleted %+v", list)
 	}
 	v, err := svc.ApplyRetention(14)
@@ -394,7 +394,7 @@ func TestApplyRetentionCompactsStore(t *testing.T) {
 	if got, _ := settings.Load(stateDir); got.RetentionDays != 14 {
 		t.Errorf("saved retention = %d, want 14", got.RetentionDays)
 	}
-	if list, _ := issuesSvc.List("all", 0, "", 0, ""); len(list) != 0 {
+	if list, _ := issuesSvc.List(IssueQuery{Status: "all"}); len(list) != 0 {
 		t.Errorf("issues after 14-day retention = %+v, want none", list)
 	}
 }
@@ -840,7 +840,7 @@ func TestSwitchingSupervisordClosesAbsentProcessIssues(t *testing.T) {
 	if len(ov.Issues) != 0 {
 		t.Errorf("open issues after switching = %+v", ov.Issues)
 	}
-	all, err := NewIssueService(rt).List("all", 0, "", 0, "")
+	all, err := NewIssueService(rt).List(IssueQuery{Status: "all"})
 	if err != nil {
 		t.Fatal(err)
 	}

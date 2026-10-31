@@ -53,7 +53,7 @@ async function load(keep = 0) {
     () => {}, // keep the last counts
   )
   try {
-    const list = (await IssueService.List(filter.value, 0, '', limit, query.value)) ?? []
+    const list = (await IssueService.List({ Status: filter.value, Kind: '', FromMs: 0, ToMs: 0, BeforeMs: 0, BeforeID: '', Limit: limit, Query: query.value })) ?? []
     if (mine !== seq) return
     rows.value = list
     hasMore.value = list.length >= limit
@@ -72,7 +72,7 @@ async function older() {
   const mine = seq
   loading.value = true
   try {
-    const list = (await IssueService.List(filter.value, last.OpenedMs, last.ID, PAGE, query.value)) ?? []
+    const list = (await IssueService.List({ Status: filter.value, Kind: '', FromMs: 0, ToMs: 0, BeforeMs: last.OpenedMs, BeforeID: last.ID, Limit: PAGE, Query: query.value })) ?? []
     if (mine !== seq) return // filter or search changed meanwhile
     const have = new Set(rows.value.map((r) => r.ID))
     rows.value = [...rows.value, ...list.filter((r) => !have.has(r.ID))]

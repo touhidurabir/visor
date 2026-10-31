@@ -1286,3 +1286,153 @@ func TestCloseAbsent(t *testing.T) {
 		}
 	}
 }
+
+func TestStoreFilterKindAndDates(t *testing.T) {
+	s, _ := OpenStore(t.TempDir(), time.Hour)
+	base := time.Now().Add(-time.Hour).Truncate(time.Millisecond)
+	kinds := []Kind{KindFatal, KindUnexpectedExit, KindFatal, KindCrashLoop}
+	for i, k := range kinds {
+		_ = s.putIssue(Issue{ID: string(rune('a' + i)), Kind: k, OpenedAt: base.Add(time.Duration(i) * time.Minute), Status: StatusOpen})
+	}
+	ids := func(f Filter) string {
+		l, err := s.Issues(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := ""
+		for _, i := range l {
+			out += i.ID
+		}
+		return out
+	}
+	for _, c := range []struct {
+		f    Filter
+		want string
+	}{
+		{Filter{Kind: KindFatal}, "ca"},
+		{Filter{Kind: KindCrashLoop}, "d"},
+		{Filter{Kind: KindUnreachable}, ""},
+		{Filter{From: base.Add(time.Minute)}, "dcb"},
+		{Filter{To: base.Add(2 * time.Minute)}, "ba"},                              // To is exclusive
+		{Filter{From: base.Add(time.Minute), To: base.Add(3 * time.Minute)}, "cb"}, // From inclusive
+		{Filter{Kind: KindFatal, From: base.Add(time.Minute)}, "c"},
+	} {
+		if got := ids(c.f); got != c.want {
+			t.Errorf("%+v: got %q, want %q", c.f, got, c.want)
+		}
+	}
+}
+
+func TestStoreStatsWindows(t *testing.T) {
+	s, _ := OpenStore(t.TempDir(), 365*24*time.Hour)
+	now := time.Now().Truncate(time.Millisecond)
+	put := func(id string, age time.Duration, st Status) {
+		is := Issue{ID: id, OpenedAt: now.Add(-age), Status: st}
+		if st != StatusOpen {
+			is.ClosedAt = now
+		}
+		_ = s.putIssue(is)
+	}
+	put("a", time.Hour, StatusOpen)
+	put("b", 24*time.Hour, StatusResolvedUser)               // exactly 24h: inside
+	put("c", 24*time.Hour+time.Millisecond, StatusDismissed) // just outside 24h
+	put("d", 7*24*time.Hour, StatusResolvedAuto)             // exactly 7d: inside
+	put("e", 30*24*time.Hour+time.Second, StatusOpen)        // outside 30d
+	got, err := s.Stats(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Stats{Total: 5, Open: 2, Resolved: 3, Last24h: 2, Last7d: 4, Last30d: 4}
+	if got != want {
+		t.Errorf("Stats = %+v, want %+v", got, want)
+	}
+	if z, _ := (&Store{dir: t.TempDir()}).Stats(now); z != (Stats{}) {
+		t.Errorf("empty store: %+v", z)
+	}
+}
+
+func TestStoreDeleteSkipsOpenAndSurvivesReopen(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := OpenStore(dir, time.Hour)
+	now := time.Now()
+	_ = s.putIssue(Issue{ID: "open", OpenedAt: now, Status: StatusOpen})
+	_ = s.putIssue(Issue{ID: "r1", OpenedAt: now, ClosedAt: now, Status: StatusResolvedUser})
+	_ = s.putIssue(Issue{ID: "r2", OpenedAt: now, ClosedAt: now, Status: StatusDismissed})
+	_ = s.putIssue(Issue{ID: "r3", OpenedAt: now, ClosedAt: now, Status: StatusResolvedAuto})
+	_ = s.addTransitions([]Transition{{At: now, Process: "p"}})
+
+	n, err := s.Delete("open", "r1", "r2", "nope")
+	if err != nil || n != 2 {
+		t.Fatalf("Delete = %d, %v", n, err)
+	}
+	if n, err := s.Delete("nope", "r1"); err != nil || n != 0 {
+		t.Fatalf("second Delete = %d, %v", n, err)
+	}
+	if n, err := s.Delete(); err != nil || n != 0 {
+		t.Fatalf("empty Delete = %d, %v", n, err)
+	}
+	s2, _ := OpenStore(dir, time.Hour)
+	got, _ := s2.Issues(Filter{})
+	ids := map[string]bool{}
+	for _, i := range got {
+		ids[i.ID] = true
+	}
+	if len(got) != 2 || !ids["open"] || !ids["r3"] {
+		t.Fatalf("after reopen: %+v", got)
+	}
+	if h, _ := s2.History("", 0); len(h) != 1 {
+		t.Fatalf("history touched: %+v", h)
+	}
+}
+
+func TestResolveManyMixed(t *testing.T) {
+	tr, s, c := newTracker(t, nil)
+	a := fatalInfo(c.now().Add(-time.Minute), c.now().Add(-50*time.Second))
+	opened, _ := tr.Apply(added(c.now(), a))
+	if len(opened) != 1 {
+		t.Fatalf("opened = %+v", opened)
+	}
+	c.advance(time.Minute)
+	n, err := tr.ResolveMany([]string{opened[0].ID, "unknown"})
+	if err != nil || n != 1 {
+		t.Fatalf("ResolveMany = %d, %v", n, err)
+	}
+	if n, _ := tr.ResolveMany([]string{opened[0].ID}); n != 0 {
+		t.Fatalf("already closed resolved again: %d", n)
+	}
+	got, _ := s.Issues(Filter{})
+	if len(got) != 1 || got[0].Status != StatusResolvedUser || len(tr.Open()) != 0 {
+		t.Fatalf("store = %+v", got)
+	}
+	// Suppression applies: the same failure does not reopen.
+	if o, _ := tr.Apply(added(c.now(), a)); len(o) != 0 {
+		t.Fatalf("reopened after ResolveMany: %+v", o)
+	}
+}
+
+// A deleted resolved issue must not come back as a new one while the same
+// failure is still on show.
+func TestDeletedIssueDoesNotReopenSameFailure(t *testing.T) {
+	tr, s, c := newTracker(t, nil)
+	failed := fatalInfo(c.now().Add(-time.Minute), c.now().Add(-50*time.Second))
+	opened, _ := tr.Apply(added(c.now(), failed))
+	if len(opened) != 1 {
+		t.Fatalf("opened = %+v", opened)
+	}
+	c.advance(time.Minute)
+	if n, _ := tr.ResolveMany([]string{opened[0].ID}); n != 1 {
+		t.Fatal("not resolved")
+	}
+	if n, err := s.Delete(opened[0].ID); err != nil || n != 1 {
+		t.Fatalf("Delete = %d, %v", n, err)
+	}
+	c.advance(time.Minute)
+	if o, _ := tr.Apply(added(c.now(), failed)); len(o) != 0 {
+		t.Fatalf("the deleted failure reopened: %+v", o)
+	}
+	// A genuinely new failure still opens.
+	again := fatalInfo(c.now().Add(-10*time.Second), c.now().Add(-5*time.Second))
+	if o, _ := tr.Apply(change(c.now(), supervisor.StateBackoff, supervisor.StateFatal, again)); len(o) != 1 {
+		t.Fatalf("a new failure: opened %+v", o)
+	}
+}

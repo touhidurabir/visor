@@ -22,6 +22,14 @@ export function Counts(): $CancellablePromise<$models.IssueCounts> {
 }
 
 /**
+ * Delete removes the closed issues among ids for good and returns how many
+ * it removed; open issues and unknown ids are skipped. The history stays.
+ */
+export function Delete(ids: string[] | null): $CancellablePromise<number> {
+    return $Call.ByID(3819825321, ids);
+}
+
+/**
  * Dismiss closes an open issue without resolving it.
  */
 export function Dismiss(id: string): $CancellablePromise<void> {
@@ -37,15 +45,10 @@ export function History(process: string, limit: number): $CancellablePromise<$mo
 }
 
 /**
- * List returns issues, newest first (by OpenedMs, then ID). status is
- * "open", "resolved" or "all"; limit 0 means no limit; query matches
- * process, kind or message. For "Load older", pass the last issue shown
- * as the cursor (beforeMs = its OpenedMs, beforeID = its ID): only issues
- * after it are returned, so issues opened in the same millisecond are
- * neither skipped nor repeated. beforeMs <= 0 means no cursor.
+ * List returns issues, newest first (by OpenedMs, then ID).
  */
-export function List(status: string, beforeMs: number, beforeID: string, limit: number, query: string): $CancellablePromise<$models.IssueView[] | null> {
-    return $Call.ByID(2849305994, status, beforeMs, beforeID, limit, query);
+export function List(q: $models.IssueQuery): $CancellablePromise<$models.IssueView[] | null> {
+    return $Call.ByID(2849305994, q);
 }
 
 /**
@@ -53,4 +56,19 @@ export function List(status: string, beforeMs: number, beforeID: string, limit: 
  */
 export function Resolve(id: string): $CancellablePromise<void> {
     return $Call.ByID(1215596446, id);
+}
+
+/**
+ * ResolveMany marks the open issues among ids resolved by the user and
+ * returns how many it resolved; other ids are skipped.
+ */
+export function ResolveMany(ids: string[] | null): $CancellablePromise<number> {
+    return $Call.ByID(3490325665, ids);
+}
+
+/**
+ * Stats counts every issue, ignoring any filter.
+ */
+export function Stats(): $CancellablePromise<$models.IssueStats> {
+    return $Call.ByID(1272567493);
 }
