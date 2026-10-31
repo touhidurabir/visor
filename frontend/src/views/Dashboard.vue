@@ -11,7 +11,6 @@ import ConfigTable from '../components/ConfigTable.vue'
 import IssueList from '../components/IssueList.vue'
 import ActionMenu from '../components/ActionMenu.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
-import MainLogDialog from '../components/MainLogDialog.vue'
 import SignalDialog from '../components/SignalDialog.vue'
 import StatTile from '../components/StatTile.vue'
 import { describeError } from '../lib/faults'
@@ -29,7 +28,6 @@ const query = ref('')
 const search = ref<HTMLInputElement>()
 const nowMs = ref(Date.now())
 const signalFor = ref<ProcessView | null>(null)
-const showLog = ref(false)
 const checking = ref(false)
 
 let tick: ReturnType<typeof setInterval>
@@ -112,8 +110,7 @@ function onServer(id: string) {
     case 'check':
       return void checkForChanges()
     case 'log':
-      showLog.value = true
-      return
+      return void router.push('/issues/log')
     case 'restart':
       return void run(() => ServerService.RestartDaemon()).then(ifOk(() => showToast('Restarting supervisord…')))
     case 'shutdown':
@@ -306,7 +303,6 @@ const dismissIssue = (i: IssueView) => afterIssue(() => IssueService.Dismiss(i.I
     </template>
 
     <SignalDialog v-if="signalFor" :process="signalFor.FullName" @send="sendSignal" @cancel="signalFor = null" />
-    <MainLogDialog v-if="showLog" @close="showLog = false" />
     <ConfirmDialog
       v-if="pendingBulk"
       :title="pendingBulk.ask.title"

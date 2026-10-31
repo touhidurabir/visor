@@ -138,6 +138,50 @@ export interface LogChunkView {
 }
 
 /**
+ * MainLogLineView is one entry of the main log. Text may hold several
+ * lines (a traceback).
+ */
+export interface MainLogLineView {
+    "AtMs": number;
+    "Level": string;
+    "Text": string;
+}
+
+/**
+ * MainLogQuery picks lines of supervisord's main log. Empty Levels means
+ * every level; FromMs and ToMs bound the time as [from, to) in Unix
+ * milliseconds, 0 meaning open; Query is a case-insensitive substring.
+ */
+export interface MainLogQuery {
+    "Levels": string[] | null;
+    "FromMs": number;
+    "ToMs": number;
+    "Query": string;
+
+    /**
+     * newest lines to return: 2000 if <= 0, at most 10000
+     */
+    "Limit": number;
+}
+
+/**
+ * MainLogResult is the newest matching lines, oldest first.
+ */
+export interface MainLogResult {
+    "Lines": MainLogLineView[] | null;
+
+    /**
+     * the log is longer than what was read, so older lines were not searched
+     */
+    "Truncated": boolean;
+
+    /**
+     * lines matching the query, which may exceed len(Lines)
+     */
+    "Matched": number;
+}
+
+/**
  * OverviewView is everything the dashboard shows for one server. It is
  * sent as the visor:overview event after every poll and every action.
  */

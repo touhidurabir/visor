@@ -90,3 +90,38 @@ func TestRecentProcessLogReadsTheTail(t *testing.T) {
 	}
 	rec.assertCalls(t, "supervisor.readLog(<int>-4096</int>,<int>0</int>)")
 }
+
+func TestParseMainLogLines(t *testing.T) {
+	zone := time.FixedZone("test", 6*3600)
+	at := func(sec, ms int) time.Time {
+		return time.Date(2026, 10, 31, 14, 36, sec, ms*int(time.Millisecond), zone)
+	}
+	text := `ial tail of a line cut by the read offset
+and its second half
+2026-10-31 14:36:32,675 INFO supervisord started with pid 59413
+2026-10-31 14:36:34,699 WARN exited: queue_worker_01 (exit status 3; not expected)
+2026-10-31 14:36:35,001 CRIT Server 'inet_http_server' running without any HTTP authentication checking
+2026-10-31 14:36:36,000 ERRO pool stopped
+Traceback (most recent call last):
+  File "supervisor/process.py", line 1, in spawn
+OSError: boom
+2026-10-31 14:36:37,100 DEBG 'x' stdout output:
+hello
+2026-10-31 14:36:38,200 INFO spawned: 'queue_worker_01' with pid 59454
+`
+	want := []MainLogLine{
+		{at(32, 675), "INFO", "supervisord started with pid 59413"},
+		{at(34, 699), "WARN", "exited: queue_worker_01 (exit status 3; not expected)"},
+		{at(35, 1), "CRIT", "Server 'inet_http_server' running without any HTTP authentication checking"},
+		{at(36, 0), "ERRO", "pool stopped\nTraceback (most recent call last):\n  File \"supervisor/process.py\", line 1, in spawn\nOSError: boom"},
+		{at(37, 100), "DEBG", "'x' stdout output:\nhello"},
+		{at(38, 200), "INFO", "spawned: 'queue_worker_01' with pid 59454"},
+	}
+	got := ParseMainLogLines(text, zone)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v\nwant %+v", got, want)
+	}
+	if got := ParseMainLogLines("only a partial\nline\n", zone); len(got) != 0 {
+		t.Errorf("no timestamp: got %+v, want none", got)
+	}
+}

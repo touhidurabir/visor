@@ -427,12 +427,12 @@ func TestCheckForChangesAndMainLog(t *testing.T) {
 		t.Errorf("fresh config = %+v", ov.Configs[0])
 	}
 
-	log, err := svc.MainLog(4096)
+	res, err := svc.MainLogLines(MainLogQuery{Query: "supervisord started"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(log, "supervisord started") || len(log) > 4096 {
-		t.Errorf("main log (%d bytes) = %q", len(log), log)
+	if len(res.Lines) == 0 || res.Lines[0].Level != "INFO" || res.Truncated || res.Matched != len(res.Lines) {
+		t.Errorf("main log = %+v", res)
 	}
 }
 
@@ -695,12 +695,49 @@ func TestMainLogWithoutLogFile(t *testing.T) {
 	rt, _ := startRuntime(t, conf, t.TempDir(), 50*time.Millisecond)
 	svc := NewServerService(rt)
 	waitOverview(t, svc, 5*time.Second, "reachable", func(ov OverviewView) bool { return ov.Server.Reachable })
-	_, err := svc.MainLog(0)
+	_, err := svc.MainLogLines(MainLogQuery{})
 	want := "supervisord writes no log file (logfile= is unset or syslog). Set [supervisord] logfile= to see it here."
 	if err == nil || err.Error() != want {
-		t.Errorf("MainLog = %v, want %q", err, want)
+		t.Errorf("MainLogLines = %v, want %q", err, want)
 	}
 	if !errors.Is(err, supervisor.ErrNoFile) {
-		t.Errorf("MainLog error %v does not wrap ErrNoFile", err)
+		t.Errorf("MainLogLines error %v does not wrap ErrNoFile", err)
+	}
+}
+
+func TestFilterMainLog(t *testing.T) {
+	base := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
+	mk := func(min int, lvl, text string) supervisor.MainLogLine {
+		return supervisor.MainLogLine{At: base.Add(time.Duration(min) * time.Minute), Level: lvl, Text: text}
+	}
+	lines := []supervisor.MainLogLine{
+		mk(0, "INFO", "spawned: 'a'"), mk(1, "WARN", "exited: a"), mk(2, "CRIT", "Boom\nTraceback"),
+		mk(3, "DEBG", "noise"), mk(4, "INFO", "spawned: 'b'"),
+	}
+	texts := func(r MainLogResult) []string {
+		out := []string{}
+		for _, l := range r.Lines {
+			out = append(out, l.Text)
+		}
+		return out
+	}
+	tests := []struct {
+		name string
+		q    MainLogQuery
+		want []string
+		n    int
+	}{
+		{"all", MainLogQuery{}, []string{"spawned: 'a'", "exited: a", "Boom\nTraceback", "noise", "spawned: 'b'"}, 5},
+		{"levels", MainLogQuery{Levels: []string{"WARN", "CRIT"}}, []string{"exited: a", "Boom\nTraceback"}, 2},
+		{"search is case-insensitive and sees tracebacks", MainLogQuery{Query: "TRACEBACK"}, []string{"Boom\nTraceback"}, 1},
+		{"from is inclusive, to exclusive", MainLogQuery{FromMs: base.Add(time.Minute).UnixMilli(), ToMs: base.Add(3 * time.Minute).UnixMilli()}, []string{"exited: a", "Boom\nTraceback"}, 2},
+		{"limit keeps the newest", MainLogQuery{Limit: 2}, []string{"noise", "spawned: 'b'"}, 5},
+		{"no match", MainLogQuery{Query: "zzz"}, []string{}, 0},
+	}
+	for _, tc := range tests {
+		got := filterMainLog(lines, tc.q)
+		if !slices.Equal(texts(got), tc.want) || got.Matched != tc.n {
+			t.Errorf("%s: lines %q matched %d, want %q matched %d", tc.name, texts(got), got.Matched, tc.want, tc.n)
+		}
 	}
 }

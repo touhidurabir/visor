@@ -4,6 +4,7 @@
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import IssuesList from '../components/IssuesList.vue'
+import MainLogTab from '../components/MainLogTab.vue'
 
 const route = useRoute()
 const onLog = computed(() => route.name === 'issues-log')
@@ -18,8 +19,8 @@ const onLog = computed(() => route.name === 'issues-log')
         <RouterLink to="/issues/log" class="tab" exact-active-class="on">supervisord log</RouterLink>
       </nav>
     </header>
-    <div v-if="onLog" class="log" role="region" aria-label="supervisord log">
-      <p class="muted">The supervisord log opens here.</p>
+    <div v-if="onLog" role="region" aria-label="supervisord log">
+      <MainLogTab />
     </div>
     <IssuesList v-else />
   </section>
@@ -33,5 +34,4 @@ h1 { margin: 0; font-size: 22px; font-weight: 650; }
 .tab { padding: 8px 14px; margin-bottom: -1px; border-bottom: 2px solid transparent; color: var(--text-muted); text-decoration: none; }
 .tab:hover { color: var(--text); }
 .tab.on { border-bottom-color: var(--accent-text); color: var(--text); font-weight: 600; }
-.muted { margin: 0; color: var(--text-muted); }
 </style>

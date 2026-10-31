@@ -113,3 +113,34 @@ func (c *Client) RecentProcessLog(ctx context.Context, tailBytes int) (ProcessLo
 	}
 	return ParseProcessLog(text, time.Local), nil
 }
+
+// MainLogLine is one entry of supervisord's main log: a timestamped line
+// plus any continuation lines (a traceback) that follow it.
+type MainLogLine struct {
+	At    time.Time // parsed in loc, millisecond precision
+	Level string    // CRIT, ERRO, WARN, INFO, DEBG, TRAC or BLAT
+	Text  string    // the message; continuation lines are joined with "\n"
+}
+
+var mainLogLineRE = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) ([A-Z]+) (.*)$`)
+
+// ParseMainLogLines returns every entry in text, oldest first, with times
+// read in loc. A line without a timestamp prefix (a traceback) joins the
+// previous entry's Text. Lines before the first timestamped one are dropped:
+// text cut from the middle of the log starts with a partial line.
+func ParseMainLogLines(text string, loc *time.Location) []MainLogLine {
+	var out []MainLogLine
+	for line := range strings.Lines(text) {
+		line = strings.TrimRight(line, "\r\n")
+		if m := mainLogLineRE.FindStringSubmatch(line); m != nil {
+			if at, err := time.ParseInLocation(mainLogTime, m[1], loc); err == nil {
+				out = append(out, MainLogLine{At: at, Level: m[2], Text: m[3]})
+				continue
+			}
+		}
+		if len(out) > 0 {
+			out[len(out)-1].Text += "\n" + line
+		}
+	}
+	return out
+}

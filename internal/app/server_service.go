@@ -6,6 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -239,27 +242,86 @@ func (s *ServerService) ShutdownDaemon() error {
 }
 
 const (
-	defaultMainLogBytes = 64 << 10
-	maxMainLogBytes     = 1 << 20
+	mainLogReadBytes    = 4 << 20
+	defaultMainLogLimit = 2000
+	maxMainLogLimit     = 10000
 )
 
-// MainLog returns the last maxBytes of supervisord's own log (64 KiB if
-// maxBytes <= 0, at most 1 MiB).
-func (s *ServerService) MainLog(maxBytes int) (string, error) {
-	if maxBytes <= 0 {
-		maxBytes = defaultMainLogBytes
-	}
-	maxBytes = min(maxBytes, maxMainLogBytes)
-	var out string
+// MainLogQuery picks lines of supervisord's main log. Empty Levels means
+// every level; FromMs and ToMs bound the time as [from, to) in Unix
+// milliseconds, 0 meaning open; Query is a case-insensitive substring.
+type MainLogQuery struct {
+	Levels []string
+	FromMs int64
+	ToMs   int64
+	Query  string
+	Limit  int // newest lines to return: 2000 if <= 0, at most 10000
+}
+
+// MainLogLineView is one entry of the main log. Text may hold several
+// lines (a traceback).
+type MainLogLineView struct {
+	AtMs  int64
+	Level string
+	Text  string
+}
+
+// MainLogResult is the newest matching lines, oldest first.
+type MainLogResult struct {
+	Lines     []MainLogLineView
+	Truncated bool // the log is longer than what was read, so older lines were not searched
+	Matched   int  // lines matching the query, which may exceed len(Lines)
+}
+
+// MainLogLines reads the last 4 MiB of supervisord's own log, parses it and
+// returns the newest lines matching q.
+func (s *ServerService) MainLogLines(q MainLogQuery) (MainLogResult, error) {
+	var text string
 	err := s.rt.act(expectation{}, func(ctx context.Context, c *supervisor.Client) error {
 		var err error
-		out, err = c.ReadLog(ctx, -maxBytes, 0)
+		text, err = c.ReadLog(ctx, -mainLogReadBytes, 0)
 		if errors.Is(err, supervisor.ErrNoFile) {
 			return noMainLogError{err}
 		}
 		return wrap("read the supervisord log", err)
 	})
-	return out, err
+	if err != nil {
+		return MainLogResult{}, err
+	}
+	res := filterMainLog(supervisor.ParseMainLogLines(text, time.Local), q)
+	res.Truncated = len(text) >= mainLogReadBytes
+	return res, nil
+}
+
+// filterMainLog applies q to lines (oldest first).
+func filterMainLog(lines []supervisor.MainLogLine, q MainLogQuery) MainLogResult {
+	limit := q.Limit
+	if limit <= 0 {
+		limit = defaultMainLogLimit
+	}
+	limit = min(limit, maxMainLogLimit)
+	needle := strings.ToLower(q.Query)
+	res := MainLogResult{Lines: []MainLogLineView{}}
+	var hits []supervisor.MainLogLine
+	for _, l := range lines {
+		ms := l.At.UnixMilli()
+		switch {
+		case len(q.Levels) > 0 && !slices.Contains(q.Levels, l.Level):
+		case q.FromMs > 0 && ms < q.FromMs:
+		case q.ToMs > 0 && ms >= q.ToMs:
+		case needle != "" && !strings.Contains(strings.ToLower(l.Text), needle):
+		default:
+			hits = append(hits, l)
+		}
+	}
+	res.Matched = len(hits)
+	if len(hits) > limit {
+		hits = hits[len(hits)-limit:]
+	}
+	for _, l := range hits {
+		res.Lines = append(res.Lines, MainLogLineView{AtMs: l.At.UnixMilli(), Level: l.Level, Text: l.Text})
+	}
+	return res
 }
 
 // noMainLogError is readLog's NO_FILE, which here means supervisord keeps
