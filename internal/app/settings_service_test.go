@@ -274,7 +274,7 @@ func TestSettingsSaveClampsPersistsAndAppliesLive(t *testing.T) {
 	conf := deadConf(t)
 	start := settings.Defaults()
 	start.ConfigPath = conf
-	rt, _ := newRuntimeWith(t, RuntimeOptions{StateDir: stateDir, Settings: start})
+	rt, rec := newRuntimeWith(t, RuntimeOptions{StateDir: stateDir, Settings: start})
 	svc := NewSettingsService(rt, stateDir, "", nil, errors.New("old load error"))
 	if svc.Get().LoadError == "" {
 		t.Error("load error not shown")
@@ -288,10 +288,26 @@ func TestSettingsSaveClampsPersistsAndAppliesLive(t *testing.T) {
 	in.CrashLoop = settings.CrashLoopRules{Restarts: 3, Window: 4 * time.Minute}
 	in.RetentionDays = 1 // ApplyRetention's job (R27)
 	in.Notify.Fatal = false
+	in.Appearance = settings.AppearanceDark
 	in.ConfigPath, in.Username = "/ignored.conf", "ignored" // SaveConnection's job
 	v, err := svc.Save(in)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if v.Settings.Appearance != settings.AppearanceDark {
+		t.Errorf("appearance = %q, want dark", v.Settings.Appearance)
+	}
+	// Every window hears about the save, so the popover follows too.
+	rec.mu.Lock()
+	var sent []SettingsView
+	for _, e := range rec.events {
+		if e.name == EventSettings {
+			sent = append(sent, e.data.(SettingsView))
+		}
+	}
+	rec.mu.Unlock()
+	if len(sent) != 1 || sent[0].Settings.Appearance != settings.AppearanceDark {
+		t.Errorf("%s events = %+v, want one carrying dark", EventSettings, sent)
 	}
 	if v.Settings.PollInterval != time.Second || v.Settings.RetentionDays != 90 || v.Settings.Notify.Fatal {
 		t.Errorf("saved view = %+v, want clamped values, retention unchanged and Fatal off", v.Settings)

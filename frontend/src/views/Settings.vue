@@ -4,11 +4,12 @@
 // "Apply", because lowering it deletes history (R27: it asks first).
 // Everything else saves as it changes and applies straight away; Go clamps
 // out-of-range values and the page shows what it kept.
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ServerService, SettingsService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { ConnectionInput, SettingsView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { Settings } from '../../bindings/github.com/touhidurabir/visor/internal/settings'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import ThemeSwitch from '../components/ThemeSwitch.vue'
 import { describeError } from '../lib/faults'
 import { useOverview } from '../lib/overview'
 import { createSaveQueue } from '../lib/save-queue'
@@ -26,6 +27,7 @@ import {
   secondsToNs,
   typedNumber,
 } from '../lib/settings'
+import { appearance } from '../lib/theme-sync'
 import { showToast } from '../lib/toast'
 
 const { overview } = useOverview()
@@ -86,6 +88,12 @@ function adopt(v: SettingsView, keepDraft = false) {
   }
   showSaved(v.Settings)
 }
+
+// The switch saves on its own; keep this page's copy current so its next
+// save (built from it) doesn't put the old appearance back.
+watch(appearance, (a) => {
+  if (view.value) view.value.Settings.appearance = a
+})
 
 onMounted(async () => {
   try {
@@ -511,8 +519,9 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
           <div class="row">
             <div class="what">
               <span class="name">Appearance</span>
-              <p class="hint">Follows your Mac’s light/dark setting.</p>
+              <p class="hint">System follows your Mac’s light/dark setting.</p>
             </div>
+            <div class="ctl"><ThemeSwitch /></div>
           </div>
         </div>
           </div>

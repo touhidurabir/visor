@@ -27,11 +27,15 @@ const (
 	EventOverview = "visor:overview"
 	// EventIssueOpened carries an IssueView for each newly opened issue.
 	EventIssueOpened = "visor:issue-opened"
+	// EventSettings carries a SettingsView after every settings save, so
+	// every window (main, menu-bar popover) applies the new appearance.
+	EventSettings = "visor:settings"
 )
 
 func init() {
 	application.RegisterEvent[OverviewView](EventOverview)
 	application.RegisterEvent[IssueView](EventIssueOpened)
+	application.RegisterEvent[SettingsView](EventSettings)
 }
 
 const (

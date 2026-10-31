@@ -2,6 +2,7 @@
 // Servers (Local with its health and failing count, Dashboard, Issues, Add
 // new), Remote (later), and Doctor / Settings at the bottom.
 import { RouterLink, useRoute } from 'vue-router'
+import ThemeSwitch from './ThemeSwitch.vue'
 
 defineProps<{ name: string; health: string; failing: number; openIssues: number }>()
 
@@ -40,6 +41,7 @@ const route = useRoute()
     <button type="button" class="nav disabled" disabled>+ Add server<span class="later">later</span></button>
 
     <div class="bottom">
+      <div class="appearance"><span class="label">Appearance</span><ThemeSwitch /></div>
       <RouterLink to="/doctor" class="nav">Doctor</RouterLink>
       <RouterLink to="/settings" class="nav">Settings</RouterLink>
     </div>
@@ -97,5 +99,7 @@ const route = useRoute()
   font-weight: 600;
 }
 .bottom { margin-top: auto; display: flex; flex-direction: column; gap: 2px; padding-top: 24px; }
+.appearance { display: flex; align-items: center; justify-content: space-between; padding: 0 0 8px 10px; }
+.appearance .label { padding: 0; text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 500; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 </style>

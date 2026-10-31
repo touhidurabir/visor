@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/services/dock"
 
 	"github.com/touhidurabir/visor/internal/app"
@@ -84,6 +85,10 @@ func main() {
 		URL: "/",
 	})
 	shell.Setup(wails, mainWindow, dockService)
+	// The window chrome follows the saved appearance from launch on.
+	wails.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		app.ApplyStartupAppearance(prefs.Appearance)
+	})
 
 	if err := wails.Run(); err != nil {
 		log.Fatal(err)

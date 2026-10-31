@@ -6,6 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Added
+- Appearance: choose System, Light or Dark with a three-icon switch in the sidebar footer or in Settings → General (arrow keys move between options). System follows macOS live; the choice applies before the first paint (no flash), reaches the menu-bar popover at once, and also sets the native window chrome (title bar, scroll bars) on macOS. Saved as `appearance` in `settings.json`; a new `visor:settings` event carries each save to every window. Dark tokens now live under `data-theme="dark"` instead of a media query.
 - Action menus (the ⋯ buttons) redesigned: each item has an icon, its label on one line and the matching `supervisorctl` command below it in grey (one line, cut with an ellipsis, full text on hover), a copy button for the command (or ⌘C on the focused item), and a fixed 320 px width. The menu flips upward or leftward near the window edge. Commands use the shortest name supervisorctl accepts (`mailer-digest`, not `mailer-digest:mailer-digest`; numbered or grouped processes keep `group:name`).
 - Settings fills the window instead of stopping at 760 px; from 1100 px wide the cards flow in two columns with Connection across the top.
 

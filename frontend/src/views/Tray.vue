@@ -217,24 +217,24 @@ function openVisor() {
   color: var(--text);
   overflow: hidden;
 }
-@media (prefers-color-scheme: dark) {
-  .popover {
-    --panel: #1e1e20;
-    --line: #2e2e32;
-    --sub: #a1a1a6;
-    --icon: #c7c7cc;
-    --icon-off: #5a5a60;
-    --hover: #2a2a2e;
-    --ico-hover: #3a3a3f;
-    --btn: #2c2c30;
-    --btn-hover: #36363b;
-    --btn-line: #48484e;
-    --fail-text: #ff8a80;
-    --fail-bg: #3b1d1b;
-    --info-bg: #1b2a3d;
-    --accent: #5aa0ff;
-  }
+/* theme.ts sets data-theme on <html>; the popover is its own window. */
+:root[data-theme='dark'] .popover {
+  --panel: #1e1e20;
+  --line: #2e2e32;
+  --sub: #a1a1a6;
+  --icon: #c7c7cc;
+  --icon-off: #5a5a60;
+  --hover: #2a2a2e;
+  --ico-hover: #3a3a3f;
+  --btn: #2c2c30;
+  --btn-hover: #36363b;
+  --btn-line: #48484e;
+  --fail-text: #ff8a80;
+  --fail-bg: #3b1d1b;
+  --info-bg: #1b2a3d;
+  --accent: #5aa0ff;
 }
+
 .head {
   display: flex;
   flex-direction: column;
@@ -273,10 +273,10 @@ function openVisor() {
 }
 .prow:hover { background: var(--hover); }
 .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; }
-.dot-running { background: #2da44e; }
-.dot-failing { background: #d92d20; }
-.dot-warning { background: #d4a72c; }
-.dot-stopped { background: #8e8e96; }
+.dot-running { background: var(--running-dot); }
+.dot-failing { background: var(--failing-dot); }
+.dot-warning { background: var(--warning-dot); }
+.dot-stopped { background: var(--stopped-dot); }
 .mono { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; }
 .name {
   flex: 1;

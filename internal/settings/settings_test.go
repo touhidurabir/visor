@@ -84,6 +84,10 @@ func TestClamp(t *testing.T) {
 		{"window too short", func(s *Settings) { s.CrashLoop.Window = time.Second }, func(s *Settings) { s.CrashLoop.Window = time.Minute }},
 		{"window too long", func(s *Settings) { s.CrashLoop.Window = 48 * time.Hour }, func(s *Settings) { s.CrashLoop.Window = 24 * time.Hour }},
 		{"config path trimmed", func(s *Settings) { s.ConfigPath = "  /etc/supervisord.conf \n" }, func(s *Settings) { s.ConfigPath = "/etc/supervisord.conf" }},
+		{"appearance unknown", func(s *Settings) { s.Appearance = "sepia" }, func(s *Settings) { s.Appearance = AppearanceSystem }},
+		{"appearance empty", func(s *Settings) { s.Appearance = "" }, func(s *Settings) { s.Appearance = AppearanceSystem }},
+		{"appearance dark kept", func(s *Settings) { s.Appearance = AppearanceDark }, func(s *Settings) { s.Appearance = AppearanceDark }},
+		{"appearance light kept", func(s *Settings) { s.Appearance = AppearanceLight }, func(s *Settings) { s.Appearance = AppearanceLight }},
 		{"username trimmed", func(s *Settings) { s.Username = " admin " }, func(s *Settings) { s.Username = "admin" }},
 	}
 	for _, c := range cases {
@@ -171,6 +175,7 @@ func TestRoundTrip(t *testing.T) {
 		CrashLoop:     CrashLoopRules{Restarts: 8, Window: 15 * time.Minute},
 		RetentionDays: 30,
 		Onboarded:     true,
+		Appearance:    AppearanceDark,
 	}
 	if err := Save(dir, in); err != nil {
 		t.Fatal(err)
@@ -257,5 +262,23 @@ func TestKeychainErrors(t *testing.T) {
 	}
 	if err := SetPassword(SystemKeychain{}, "/a.conf", "x"); err == nil {
 		t.Error("SetPassword with a failing keychain: want error")
+	}
+}
+
+func TestAppearanceDefaultsToSystem(t *testing.T) {
+	if got := Defaults().Appearance; got != AppearanceSystem {
+		t.Errorf("default appearance = %q, want %q", got, AppearanceSystem)
+	}
+	// A settings file from before the field existed keeps the default.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, fileName), []byte(`{"retentionDays":30}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Appearance != AppearanceSystem {
+		t.Errorf("appearance = %q, want %q", got.Appearance, AppearanceSystem)
 	}
 }

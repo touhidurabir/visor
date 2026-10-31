@@ -128,7 +128,10 @@ func (s *SettingsService) Save(in settings.Settings) (SettingsView, error) {
 		return s.view(), err
 	}
 	s.loadErr = nil
-	return s.withWarning(s.rt.ApplySettings(in, false)), nil
+	v := s.withWarning(s.rt.ApplySettings(in, false))
+	setNativeAppearance(in.Appearance)
+	s.rt.opts.Emit(EventSettings, v)
+	return v, nil
 }
 
 // ApplyRetention saves how many days of closed issues and process history
@@ -305,3 +308,8 @@ func (s *SettingsService) ChooseConfig() (string, error) {
 	}
 	return path, nil
 }
+
+// ApplyStartupAppearance puts the saved appearance into the window chrome.
+// Call it once the app is running (main does, on ApplicationStarted): the
+// main thread does not run before that.
+func ApplyStartupAppearance(appearance string) { setNativeAppearance(appearance) }
