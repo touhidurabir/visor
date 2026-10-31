@@ -22,6 +22,7 @@ const (
 	fatalFallback   = "Exited too quickly (process log may have details)"
 	restartedByDmn  = "Exited and was restarted by supervisord"
 	noteRemoved     = "program removed"
+	noteReapplied   = "config applied"
 	noteByUser      = "by you"
 	noteRestarted   = "Restarted by supervisord"
 	noteRestartedBy = "Restarted by you"
@@ -92,6 +93,7 @@ type closedKey struct {
 // daemon itself, which covers supervisord going away and every process.
 type expectation struct {
 	match          func(process string) bool
+	reapplied      func(process string) bool // see ExpectApply
 	until          time.Time
 	untilReachable bool // daemon: hold past until while supervisord is down
 	sawDown        bool // daemon: supervisord was unreachable while this held
@@ -139,6 +141,25 @@ func NewTracker(s *Store, r Rules, p Programs, now func() time.Time) *Tracker {
 // (call it when the action ends).
 func (t *Tracker) Expect(match func(process string) bool, until time.Time) func(until time.Time) {
 	return t.addExpectation(&expectation{match: match, until: until})
+}
+
+// ExpectApply is Expect for applying config changes. A process that
+// reapplied matches is in a group being re-added with its new settings
+// (stopped, removed and added again): if it goes away meanwhile, its open
+// issues close noting the apply, not that the program was removed.
+// reapplied may be nil.
+func (t *Tracker) ExpectApply(match, reapplied func(process string) bool, until time.Time) func(until time.Time) {
+	return t.addExpectation(&expectation{match: match, reapplied: reapplied, until: until})
+}
+
+// reapplying reports whether a live ExpectApply re-adds proc.
+func (t *Tracker) reapplying(proc string, now time.Time) bool {
+	for _, e := range t.expects {
+		if e.live(now) && e.reapplied != nil && e.reapplied(proc) {
+			return true
+		}
+	}
+	return false
 }
 
 // ExpectDaemon treats supervisord going away, and every process change, as
@@ -242,9 +263,13 @@ func (t *Tracker) Apply(u monitor.Update) (opened, closed []Issue) {
 			delete(t.restarts, ev.Process)
 			// Its fatal, unexpected exit and crash loop issues (the only
 			// kinds with a process) can no longer resolve themselves.
+			note := noteRemoved
+			if t.reapplying(ev.Process, now) {
+				note = noteReapplied
+			}
 			closed = append(closed, t.closeWhere(func(i *Issue) bool {
 				return i.Process == ev.Process
-			}, StatusResolvedAuto, noteRemoved, now)...)
+			}, StatusResolvedAuto, note, now)...)
 		case monitor.Restarted:
 			crashed := !byUser && ev.From == supervisor.StateRunning && upOrStarting(ev.To)
 			r, known := ExitReason{}, false

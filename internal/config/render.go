@@ -6,13 +6,21 @@ import (
 )
 
 // RenderProgram writes a [program:name] section with the form's settings in
-// FormKeys order; empty values are left out.
+// FormKeys order; empty values are left out. A value of several lines (as
+// ProgramValues returns environment= written over several lines) is
+// written with its later lines indented, so they continue it.
 func RenderProgram(name string, values map[string]string) string {
 	var b strings.Builder
 	b.WriteString("[program:" + name + "]\n")
 	for _, k := range FormKeys {
-		if v := strings.TrimSpace(values[k]); v != "" {
-			b.WriteString(k + "=" + v + "\n")
+		var lines []string
+		for _, l := range strings.Split(values[k], "\n") {
+			if l = strings.TrimSpace(l); l != "" {
+				lines = append(lines, l)
+			}
+		}
+		if len(lines) > 0 {
+			b.WriteString(k + "=" + strings.Join(lines, "\n  ") + "\n")
 		}
 	}
 	return b.String()

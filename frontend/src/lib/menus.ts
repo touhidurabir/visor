@@ -79,7 +79,7 @@ export function configMenu(c: ConfigView): MenuItem[] {
     item('remove', 'Remove from supervisor', `supervisorctl remove ${names}`, false, {
       danger: true,
       confirm:
-        'Visor stops this file’s processes and removes them from supervisord. The file is not deleted: it moves to Visor’s backups folder (Application Support/Visor/backups), and “Undo” right after brings it back.',
+        'Visor stops this file’s processes and removes them from supervisord. The file is not deleted: it moves to Visor’s backups folder. “Undo” right after, or “Restore” under Recently removed on the dashboard, brings it back.',
     }),
   ]
 }

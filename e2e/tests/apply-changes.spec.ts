@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { collectErrors, configRow, openApp, removeConfig, supervisorStates, waitForDashboard } from './helpers'
+import { collectErrors, configRow, openApp, removeConfig, restoreConfig, supervisorStates, waitForDashboard } from './helpers'
 
 // Edits files in the sandbox's conf.d from outside the app (as an editor
 // would) and checks Visor notices, shows what applying does, applies, and
@@ -13,19 +13,7 @@ const original = readFileSync(NOTES, 'utf8')
 const banner = (page: Page) => page.getByRole('status').filter({ hasText: 'changed on disk' })
 
 /** Puts notes.ini back and applies it, whatever state a failed test left. */
-async function restoreNotes(page: Page) {
-  writeFileSync(NOTES, original)
-  await waitForDashboard(page)
-  const b = banner(page)
-  try {
-    await b.waitFor({ timeout: 3_000 })
-  } catch {
-    return
-  }
-  await b.getByRole('button', { name: 'Apply changes' }).click()
-  await page.getByRole('alertdialog').getByRole('button', { name: 'Apply changes' }).click()
-  await expect(b).toBeHidden()
-}
+const restoreNotes = (page: Page) => restoreConfig(page, NOTES, original, true)
 
 test.describe.configure({ timeout: 60_000 })
 
@@ -114,6 +102,35 @@ test.describe('apply changes', () => {
     await expect(configRow(page, 'e2e-applied.ini')).toBeVisible()
     expect(readFileSync(NEW, 'utf8')).toContain('[program:e2e-applied]')
     await expect.poll(async () => (await supervisorStates())['e2e-applied:e2e-applied'], { timeout: 15_000 }).toBe('RUNNING')
+  })
+})
+
+test.describe('recently removed', () => {
+  // I-5: once the report's Undo is gone (another page, a reload), the
+  // dashboard still lists the removed file and restores it.
+  test('a removed file can be restored from the dashboard after leaving it', async ({ page }) => {
+    const errors = collectErrors(page)
+    await waitForDashboard(page)
+    writeFileSync(NEW, '[program:e2e-applied]\ncommand=/bin/sleep 600\ndirectory=/tmp\n')
+    await expect(banner(page)).toBeVisible()
+    await banner(page).getByRole('button', { name: 'Apply changes' }).click()
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Apply changes' }).click()
+    await expect(configRow(page, 'e2e-applied.ini')).toBeVisible()
+    await removeConfig(page, NEW)
+
+    await page.getByRole('link', { name: /^Issues/ }).first().click()
+    await expect(page.getByRole('heading', { level: 1, name: 'Issues' })).toBeVisible()
+    await waitForDashboard(page)
+    await expect(page.getByRole('button', { name: 'Undo' })).toBeHidden()
+    const removed = page.getByRole('region', { name: 'Recently removed' })
+    await expect(removed).toContainText('e2e-applied.ini')
+    await removed.getByRole('button', { name: 'Restore e2e-applied.ini' }).click()
+    await expect(page.getByText('Restored e2e-applied.ini.')).toBeVisible()
+    await expect(configRow(page, 'e2e-applied.ini')).toBeVisible()
+    expect(readFileSync(NEW, 'utf8')).toContain('[program:e2e-applied]')
+    await expect.poll(async () => (await supervisorStates())['e2e-applied:e2e-applied'], { timeout: 15_000 }).toBe('RUNNING')
+    await expect(removed.getByRole('button', { name: 'Restore e2e-applied.ini' })).toBeHidden()
+    expect(errors).toEqual([])
   })
 })
 

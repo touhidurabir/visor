@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { collectErrors, openApp, supervisorStates } from './helpers'
+import { collectErrors, openApp, restoreConfig, supervisorStates } from './helpers'
 
 // These edit notes.ini in the sandbox (a program that runs 2 s and exits, so
 // restarting it disturbs no other spec), and put it back through the UI or,
@@ -8,8 +8,11 @@ import { collectErrors, openApp, supervisorStates } from './helpers'
 const FILE = '/tmp/visor-e2e/conf.d/notes.ini'
 const original = readFileSync(FILE, 'utf8')
 
-test.afterEach(() => {
-  if (readFileSync(FILE, 'utf8') !== original) writeFileSync(FILE, original)
+// Writing the file back is not enough after a test that failed past "Save &
+// apply": supervisord would keep running the edit, and every later spec would
+// see the "changed on disk" banner. restoreConfig applies it too.
+test.afterEach(async ({ page }) => {
+  await restoreConfig(page, FILE, original)
 })
 
 async function openEditor(page: Page) {

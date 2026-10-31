@@ -7,12 +7,12 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/touhidurabir/visor/internal/apply"
 	"github.com/touhidurabir/visor/internal/config"
 	"github.com/touhidurabir/visor/internal/describe"
+	"github.com/touhidurabir/visor/internal/supervisor"
 	"github.com/touhidurabir/visor/internal/validate"
 )
 
@@ -20,14 +20,24 @@ import (
 // errors. The checks are in Validate's answer.
 var ErrInvalidConfig = errors.New("config has errors")
 
+// ErrRejected means supervisord refused a saved file when it re-read its
+// config (CANT_REREAD), so Visor put the previous version back (or removed
+// a new file again). The error says what supervisord objected to.
+var ErrRejected = errors.New("supervisord refused this config")
+
+// ErrMainConfig means the path is supervisord.conf itself (directly, or
+// through a symlink or an include glob that matches it): Visor never edits
+// supervisord's own settings.
+var ErrMainConfig = errors.New("this is supervisord's main config file, which Visor doesn't edit")
+
 // maxBackupsListed bounds how many backups Backups returns (newest first).
 const maxBackupsListed = 50
 
 // ConfigService edits supervisord's include files: read, check, describe,
-// save and apply, back up and restore. Saves are one at a time.
+// save and apply, back up and restore. Writes and applies are one at a
+// time, together with ServerService's (Runtime.applyMu).
 type ConfigService struct {
 	rt *Runtime
-	mu sync.Mutex // one save, restore or apply at a time
 }
 
 // NewConfigService returns a service backed by rt.
@@ -50,6 +60,13 @@ type FileView struct {
 type LoadedDiffView struct {
 	Known        bool
 	Loaded, Disk string
+}
+
+// RemovedView is a config file removed from supervisor that is not back:
+// BackupID is the backup Restore brings it back from, taken At.
+type RemovedView struct {
+	Path, FileName, BackupID string
+	At                       time.Time
 }
 
 // BackupView is one saved copy of a file. At is when it was taken.
@@ -112,9 +129,12 @@ func (s *ConfigService) LoadedDiff(path string) (LoadedDiffView, error) {
 // so other programs keep running. Errors in the checks refuse the save with
 // ErrInvalidConfig; a file Visor may not write fails with ErrNotWritable.
 // Per-group apply failures are in the result's Errors.
+//
+// When supervisord then refuses the file (it can't re-read its config),
+// the previous version is put back and the error is ErrRejected.
 func (s *ConfigService) Save(path, content, hash string) (ApplyResultView, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.rt.applyMu.Lock()
+	defer s.rt.applyMu.Unlock()
 	return s.save(path, content, hash)
 }
 
@@ -136,22 +156,58 @@ func (s *ConfigService) save(path, content, hash string) (ApplyResultView, error
 	if err != nil {
 		return ApplyResultView{}, fmt.Errorf("read %s: %w", path, err)
 	}
-	if _, err := apply.Write(path, []byte(content), hash, s.rt.backups()); err != nil {
+	b := s.rt.backups()
+	bk, err := apply.Write(path, []byte(content), hash, b)
+	if err != nil {
 		return ApplyResultView{}, err
 	}
-	return s.applyWritten(path, old)
+	// What supervisord loaded from the file may differ from the disk copy
+	// just replaced (changed elsewhere, not applied): apply its groups too.
+	loaded, _ := s.rt.loadedSnapshot(path)
+	res, err := s.applyWritten(path, old, loaded)
+	if refused(err) {
+		if rerr := apply.Revert(path, old, []byte(content), bk, b); rerr != nil {
+			return res, fmt.Errorf("%w: %s. Visor could not put the previous version back (%v): the backup from %s has it",
+				ErrRejected, faultText(err), rerr, bk.At.Local().Format(time.DateTime))
+		}
+		return res, fmt.Errorf("%w: %s. Visor put the previous version back; your edits are still in the editor", ErrRejected, faultText(err))
+	}
+	return res, err
+}
+
+// refused reports whether supervisord could not re-read its config.
+func refused(err error) bool { return errors.Is(err, supervisor.ErrCantReread) }
+
+// faultText is supervisord's own words for a refused re-read, without the
+// list of every name it could have expanded (its whole environment).
+func faultText(err error) string {
+	var f *supervisor.Fault
+	if !errors.As(err, &f) {
+		return err.Error()
+	}
+	t := strings.TrimSpace(strings.TrimPrefix(f.String, "CANT_REREAD:"))
+	if i := strings.Index(t, ". Available names: "); i >= 0 {
+		rest := ""
+		if j := strings.Index(t[i:], " in section "); j >= 0 {
+			rest = t[i+j:]
+		}
+		t = t[:i] + rest
+	}
+	return t
 }
 
 // applyWritten applies the groups path defines now and the ones it
-// defined in old.
-func (s *ConfigService) applyWritten(path string, old []byte) (ApplyResultView, error) {
+// defined in each of olds (earlier versions of it).
+func (s *ConfigService) applyWritten(path string, olds ...[]byte) (ApplyResultView, error) {
 	groups, err := s.rt.groupsInFile(path)
 	if err != nil {
 		return ApplyResultView{}, fmt.Errorf("saved %s, but could not apply it: %w", path, err)
 	}
-	for _, g := range groupsIn(old, path) {
-		if !slices.Contains(groups, g) {
-			groups = append(groups, g)
+	for _, old := range olds {
+		for _, g := range groupsIn(old, path) {
+			if !slices.Contains(groups, g) {
+				groups = append(groups, g)
+			}
 		}
 	}
 	res, err := s.rt.applyChanges(groups)
@@ -165,17 +221,13 @@ func (s *ConfigService) applyWritten(path string, old []byte) (ApplyResultView, 
 // supervisord: only the groups it defines now, and the ones supervisord
 // loaded from it before.
 func (s *ConfigService) ApplyFile(path string) (ApplyResultView, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.rt.applyMu.Lock()
+	defer s.rt.applyMu.Unlock()
 	if _, err := s.rt.includeFile(path); err != nil {
 		return ApplyResultView{}, err
 	}
-	var old []byte
-	if w := s.rt.watcherOrNil(); w != nil {
-		old, _ = w.Loaded(path)
-	}
-	res, err := s.applyWritten(path, old)
-	return res, err
+	loaded, _ := s.rt.loadedSnapshot(path)
+	return s.applyWritten(path, loaded)
 }
 
 // Backups lists path's saved copies, newest first (at most 50).
@@ -203,8 +255,8 @@ func (s *ConfigService) Backups(path string) ([]BackupView, error) {
 // a backup of what is there now, and an apply of the file's groups. A file
 // removed from supervisor comes back as a new file.
 func (s *ConfigService) Restore(path, backupID string) (ApplyResultView, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.rt.applyMu.Lock()
+	defer s.rt.applyMu.Unlock()
 	if err := s.rt.checkManaged(path); err != nil {
 		return ApplyResultView{}, err
 	}
@@ -231,8 +283,36 @@ func (s *ConfigService) Restore(path, backupID string) (ApplyResultView, error) 
 	return s.save(path, string(data), apply.Hash(cur))
 }
 
-// create writes content as a new file at path and applies its groups.
+// RemovedFiles lists the config files removed from supervisor that are not
+// back, newest first (at most 20), with the backup Restore brings each back
+// from. Files outside the current include setting are left out.
+func (s *ConfigService) RemovedFiles() ([]RemovedView, error) {
+	list, err := s.rt.backups().Removed()
+	if err != nil {
+		return nil, err
+	}
+	out := []RemovedView{}
+	for _, bk := range list {
+		if !s.rt.matchesInclude(bk.Path) || s.rt.checkNotMain(bk.Path) != nil {
+			continue
+		}
+		out = append(out, RemovedView{Path: bk.Path, FileName: filepath.Base(bk.Path), BackupID: bk.ID, At: bk.At})
+		if len(out) == maxRemovedListed {
+			break
+		}
+	}
+	return out, nil
+}
+
+// maxRemovedListed bounds RemovedFiles.
+const maxRemovedListed = 20
+
+// create writes content as a new file at path and applies its groups. When
+// supervisord refuses it, the file is removed again (ErrRejected).
 func (s *ConfigService) create(path, content string) (ApplyResultView, error) {
+	if err := s.rt.checkNotMain(path); err != nil {
+		return ApplyResultView{}, err
+	}
 	if cs := s.Validate(filepath.Base(path), content, ""); validate.HasErrors(cs) {
 		return ApplyResultView{}, invalidError(cs)
 	}
@@ -242,7 +322,14 @@ func (s *ConfigService) create(path, content string) (ApplyResultView, error) {
 	if _, err := apply.Write(path, []byte(content), "", s.rt.backups()); err != nil {
 		return ApplyResultView{}, err
 	}
-	return s.applyWritten(path, nil)
+	res, err := s.applyWritten(path)
+	if refused(err) {
+		if rerr := apply.RevertCreate(path, []byte(content)); rerr != nil {
+			return res, fmt.Errorf("%w: %s. Visor could not remove the new file again (%v)", ErrRejected, faultText(err), rerr)
+		}
+		return res, fmt.Errorf("%w: %s. Visor removed the new file again; your config is still in the editor", ErrRejected, faultText(err))
+	}
+	return res, err
 }
 
 // Templates returns the starting points for a new config.
@@ -300,8 +387,8 @@ func (r *Runtime) newFileHome() (dir, ext string) {
 // its programs, so everything else keeps running. The new config is watched
 // for notifications. A file that already exists is never overwritten.
 func (s *ConfigService) Create(fileName, content string) (ApplyResultView, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.rt.applyMu.Lock()
+	defer s.rt.applyMu.Unlock()
 	dir, _ := s.rt.newFileHome()
 	if dir == "" {
 		return ApplyResultView{}, errors.New("supervisord's [include] files= setting names no folder Visor can write to")
@@ -310,6 +397,9 @@ func (s *ConfigService) Create(fileName, content string) (ApplyResultView, error
 		return ApplyResultView{}, fmt.Errorf("%q is not a file name: use a plain name like web.ini, without folders", fileName)
 	}
 	path := filepath.Join(dir, fileName)
+	if err := s.rt.checkNotMain(path); err != nil {
+		return ApplyResultView{}, err
+	}
 	if _, err := os.Lstat(path); err == nil {
 		return ApplyResultView{}, fmt.Errorf("%s already exists in %s. Choose another file name: %w", fileName, dir, apply.ErrExists)
 	}
@@ -360,25 +450,71 @@ func (r *Runtime) includeFile(path string) (config.ConfigFile, error) {
 	}
 	for _, f := range inv.Files {
 		if f.Path == path {
+			if err := r.checkNotMain(path); err != nil {
+				return config.ConfigFile{}, err
+			}
 			return f, nil
 		}
 	}
 	return config.ConfigFile{}, fmt.Errorf("%s is not one of supervisord's config files: check the [include] files= setting", path)
 }
 
+// checkNotMain refuses supervisord.conf itself, however path reaches it: an
+// include glob that matches it, a symlink or a hard link to it.
+func (r *Runtime) checkNotMain(path string) error {
+	r.mu.Lock()
+	main := r.d.ConfigPath
+	r.mu.Unlock()
+	if main != "" && sameFile(path, main) {
+		return fmt.Errorf("%s: %w", path, ErrMainConfig)
+	}
+	return nil
+}
+
+// sameFile reports whether a and b are the same file once symlinks are
+// followed. For a path that does not exist yet, its folder's symlinks are
+// followed.
+func sameFile(a, b string) bool {
+	fa, ea := os.Stat(a)
+	fb, eb := os.Stat(b)
+	if ea == nil && eb == nil {
+		return os.SameFile(fa, fb)
+	}
+	return resolve(a) == resolve(b)
+}
+
+func resolve(p string) string {
+	p = filepath.Clean(p)
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	if d, err := filepath.EvalSymlinks(filepath.Dir(p)); err == nil {
+		return filepath.Join(d, filepath.Base(p))
+	}
+	return p
+}
+
 // checkManaged accepts an include file, or a path an include glob matches
 // (a file removed from supervisor, which a backup can bring back).
 func (r *Runtime) checkManaged(path string) error {
-	if _, err := r.includeFile(path); err == nil {
+	if err := r.checkNotMain(path); err != nil {
+		return err
+	}
+	if _, err := r.includeFile(path); err == nil || r.matchesInclude(path) {
 		return nil
 	}
+	return fmt.Errorf("%s is not one of supervisord's config files: check the [include] files= setting", path)
+}
+
+// matchesInclude reports whether an include glob matches the absolute path.
+func (r *Runtime) matchesInclude(path string) bool {
 	r.mu.Lock()
 	globs := r.d.IncludeGlobs
 	r.mu.Unlock()
 	for _, g := range globs {
 		if ok, _ := filepath.Match(g, filepath.Clean(path)); ok && filepath.IsAbs(path) {
-			return nil
+			return true
 		}
 	}
-	return fmt.Errorf("%s is not one of supervisord's config files: check the [include] files= setting", path)
+	return false
 }

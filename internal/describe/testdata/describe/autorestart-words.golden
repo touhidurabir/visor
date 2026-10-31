@@ -1,0 +1,8 @@
+[program:legacy]
+Runs /usr/bin/env python3 worker.py as you. Starts with supervisord, restarts it whenever it exits, and gives it 10 seconds to stop. Output goes to an auto-named file in supervisord's log folder. Errors go to an auto-named file in supervisord's log folder.
+! legacy: startsecs=1 with autorestart on, so a crash loop burns through its 3 retries in seconds.
+! legacy has no stderr_logfile, so errors go to an auto-named file in supervisord's log folder.
+
+[program:never]
+Runs /usr/bin/env python3 once.py as you. Starts with supervisord, never restarts it, and gives it 10 seconds to stop. Output goes to an auto-named file in supervisord's log folder. Errors go to an auto-named file in supervisord's log folder.
+! never has no stderr_logfile, so errors go to an auto-named file in supervisord's log folder.

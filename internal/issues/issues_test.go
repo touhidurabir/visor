@@ -268,6 +268,34 @@ func TestRemovedClosesProcessIssues(t *testing.T) {
 	}
 }
 
+// M-12: Visor applying a changed group stops, removes and adds it again.
+// Its process going away then is not the program being removed: its issues
+// close noting the apply.
+func TestRemovedDuringReapplyNotesConfigApplied(t *testing.T) {
+	tr, _, c := newTracker(t, nil)
+	tr.Apply(change(c.now(), supervisor.StateBackoff, supervisor.StateFatal, info(0)))
+	removed := monitor.Update{
+		Snapshot: monitor.Snapshot{At: c.now(), Reachable: true},
+		Events:   []monitor.Event{{Kind: monitor.Removed, At: c.now(), Process: "g:w", From: supervisor.StateFatal, Info: info(supervisor.StateFatal)}},
+	}
+	is := func(p string) bool { return p == "g:w" }
+	tr.ExpectApply(is, is, c.now().Add(5*time.Second))
+	_, closed := tr.Apply(removed)
+	if len(closed) != 1 || closed[0].Status != StatusResolvedAuto || closed[0].Note != "config applied" {
+		t.Fatalf("closed = %+v, want the fatal issue noted config applied", closed)
+	}
+
+	// Removing a program on request (covered, but not re-applied) is a removal.
+	c.advance(6 * time.Second) // the apply above has ended
+	removed.Snapshot.At, removed.Events[0].At = c.now(), c.now()
+	tr.Apply(change(c.now(), supervisor.StateBackoff, supervisor.StateFatal, info(0)))
+	tr.ExpectApply(is, nil, c.now().Add(5*time.Second))
+	_, closed = tr.Apply(removed)
+	if len(closed) != 1 || closed[0].Note != "program removed" {
+		t.Fatalf("closed = %+v, want program removed", closed)
+	}
+}
+
 func TestUserActionsAreNotFailures(t *testing.T) {
 	tr, s, c := newTracker(t, nil)
 	tr.Expect(func(p string) bool { return p == "g:w" }, c.now().Add(5*time.Second))

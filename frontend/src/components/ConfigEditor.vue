@@ -215,8 +215,11 @@ async function failed(e: unknown) {
     if (diskNewer.value) failure.value = null // its own banner says it, with the choices
   } else if (kind === 'readonly') {
     if (file.value) file.value = { ...file.value, Writable: false }
-  } else if (kind === 'other') {
+  } else if (kind === 'other' || kind === 'rejected') {
     // "Saved, but applying failed": the file did change, so take its new hash.
+    // Refused by supervisord: Visor put the previous version back, so the
+    // file differs from the edits, which stay a draft (unless putting it
+    // back failed and the file still holds them).
     try {
       const f = await ConfigService.Read(props.path)
       if (f.Content === wasText && file.value && f.Hash !== file.value.Hash) {

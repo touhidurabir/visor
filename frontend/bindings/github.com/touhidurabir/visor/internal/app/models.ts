@@ -314,6 +314,17 @@ export interface ProgramForm {
 }
 
 /**
+ * RemovedView is a config file removed from supervisor that is not back:
+ * BackupID is the backup Restore brings it back from, taken At.
+ */
+export interface RemovedView {
+    "Path": string;
+    "FileName": string;
+    "BackupID": string;
+    "At": string;
+}
+
+/**
  * ServerView describes the supervisord connection. Health is "ok",
  * "warning", "error" or "unknown" (before the first poll).
  */

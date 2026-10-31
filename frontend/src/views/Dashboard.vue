@@ -3,7 +3,7 @@
 // stats and the configs and processes table (open issues live on the Issues
 // page). All data comes from the live overview; this view only wires menu ids
 // to service calls.
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ServerService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { ConfigView, ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
@@ -14,6 +14,7 @@ import ActionMenu from '../components/ActionMenu.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import SignalDialog from '../components/SignalDialog.vue'
 import StatTile from '../components/StatTile.vue'
+import RecentlyRemoved from '../components/RecentlyRemoved.vue'
 import { useApplyFlow } from '../lib/apply-flow'
 import { describeError } from '../lib/faults'
 import { filterConfigs } from '../lib/filter'
@@ -26,7 +27,13 @@ import { showToast } from '../lib/toast'
 
 const router = useRouter()
 const { overview, error: loadError, reload } = useOverview()
-const flow = useApplyFlow(() => reload())
+// removedStamp reloads "Recently removed" after a remove or restore here,
+// and when the config files change (one removed from another window).
+const removedStamp = ref(0)
+const flow = useApplyFlow(() => {
+  reload()
+  removedStamp.value++
+})
 
 const query = ref('')
 const search = ref<HTMLInputElement>()
@@ -57,6 +64,10 @@ function onKey(e: KeyboardEvent) {
 }
 
 const configs = computed(() => overview.value?.Configs ?? [])
+watch(
+  () => configs.value.map((c) => c.Path).join('\n'),
+  () => removedStamp.value++,
+)
 const shown = computed(() => filterConfigs(configs.value, query.value))
 const server = computed(() => overview.value?.Server)
 
@@ -286,6 +297,8 @@ function sendSignal(sig: string) {
         <ConfigTable v-else :configs="shown" :now-ms="nowMs" @process="onProcess" @config="onConfig" @watch="onWatch" />
         <p class="muted">Grey text in each menu is the matching <span class="mono">supervisorctl</span> command. Copy it with the button beside it, or ⌘C.</p>
       </section>
+
+      <RecentlyRemoved :stamp="removedStamp" @restored="reload" />
     </template>
 
     <SignalDialog v-if="signalFor" :process="signalFor.FullName" @send="sendSignal" @cancel="signalFor = null" />

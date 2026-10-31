@@ -3,7 +3,8 @@
 
 /**
  * ConfigService edits supervisord's include files: read, check, describe,
- * save and apply, back up and restore. Saves are one at a time.
+ * save and apply, back up and restore. Writes and applies are one at a
+ * time, together with ServerService's (Runtime.applyMu).
  * @module
  */
 
@@ -98,6 +99,15 @@ export function Read(path: string): $CancellablePromise<$models.FileView> {
 }
 
 /**
+ * RemovedFiles lists the config files removed from supervisor that are not
+ * back, newest first (at most 20), with the backup Restore brings each back
+ * from. Files outside the current include setting are left out.
+ */
+export function RemovedFiles(): $CancellablePromise<$models.RemovedView[] | null> {
+    return $Call.ByID(696090448);
+}
+
+/**
  * RenderProgram writes the form's values as a [program:name] section.
  */
 export function RenderProgram(name: string, values: { [_ in string]?: string } | null): $CancellablePromise<string> {
@@ -120,6 +130,9 @@ export function Restore(path: string, backupID: string): $CancellablePromise<$mo
  * so other programs keep running. Errors in the checks refuse the save with
  * ErrInvalidConfig; a file Visor may not write fails with ErrNotWritable.
  * Per-group apply failures are in the result's Errors.
+ * 
+ * When supervisord then refuses the file (it can't re-read its config),
+ * the previous version is put back and the error is ErrRejected.
  */
 export function Save(path: string, content: string, hash: string): $CancellablePromise<$models.ApplyResultView> {
     return $Call.ByID(1099340586, path, content, hash);

@@ -13,11 +13,13 @@ import (
 // Result is what Reload applied: the groups supervisord added, changed
 // (stopped, removed and added again) and removed, and one message per
 // group that failed. Groups that failed are in Failed, not in the other
-// lists.
+// lists. Skipped are the groups reloadConfig reported as added, changed or
+// removed that the caller's only list left out: they still differ.
 type Result struct {
 	Added, Changed, Removed []string
 	Errors                  []string
 	Failed                  []string
+	Skipped                 []string
 }
 
 // stillRunningWait bounds how long Reload keeps retrying removeProcessGroup
@@ -42,13 +44,21 @@ func Reload(ctx context.Context, c *supervisor.Client, only []string) (Result, e
 	if err != nil {
 		return Result{}, fmt.Errorf("cannot re-read the config files: %w", err)
 	}
+	var res Result
 	pick := func(groups []string) []string {
 		if only == nil {
 			return groups
 		}
-		return slices.DeleteFunc(slices.Clone(groups), func(g string) bool { return !slices.Contains(only, g) })
+		var out []string
+		for _, g := range groups {
+			if slices.Contains(only, g) {
+				out = append(out, g)
+			} else {
+				res.Skipped = append(res.Skipped, g)
+			}
+		}
+		return out
 	}
-	var res Result
 	fail := func(g, what string, err error) {
 		res.Errors = append(res.Errors, fmt.Sprintf("%s: cannot %s: %v", g, what, err))
 		res.Failed = append(res.Failed, g)

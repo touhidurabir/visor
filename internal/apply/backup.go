@@ -179,6 +179,43 @@ func validID(id string) bool {
 	return err == nil && t.Format(idLayout) == id
 }
 
+// Removed lists, newest first, the newest backup of each file that was
+// removed from supervisor (its newest backup is marked Removed) and is not
+// on disk now: the files a Restore can bring back.
+func (b Backups) Removed() ([]Backup, error) {
+	es, err := os.ReadDir(b.Dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return []Backup{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list backups: %w", err)
+	}
+	out := []Backup{}
+	for _, e := range es {
+		if !e.IsDir() {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(b.Dir, e.Name(), metaFile))
+		if err != nil {
+			continue
+		}
+		var m backupMeta
+		if json.Unmarshal(raw, &m) != nil || checkPath(m.Path) != nil || b.folder(filepath.Clean(m.Path)) != filepath.Join(b.Dir, e.Name()) {
+			continue // not a folder Visor wrote for that path
+		}
+		list, err := b.List(m.Path)
+		if err != nil || len(list) == 0 || !list[0].Removed {
+			continue
+		}
+		if _, err := os.Lstat(m.Path); !errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		out = append(out, list[0])
+	}
+	slices.SortFunc(out, func(x, y Backup) int { return y.At.Compare(x.At) })
+	return out, nil
+}
+
 // Read returns the content of a backup.
 func (b Backups) Read(bk Backup) ([]byte, error) {
 	name, err := b.file(bk)
@@ -188,9 +225,9 @@ func (b Backups) Read(bk Backup) ([]byte, error) {
 	return os.ReadFile(name)
 }
 
-// remove deletes a backup that was taken for a write that did not happen,
-// and the path's folder with it if that was its only backup.
-func (b Backups) remove(bk Backup) {
+// Discard deletes a backup that was taken for a write or removal that did
+// not happen, and the path's folder with it if that was its only backup.
+func (b Backups) Discard(bk Backup) {
 	name, err := b.file(bk)
 	if err != nil {
 		return

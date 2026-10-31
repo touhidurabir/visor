@@ -24,7 +24,9 @@ func (r *Runtime) backups() apply.Backups {
 // supervisord reports added, changed or removed). On success the config
 // files of those groups (with nil, every include file) are recorded as what
 // supervisord now runs, which clears their "changed" badge; a file with a
-// group that failed keeps it.
+// group that failed, or with a change that was not applied (one that
+// turned up after the groups were picked), keeps it. The caller holds
+// applyMu.
 func (r *Runtime) applyChanges(groups []string) (apply.Result, error) {
 	ac, err := r.conn()
 	if err != nil {
@@ -46,7 +48,7 @@ func (r *Runtime) applyChanges(groups []string) (apply.Result, error) {
 	}
 	files := r.filesOfGroups(groups) // before applying: a removed group's file may be gone
 	var res apply.Result
-	err = r.act(expectGroups(groups...), func(ctx context.Context, c *supervisor.Client) error {
+	err = r.act(r.expectApply(groups), func(ctx context.Context, c *supervisor.Client) error {
 		var err error
 		res, err = apply.Reload(ctx, c, groups)
 		return err
@@ -54,10 +56,10 @@ func (r *Runtime) applyChanges(groups []string) (apply.Result, error) {
 	if err != nil {
 		return res, err
 	}
-	if all && len(res.Failed) == 0 {
+	if all && len(res.Failed) == 0 && len(res.Skipped) == 0 {
 		err = r.markAllLoaded()
 	} else {
-		err = r.markLoaded(filesWithout(files, res.Failed))
+		err = r.markLoaded(filesWithout(files, append(slices.Clone(res.Failed), res.Skipped...)))
 	}
 	if err != nil {
 		return res, fmt.Errorf("applied, but Visor could not record what supervisord now runs: %w", err)
@@ -66,13 +68,41 @@ func (r *Runtime) applyChanges(groups []string) (apply.Result, error) {
 	return res, nil
 }
 
-// removeFromSupervisor takes an include file out of supervisord: it stops
-// the file's groups (waiting until they have stopped), moves the file into
-// Visor's backups (apply.Remove), and applies the removal for those groups
-// only. Nothing is stopped when the file cannot be moved. Its processes'
-// open issues close as removed; being the user's action, the stop opens
-// none and notifies nothing.
+// expectApply covers groups for an apply. A group some include file still
+// defines is being changed (stopped, removed and added again), not removed:
+// if its processes go away meanwhile, their issues close as "config
+// applied".
+func (r *Runtime) expectApply(groups []string) expectation {
+	r.mu.Lock()
+	d := r.d
+	r.mu.Unlock()
+	onDisk := map[string]bool{}
+	if inv, err := config.LoadInventory(d); err == nil {
+		for _, f := range inv.Files {
+			for _, p := range f.Programs {
+				onDisk[p.Group] = true
+			}
+		}
+	}
+	e := expectGroups(groups...)
+	e.reapplied = func(p string) bool {
+		g, _, _ := strings.Cut(p, ":")
+		return onDisk[g] && slices.Contains(groups, g)
+	}
+	return e
+}
+
+// removeFromSupervisor takes an include file out of supervisord: it backs
+// the file up, stops the file's groups (waiting until they have stopped),
+// moves the file into Visor's backups (apply.RemoveBackedUp), and applies
+// the removal for those groups only. Nothing is stopped when the file
+// cannot be backed up or moved. Its processes' open issues close as
+// removed; being the user's action, the stop opens none and notifies
+// nothing. The caller holds applyMu.
 func (r *Runtime) removeFromSupervisor(path string) (apply.Result, error) {
+	if _, err := r.includeFile(path); err != nil {
+		return apply.Result{}, err
+	}
 	if _, err := r.conn(); err != nil {
 		return apply.Result{}, err
 	}
@@ -83,7 +113,14 @@ func (r *Runtime) removeFromSupervisor(path string) (apply.Result, error) {
 	if err := apply.CheckRemovable(path); err != nil {
 		return apply.Result{}, err
 	}
+	// The backup first, so a backups folder Visor can't write stops nothing.
+	b := r.backups()
+	bk, err := apply.BackUpForRemove(path, b)
+	if err != nil {
+		return apply.Result{}, err
+	}
 	var res apply.Result
+	removed := false
 	err = r.act(expectGroups(groups...), func(ctx context.Context, c *supervisor.Client) error {
 		var errs []error
 		for _, g := range groups {
@@ -95,13 +132,17 @@ func (r *Runtime) removeFromSupervisor(path string) (apply.Result, error) {
 		if err := errors.Join(errs...); err != nil {
 			return err
 		}
-		if _, err := apply.Remove(path, r.backups()); err != nil {
+		if _, err := apply.RemoveBackedUp(path, bk, b); err != nil {
 			return fmt.Errorf("stopped its processes, but %w", err)
 		}
+		removed = true
 		var err error
 		res, err = apply.Reload(ctx, c, groups)
 		return err
 	})
+	if !removed {
+		b.Discard(bk) // the file stays, so its removal backup goes
+	}
 	if err != nil {
 		return res, err
 	}

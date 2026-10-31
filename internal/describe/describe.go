@@ -78,9 +78,13 @@ func describe(s config.Section) Program {
 	o := opts{s}
 	name := strings.TrimPrefix(s.Name, "program:")
 	n := max(o.integer("numprocs", 1), 1)
-	autorestart := strings.ToLower(o.str("autorestart"))
-	if autorestart != "true" && autorestart != "false" {
-		autorestart = "unexpected"
+	// supervisord takes any boolean word for autorestart (yes, on, 1, ...).
+	autorestart := "unexpected"
+	switch strings.ToLower(o.str("autorestart")) {
+	case "true", "yes", "on", "1":
+		autorestart = "true"
+	case "false", "no", "off", "0":
+		autorestart = "false"
 	}
 	redirect := o.boolean("redirect_stderr", false)
 	stdout, stderr := o.str("stdout_logfile"), o.str("stderr_logfile")

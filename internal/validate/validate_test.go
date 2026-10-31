@@ -74,13 +74,13 @@ func TestValidateRules(t *testing.T) {
 		{"unknown key far", "a.conf", head + "zzzzzzzz=1\n", "", Warning, "unknown key zzzzzzzz", 3},
 		{"unknown key close", "a.conf", head + "autorestrat=true\n", "", Warning, "Did you mean autorestart?", 3},
 		{"int bad", "a.conf", head + "startsecs=ten\n", "", Error, "startsecs must be a whole number", 3},
-		{"int backups bad", "a.conf", head + "stdout_logfile_backups=-1\n", "", Error, "whole number", 3},
+		{"int backups bad", "a.conf", head + "stdout_logfile_backups=x\n", "", Error, "whole number", 3},
 		{"bytes bad", "a.conf", head + "stdout_logfile_maxbytes=lots\n", "", Error, "stdout_logfile_maxbytes", 3},
 		{"bytes good", "a.conf", head + "stdout_logfile_maxbytes=50MB\n", "", OK, "acme is unique", 0},
 		{"bool bad", "a.conf", head + "autostart=maybe\n", "", Error, "autostart must be", 3},
 		{"bool good", "a.conf", head + "autostart=Yes\n", "", OK, "acme is unique", 0},
 		{"autorestart bad", "a.conf", head + "autorestart=sometimes\n", "", Error, "true, false or unexpected", 3},
-		{"stopsignal bad", "a.conf", head + "stopsignal=STOP\n", "", Error, "stopsignal must be", 3},
+		{"stopsignal bad", "a.conf", head + "stopsignal=FOO\n", "", Error, "stopsignal must be", 3},
 		{"numprocs needs process_num", "a.conf", head + "numprocs=2\n", "", Error, "%(process_num)", 3},
 		{"numprocs with process_num", "a.conf", head + "numprocs=2\nprocess_name=%(program_name)s_%(process_num)02d\n", "", OK, "acme is unique", 0},
 		{"command found", "a.conf", head, "", OK, "php found at /opt/homebrew/bin/php", 0},
@@ -93,7 +93,7 @@ func TestValidateRules(t *testing.T) {
 		{"directory missing", "a.conf", head + "directory=/srv/nope\n", "", Warning, "/srv/nope does not exist", 3},
 		{"directory is a file", "a.conf", head + "directory=/srv/file\n", "", Error, "not a folder", 3},
 		{"directory ok", "a.conf", head + "directory=/srv/acme\n", "", OK, "/srv/acme exists", 0},
-		{"user missing", "a.conf", head + "user=ghost\n", "", Warning, "user ghost", 3},
+		{"user missing", "a.conf", head + "user=ghost\n", "", Error, "user ghost", 3},
 		{"user root", "a.conf", head + "user=root\n", "", Warning, "runs as root", 3},
 		{"log dir missing", "a.conf", head + "stdout_logfile=/var/log/acme/w.log\n", "", Error, "/var/log/acme does not exist", 3},
 		{"log dir read-only", "a.conf", head + "stderr_logfile=/var/log/ro/w.log\n", "", Error, "not writable", 3},
@@ -177,5 +177,106 @@ func TestDefaultsDoNotPanic(t *testing.T) {
 	cs := File("a.conf", "[program:acme]\ncommand=/bin/sh -c true\ndirectory="+dir+"\nstdout_logfile="+dir+"/x.log\nuser=root\n", Env{})
 	if find(cs, OK, dir+" exists") == nil {
 		t.Errorf("real Stat default not used: %+v", cs)
+	}
+}
+
+// Values supervisord 4.2.5 accepts (datatypes.py) must not block a save:
+// a working config has to stay savable and restorable.
+func TestValidateAcceptsWhatSupervisordAccepts(t *testing.T) {
+	const head = "[program:acme]\ncommand=php artisan x\n"
+	for _, extra := range []string{
+		"autorestart=yes", "autorestart=1", "autorestart=on", "autorestart=no", "autorestart=off",
+		"autorestart=0", "autorestart=UNEXPECTED", "autorestart=True",
+		"stopsignal=15", "stopsignal=WINCH", "stopsignal=STOP", "stopsignal=SIGINFO", "stopsignal=sigusr2",
+		"priority=-1", "stdout_logfile_backups=-1", "startsecs=+5", "startretries=1_000",
+		"stdout_logfile_maxbytes=5 MB", "stdout_logfile_maxbytes=-1KB", "stderr_capture_maxbytes=1kb",
+		"environment=A='x y'", "environment=A=/usr/bin:/bin", "environment=A=\"1\",\n  B=\"2\"",
+		"environment=A=1;B=2", "environment=HOME=\"%(ENV_HOME)s\"", "environment=", "environment=A=\"50%%\"",
+		"exitcodes=0,2", "exitcodes=0, 2", "umask=022", "umask=0o22",
+		"numprocs=%(ENV_COPIES)s\nprocess_name=%(program_name)s_%(process_num)s",
+		"stopasgroup=true\nkillasgroup=true", "killasgroup=true",
+		"process_name= acme ",
+	} {
+		cs := File("a.conf", head+extra+"\n", fakeEnv())
+		for _, c := range cs {
+			if c.Level == Error {
+				t.Errorf("%q: unexpected error %q", extra, c.Message)
+			}
+		}
+	}
+}
+
+// Values supervisord rejects (its reloadConfig would fail with CANT_REREAD
+// for every file) block the save.
+func TestValidateRejectsWhatSupervisordRejects(t *testing.T) {
+	const head = "[program:acme]\ncommand=php artisan x\n"
+	tests := []struct{ extra, key, contains string }{
+		{"environment=A=a@b", "environment", "environment"},
+		{"environment=A=x=y", "environment", "environment"},
+		{"environment=A=", "environment", "environment"},
+		{"environment=A=\"open", "environment", "quote"},
+		{"environment=A=1 B=2", "environment", "environment"},
+		{"stopsignal=FOO", "stopsignal", "signal"},
+		{"stopsignal=32", "stopsignal", "signal"},
+		{"autorestart=always", "autorestart", "unexpected"},
+		{"autostart=maybe", "autostart", "true or false"},
+		{"exitcodes=256", "exitcodes", "0 to 255"},
+		{"exitcodes=0,,2", "exitcodes", "0 to 255"},
+		{"umask=8", "umask", "octal"},
+		{"priority=1.5", "priority", "whole number"},
+		{"stdout_logfile_maxbytes=5TB", "stdout_logfile_maxbytes", "KB, MB or GB"},
+		{"stopasgroup=true\nkillasgroup=false", "killasgroup", "killasgroup"},
+		{"process_name=a b", "process_name", "space"},
+		{"user=ghost", "user", "ghost"},
+	}
+	for _, tc := range tests {
+		cs := File("a.conf", head+tc.extra+"\n", fakeEnv())
+		found := false
+		for _, c := range cs {
+			if c.Level == Error && c.Key == tc.key && strings.Contains(c.Message, tc.contains) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%q: no error on %s containing %q in %+v", tc.extra, tc.key, tc.contains, cs)
+		}
+	}
+	cs := File("a.conf", "[program:a b]\ncommand=php x\n", fakeEnv())
+	if c := find(cs, Error, "space"); c == nil {
+		t.Errorf("[program:a b]: no error in %+v", cs)
+	}
+}
+
+// supervisord sets A to "caf" for A=café (it skips the token after each
+// value): that saves, with a warning.
+func TestValidateWarnsAboutDroppedEnvironmentText(t *testing.T) {
+	cs := File("a.conf", "[program:acme]\ncommand=php x\nenvironment=A=café\n", fakeEnv())
+	if HasErrors(cs) {
+		t.Errorf("errors: %+v", cs)
+	}
+	if c := find(cs, Warning, `"caf"`); c == nil || c.Key != "environment" || c.Line != 3 {
+		t.Errorf("no warning naming what A becomes: %+v", cs)
+	}
+}
+
+// Include files are read into the same parser as supervisord.conf, so these
+// sections there would override supervisord's own settings (brief §5: never
+// edit them).
+func TestValidateRefusesSupervisordSections(t *testing.T) {
+	for _, sec := range []string{"supervisord", "unix_http_server", "inet_http_server", "supervisorctl", "include", "rpcinterface:supervisor", "rpcinterface:x"} {
+		cs := File("a.conf", "[program:acme]\ncommand=php x\n\n["+sec+"]\nfile=/tmp/x.sock\n", fakeEnv())
+		c := find(cs, Error, "["+sec+"]")
+		if c == nil || c.Line != 4 || !strings.Contains(c.Message, "supervisord.conf") {
+			t.Errorf("[%s]: no error on line 4 in %+v", sec, cs)
+		}
+	}
+}
+
+func TestUserExistsTakesUIDs(t *testing.T) {
+	if !userExists("0") || !userExists("root") {
+		t.Error("uid 0 / root not found")
+	}
+	if userExists("visor-no-such-user") || userExists("987654") {
+		t.Error("a missing user was found")
 	}
 }

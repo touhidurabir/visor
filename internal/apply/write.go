@@ -60,7 +60,51 @@ func Write(path string, content []byte, expectedHash string, b Backups) (Backup,
 	if expectedHash == "" {
 		return Backup{}, create(path, content)
 	}
+	return replace(path, content, expectedHash, &b)
+}
 
+// Revert undoes a Write that supervisord refused: it puts prev back at
+// path, as Write does but without a new backup, if the file still holds
+// written (ErrChangedOnDisk otherwise, and nothing changes), then drops
+// bk, the backup that Write took of prev.
+func Revert(path string, prev, written []byte, bk Backup, b Backups) error {
+	if err := checkPath(path); err != nil {
+		return err
+	}
+	if _, err := replace(filepath.Clean(path), prev, Hash(written), nil); err != nil {
+		return err
+	}
+	b.Discard(bk)
+	return nil
+}
+
+// RevertCreate undoes a Write that created path: it deletes the file if it
+// still holds written (ErrChangedOnDisk otherwise, and it stays).
+func RevertCreate(path string, written []byte) error {
+	if err := checkPath(path); err != nil {
+		return err
+	}
+	path = filepath.Clean(path)
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if !fi.Mode().IsRegular() || Hash(data) != Hash(written) {
+		return fmt.Errorf("%s: %w", path, ErrChangedOnDisk)
+	}
+	if err := os.Remove(path); err != nil {
+		return notWritable(path, err)
+	}
+	syncDir(filepath.Dir(path))
+	return nil
+}
+
+// replace is Write of an existing file; b nil takes no backup.
+func replace(path string, content []byte, expectedHash string, b *Backups) (Backup, error) {
 	target, err := filepath.EvalSymlinks(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return Backup{}, fmt.Errorf("%s was deleted: %w", path, ErrChangedOnDisk)
@@ -91,15 +135,19 @@ func Write(path string, content []byte, expectedHash string, b Backups) (Backup,
 		return Backup{}, notWritable(path, err)
 	}
 	tmpName := tmp.Name()
-	bk, err := b.save(path, old, false, time.Now())
-	if err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return Backup{}, fmt.Errorf("cannot back up %s, so it was not changed: %w", path, err)
+	var bk Backup
+	if b != nil {
+		if bk, err = b.save(path, old, false, time.Now()); err != nil {
+			_ = tmp.Close()
+			_ = os.Remove(tmpName)
+			return Backup{}, fmt.Errorf("cannot back up %s, so it was not changed: %w", path, err)
+		}
 	}
 	undo := func() {
 		_ = os.Remove(tmpName)
-		b.remove(bk)
+		if b != nil {
+			b.Discard(bk)
+		}
 	}
 	if err := tmp.Chmod(fi.Mode().Perm()); err != nil {
 		_ = tmp.Close()
@@ -170,6 +218,18 @@ func create(path string, content []byte) error {
 // file cannot be deleted, the backup is dropped again and the file stays.
 // A symlink is removed itself; the file it points at stays.
 func Remove(path string, b Backups) (Backup, error) {
+	bk, err := BackUpForRemove(path, b)
+	if err != nil {
+		return Backup{}, err
+	}
+	return RemoveBackedUp(path, bk, b)
+}
+
+// BackUpForRemove is Remove's first half, for callers that must know the
+// backup is safe before they stop anything: it saves path's content as a
+// backup marked Removed and changes nothing else. Finish with
+// RemoveBackedUp, or drop the backup with Discard.
+func BackUpForRemove(path string, b Backups) (Backup, error) {
 	if err := checkPath(path); err != nil {
 		return Backup{}, err
 	}
@@ -182,8 +242,35 @@ func Remove(path string, b Backups) (Backup, error) {
 	if err != nil {
 		return Backup{}, fmt.Errorf("cannot back up %s, so it was not removed: %w", path, err)
 	}
+	return bk, nil
+}
+
+// RemoveBackedUp is Remove's second half: it deletes path, whose backup bk
+// BackUpForRemove took. A file edited since gets a fresh backup in its
+// place, so the backup always holds what was removed. If the file cannot
+// be deleted, the backup is dropped and the file stays. It returns the
+// backup that holds the file.
+func RemoveBackedUp(path string, bk Backup, b Backups) (Backup, error) {
+	if err := checkPath(path); err != nil {
+		return Backup{}, err
+	}
+	path = filepath.Clean(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		b.Discard(bk)
+		return Backup{}, err
+	}
+	if saved, err := b.Read(bk); err != nil || Hash(saved) != Hash(data) {
+		fresh, err := b.save(path, data, true, time.Now())
+		if err != nil {
+			b.Discard(bk)
+			return Backup{}, fmt.Errorf("cannot back up %s, so it was not removed: %w", path, err)
+		}
+		b.Discard(bk)
+		bk = fresh
+	}
 	if err := os.Remove(path); err != nil {
-		b.remove(bk)
+		b.Discard(bk)
 		return Backup{}, notWritable(path, err)
 	}
 	syncDir(filepath.Dir(path))

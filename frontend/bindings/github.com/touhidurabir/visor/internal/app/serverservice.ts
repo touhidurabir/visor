@@ -108,7 +108,7 @@ export function Reconnect(): $CancellablePromise<$models.OverviewView> {
  * "Restore a backup…" can bring it back), and removes its groups from
  * supervisord, so a later update does not add them again. It never
  * deletes the file outright, and stops nothing when the file cannot be
- * moved (a folder Visor may not write).
+ * moved (a folder Visor may not write) or backed up.
  */
 export function RemoveFromSupervisor(path: string): $CancellablePromise<$models.ApplyResultView> {
     return $Call.ByID(3287246372, path);

@@ -71,3 +71,26 @@ func TestProgramValuesRoundTrip(t *testing.T) {
 		t.Error("unparsable: want an error")
 	}
 }
+
+// M-6: a multi-line value (environment= over several lines) survives a
+// round trip through the form: its continuation lines stay indented.
+func TestRenderProgramKeepsMultiLineValues(t *testing.T) {
+	src := "[program:web]\ncommand=node x.js\nenvironment=A=\"1\",\n  B=\"2\"\n"
+	name, values, err := config.ProgramValues(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := config.RenderProgram(name, values)
+	if out != src {
+		t.Errorf("rendered %q, want %q", out, src)
+	}
+	_, again, err := config.ProgramValues(out)
+	if err != nil || again["environment"] != values["environment"] {
+		t.Errorf("environment = %q (%v), want %q", again["environment"], err, values["environment"])
+	}
+	// Blank and space-only lines a user typed don't end the value early.
+	out = config.RenderProgram("web", map[string]string{"command": "x", "environment": "A=\"1\",\n\n   \nB=\"2\""})
+	if want := "[program:web]\ncommand=x\nenvironment=A=\"1\",\n  B=\"2\"\n"; out != want {
+		t.Errorf("rendered %q, want %q", out, want)
+	}
+}

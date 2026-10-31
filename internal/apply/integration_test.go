@@ -165,6 +165,11 @@ func TestReloadOnlyLimits(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertResult(t, res, []string{"alpha"}, nil, nil)
+	// M-10: what reloadConfig reported but only left out is named, so the
+	// caller does not take beta's file as applied.
+	if !slices.Equal(res.Skipped, []string{"beta"}) {
+		t.Errorf("Skipped = %v, want [beta]", res.Skipped)
+	}
 	inst.WaitFor(t, "alpha", supervisor.StateRunning)
 	assertGone(t, ctx, c, "beta")
 

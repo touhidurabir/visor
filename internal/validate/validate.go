@@ -3,12 +3,14 @@
 package validate
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -52,7 +54,7 @@ func (e Env) withDefaults() Env {
 		e.LookPath = func(b string) (string, error) { return platform.LookPath(b, path) }
 	}
 	if e.UserExists == nil {
-		e.UserExists = func(u string) bool { _, err := user.Lookup(u); return err == nil }
+		e.UserExists = userExists
 	}
 	if e.Stat == nil {
 		e.Stat = os.Stat
@@ -61,6 +63,17 @@ func (e Env) withDefaults() Env {
 		e.Writable = dirWritable
 	}
 	return e
+}
+
+// userExists is name_to_uid in supervisord: a user name, or a uid that
+// has a user.
+func userExists(u string) bool {
+	if n, ok := pyInt(u); ok {
+		_, err := user.LookupId(strconv.FormatInt(n, 10))
+		return err == nil
+	}
+	_, err := user.Lookup(u)
+	return err == nil
 }
 
 func dirWritable(dir string) bool {
@@ -74,15 +87,16 @@ func dirWritable(dir string) bool {
 	return true
 }
 
-var (
-	intRe      = regexp.MustCompile(`^\d+$`)
-	bytesRe    = regexp.MustCompile(`(?i)^\d+(KB|MB|GB)?$`)
-	lineRe     = regexp.MustCompile(`:(\d+): `)
-	envPairRe  = `[A-Za-z_][A-Za-z0-9_]*=("([^"\\]|\\.)*"|[^",\s]*)`
-	envRe      = regexp.MustCompile(`^\s*` + envPairRe + `(\s*,\s*` + envPairRe + `)*\s*$`)
-	boolValues = map[string]bool{"true": true, "false": true, "yes": true, "no": true, "on": true, "off": true, "1": true, "0": true}
-	signals    = map[string]bool{"TERM": true, "HUP": true, "INT": true, "QUIT": true, "KILL": true, "USR1": true, "USR2": true}
-)
+var lineRe = regexp.MustCompile(`:(\d+): `)
+
+// coreSections are supervisord's own settings. Include files are read into
+// the same parser as supervisord.conf, so one of these in an include file
+// would override the main config (brief §5: Visor never edits them).
+var coreSections = []string{"supervisord", "unix_http_server", "inet_http_server", "supervisorctl", "include"}
+
+func isCoreSection(name string) bool {
+	return slices.Contains(coreSections, name) || strings.HasPrefix(name, "rpcinterface:")
+}
 
 // File checks content as the file named fileName. Results are sorted errors
 // first, then warnings, then ok lines; order within a level follows the file.
@@ -116,6 +130,12 @@ func File(fileName, content string, env Env) []Check {
 		msg := strings.TrimSpace(lineRe.ReplaceAllString(strings.TrimPrefix(err.Error(), fileName), ""))
 		add(Error, line, "", "", "%s", strings.TrimPrefix(msg, ": "))
 		return sorted(cs)
+	}
+
+	for _, sec := range f.Sections {
+		if isCoreSection(sec.Name) {
+			add(Error, sec.Line, "", "", "[%s] belongs in supervisord.conf, not in an include file: Visor doesn't edit supervisord's own settings. Remove this section", sec.Name)
+		}
 	}
 
 	progs := f.SectionsWithPrefix("program:")
@@ -180,39 +200,23 @@ func checkProgram(s config.Section, env Env, add adder) {
 			w(k.Line, k.Name, "%s", msg)
 			continue
 		}
-		v := strings.TrimSpace(k.Value)
-		switch typeOf(k.Name) {
-		case typeInt:
-			if !intRe.MatchString(v) {
-				e(k.Line, k.Name, "%s must be a whole number", k.Name)
-			}
-		case typeBytes:
-			if !bytesRe.MatchString(v) {
-				e(k.Line, k.Name, "%s must be a number of bytes, optionally ending in KB, MB or GB", k.Name)
-			}
-		case typeBool:
-			if !boolValues[strings.ToLower(v)] {
-				e(k.Line, k.Name, "%s must be true or false", k.Name)
-			}
-		}
+		checkValue(k, e)
 	}
-	if v, line, has := val("autorestart"); has {
-		switch strings.ToLower(strings.TrimSpace(v)) {
-		case "true", "false", "unexpected":
-		default:
-			e(line, "autorestart", "autorestart must be true, false or unexpected")
-		}
+	if v, line, has := val("process_name"); has && !isProcessName(v) {
+		e(line, "process_name", "process_name can't contain a space, colon or slash")
 	}
-	if v, line, has := val("stopsignal"); has {
-		sig := strings.TrimPrefix(strings.ToUpper(strings.TrimSpace(v)), "SIG")
-		if !signals[sig] {
-			e(line, "stopsignal", "stopsignal must be one of TERM, HUP, INT, QUIT, KILL, USR1 or USR2")
+	if !isProcessName(name) {
+		e(s.Line, "", "[program:%s]: a program name can't contain a space, colon or slash", name)
+	}
+	if sg, _, has := val("stopasgroup"); has && truthy[strings.ToLower(sg)] {
+		if kg, line, has := val("killasgroup"); has && falsy[strings.ToLower(kg)] {
+			e(line, "killasgroup", "killasgroup can't be false when stopasgroup is true")
 		}
 	}
 
 	// Copies.
 	if v, line, has := val("numprocs"); has {
-		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 1 {
+		if n, ok := pyInt(v); ok && n > 1 {
 			if pn, _, _ := val("process_name"); !strings.Contains(pn, "%(process_num)") {
 				e(line, "numprocs", "numprocs=%d needs %%(process_num) in process_name, e.g. %%(program_name)s_%%(process_num)02d", n)
 			}
@@ -237,13 +241,13 @@ func checkProgram(s config.Section, env Env, add adder) {
 	}
 
 	// User.
-	if u, line, has := val("user"); has && strings.TrimSpace(u) != "" {
+	if u, line, has := val("user"); has && strings.TrimSpace(u) != "" && !strings.Contains(u, "%(") {
 		u = strings.TrimSpace(u)
 		switch {
 		case u == "root":
 			w(line, "user", "%s runs as root", name)
 		case !env.UserExists(u):
-			w(line, "user", "user %s does not exist on this Mac", u)
+			e(line, "user", "user %s does not exist on this Mac, so supervisord would refuse this config", u)
 		}
 	}
 
@@ -269,10 +273,75 @@ func checkProgram(s config.Section, env Env, add adder) {
 		}
 	}
 
-	// Environment.
+	// Environment: supervisord expands %(...)s first, then reads the pairs.
 	if v, line, has := val("environment"); has {
-		if !envRe.MatchString(strings.ReplaceAll(v, "\n", " ")) {
-			e(line, "environment", "environment must look like KEY=\"value\",OTHER=\"value\"")
+		pairs, err := envPairs(expandForCheck(v))
+		switch {
+		case errors.Is(err, errNoClosingQuote):
+			e(line, "environment", "environment has a quote that is not closed")
+		case err != nil:
+			e(line, "environment", `environment must look like KEY="value",OTHER="value": put values with spaces or symbols such as @ or = in quotes`)
+		}
+		for _, p := range pairs {
+			if p.Dropped != "" {
+				w(line, "environment", `supervisord sets %s to "%s" and drops the "%s" after it. Put the value in quotes`, p.Key, p.Value, p.Dropped)
+			}
+		}
+	}
+}
+
+// expandRe matches what Python's % formatting replaces in a config value.
+var expandRe = regexp.MustCompile(`%%|%\([^)]*\)[#0 +-]*[0-9]*(\.[0-9]+)?[diouxXeEfFgGcrsa]`)
+
+// expandForCheck stands in for supervisord's expansion of a value: "%%" is
+// "%", and each %(name)s a word (its real value is not known here).
+func expandForCheck(v string) string {
+	return expandRe.ReplaceAllStringFunc(v, func(m string) string {
+		if m == "%%" {
+			return "%"
+		}
+		return "x"
+	})
+}
+
+// checkValue checks a known key's value as supervisord converts it
+// (datatypes.go). A value with %(...)s is expanded by supervisord first,
+// so it is not checked.
+func checkValue(k config.Key, e func(int, string, string, ...any)) {
+	v := strings.TrimSpace(k.Value)
+	if strings.Contains(v, "%(") {
+		return
+	}
+	switch typeOf(k.Name) {
+	case typeInt:
+		if _, ok := pyInt(v); !ok {
+			e(k.Line, k.Name, "%s must be a whole number", k.Name)
+		}
+	case typeBytes:
+		if !isByteSize(v) {
+			e(k.Line, k.Name, "%s must be a number of bytes, optionally ending in KB, MB or GB", k.Name)
+		}
+	case typeBool:
+		if !isBoolean(v) {
+			e(k.Line, k.Name, "%s must be true or false", k.Name)
+		}
+	}
+	switch k.Name {
+	case "autorestart":
+		if !isAutoRestart(v) {
+			e(k.Line, k.Name, "autorestart must be true, false or unexpected")
+		}
+	case "stopsignal":
+		if !isSignal(v) {
+			e(k.Line, k.Name, "stopsignal must be a signal name such as TERM, INT, QUIT, HUP, KILL or USR1, or a signal number")
+		}
+	case "exitcodes":
+		if !isExitCodes(v) {
+			e(k.Line, k.Name, "exitcodes must be exit codes from 0 to 255, separated by commas")
+		}
+	case "umask":
+		if !isOctal(v) {
+			e(k.Line, k.Name, "umask must be an octal number such as 022")
 		}
 	}
 }

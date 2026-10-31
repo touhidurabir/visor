@@ -3,6 +3,7 @@
 // text is pure (and tested); useApplyFlow holds the state around the calls.
 import { ref } from 'vue'
 import { ConfigService, ServerService, type ApplyResultView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { saveErrorText } from './config-errors'
 import { describeError } from './faults'
 
 export interface DiffLike {
@@ -58,10 +59,6 @@ export interface Report {
   undo?: () => Promise<void>
 }
 
-/** What a file's removal says: where it goes and how to get it back. */
-export const REMOVE_NOTE =
-  'The file is not deleted: it moves to Visor’s backups folder (Application Support/Visor/backups), and “Undo” right after brings it back.'
-
 export function useApplyFlow(onDone: () => void = () => {}) {
   const pending = ref<Pending | null>(null)
   const running = ref(false)
@@ -91,8 +88,11 @@ export function useApplyFlow(onDone: () => void = () => {}) {
     }
   }
 
-  /** Asks supervisord what differs, and confirms before applying `only` (all when null). */
-  function apply(label: string, only: string[] | null, run: () => Promise<ApplyResultView>) {
+  /**
+   * Asks supervisord what differs, and confirms before applying `only` (all
+   * when null). `run` gets the groups the confirm listed.
+   */
+  function apply(label: string, only: string[] | null, run: (shown: string[]) => Promise<ApplyResultView>) {
     return guarded(async () => {
       report.value = null
       const diff = limitDiff(await ServerService.CheckForChanges(), only)
@@ -101,13 +101,18 @@ export function useApplyFlow(onDone: () => void = () => {}) {
         return
       }
       const message = previewMessage(diff) || `${label} has no changes supervisord can see yet. Applying re-reads it and updates its processes.`
-      go = async () => finish('Applied', await run())
+      const shown = [...list(diff.Added), ...list(diff.Changed), ...list(diff.Removed)]
+      go = async () => finish('Applied', await run(shown))
       pending.value = { title: `Apply changes to ${label}?`, message, confirmLabel: 'Apply changes', danger: false }
     })
   }
 
-  /** Banner, server menu and tray: everything that differs. */
-  const applyAll = () => apply('every changed config', null, () => ServerService.ApplyChanges(null))
+  /**
+   * Banner, server menu and tray: everything that differs, as the confirm
+   * listed it. A change that turns up after the confirm waits for the next
+   * apply (and its config keeps its badge).
+   */
+  const applyAll = () => apply('every changed config', null, (shown) => ServerService.ApplyChanges(shown))
 
   /** Config menu: this file's groups (new ones too). */
   const applyFile = (path: string, fileName: string, groups: string[]) =>
@@ -118,12 +123,18 @@ export function useApplyFlow(onDone: () => void = () => {}) {
     return guarded(async () => {
       report.value = null
       const res = await ServerService.RemoveFromSupervisor(path)
-      finish(`Removed ${fileName} from supervisor`, res, async () => {
-        const backups = await ConfigService.Backups(path)
-        const last = (backups ?? []).find((b) => b.Removed)
-        if (!last) throw new Error('Visor can’t find the backup of that file.')
-        finish(`Restored ${fileName}`, await ConfigService.Restore(path, last.ID))
-      })
+      const undo = async () => {
+        try {
+          const backups = await ConfigService.Backups(path)
+          const last = (backups ?? []).find((b) => b.Removed)
+          if (!last) throw new Error('Visor can’t find the backup of that file.')
+          finish(`Restored ${fileName}`, await ConfigService.Restore(path, last.ID))
+        } catch (e) {
+          // Keep Undo, so it can be tried again once the cause is fixed.
+          report.value = { title: saveErrorText(e, fileName), errors: [], failed: true, undo }
+        }
+      }
+      finish(`Removed ${fileName} from supervisor`, res, undo)
     })
   }
 

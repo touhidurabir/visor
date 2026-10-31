@@ -145,6 +145,10 @@ test.describe('issues page', () => {
     await del.click()
     await dialog(page).getByRole('button', { name: `Delete ${issues}` }).click()
     await expect(page.getByText(`Deleted ${issues}`)).toBeVisible()
+    // An open issue that was selected too (flaky opens one every ~20 s)
+    // stays selected; no resolved one does.
+    await expect(bar.getByRole('button', { name: /^Delete [1-9]/ })).toHaveCount(0)
+    if (await bar.count()) await bar.getByRole('button', { name: 'Clear selection' }).click()
     await expect(bar).toHaveCount(0)
 
     await show(page, 'Resolved')

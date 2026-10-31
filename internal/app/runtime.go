@@ -140,6 +140,11 @@ type Runtime struct {
 	stopped bool
 	parent  context.Context
 
+	// applyMu makes config writes, applies, removals and daemon restarts
+	// run one at a time, whichever window or the tray asked (ConfigService
+	// and ServerService share it). Take it before mu, never inside it.
+	applyMu sync.Mutex
+
 	mu       sync.Mutex
 	prefs    settings.Settings
 	cancel   context.CancelFunc // ends the current connection
@@ -814,8 +819,11 @@ func (r *Runtime) act(e expectation, do func(ctx context.Context, c *supervisor.
 // match, or the daemon itself (and with it every process). The zero value
 // changes no process state (e.g. clearing logs).
 type expectation struct {
-	match  func(process string) bool
-	daemon bool
+	match func(process string) bool
+	// reapplied matches processes of groups being re-added with new
+	// settings (Tracker.ExpectApply); nil for other actions.
+	reapplied func(process string) bool
+	daemon    bool
 	// untilReachable holds a daemon expectation while supervisord is down.
 	untilReachable bool
 	// minGrace raises actionGrace for slow actions.
@@ -872,7 +880,7 @@ func (e expectation) register(t *issues.Tracker, until time.Time) func(time.Time
 	case e.daemon:
 		return t.ExpectDaemon(until, e.untilReachable)
 	case e.match != nil:
-		return t.Expect(e.match, until)
+		return t.ExpectApply(e.match, e.reapplied, until)
 	}
 	return func(time.Time) {}
 }

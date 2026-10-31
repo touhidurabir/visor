@@ -39,6 +39,7 @@ export type {
     ProcessLogView,
     ProcessView,
     ProgramForm,
+    RemovedView,
     ServerView,
     SettingsView,
     StatsView,
