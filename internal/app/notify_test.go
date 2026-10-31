@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -84,6 +85,16 @@ func TestFatalInWatchedConfigNotifiesOnce(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	rt.Stop() // waits for sends in flight
+	// The Issues page can list only the notified ones.
+	got, err := NewIssueService(rt).List(IssueQuery{Status: "all", Notified: true})
+	if err != nil || !slices.ContainsFunc(got, func(v IssueView) bool { return v.ID == is.ID }) {
+		t.Errorf("notified only = %+v, %v", got, err)
+	}
+	for _, v := range got {
+		if !v.Notified {
+			t.Errorf("notified only listed %+v", v)
+		}
+	}
 	var fatal []notify.Message
 	for _, m := range sender.messages() {
 		if m.IssueID == is.ID {
@@ -119,6 +130,9 @@ func TestUnwatchedConfigDoesNotNotify(t *testing.T) {
 	}
 	if openOfKind(svc, "fatal")[0].Notified {
 		t.Error("issue marked Notified")
+	}
+	if got, _ := NewIssueService(rt).List(IssueQuery{Status: "all", Notified: true}); len(got) != 0 {
+		t.Errorf("notified only = %+v, want none", got)
 	}
 }
 
@@ -260,5 +274,40 @@ func TestNotifierUnavailableWithoutBundle(t *testing.T) {
 	}
 	if err := svc.Send(notify.Message{ID: "x", Title: "x"}); !errors.Is(err, notify.ErrUnavailable) {
 		t.Errorf("send without a bundle = %v", err)
+	}
+}
+
+// A notification that could not be shown does not use up the limit: the
+// next issue for the same process and kind is still notified.
+func TestFailedSendDoesNotUseUpTheLimit(t *testing.T) {
+	sender := &fakeSender{err: notify.ErrNotAllowed}
+	rt := NewRuntime(RuntimeOptions{StateDir: t.TempDir(), Notifier: sender})
+	exit := func(id string) issues.Issue {
+		return issues.Issue{ID: id, Kind: issues.KindUnexpectedExit, Process: "flaky:flaky", Status: issues.StatusOpen}
+	}
+	rt.notifyOpened([]issues.Issue{exit("1")}, nil)
+	rt.sends.Wait()
+	sender.mu.Lock()
+	sender.err = nil
+	sender.mu.Unlock()
+	rt.notifyOpened([]issues.Issue{exit("2")}, nil)
+	rt.sends.Wait()
+	if got := sender.messages(); len(got) != 1 || got[0].IssueID != "2" {
+		t.Errorf("sent = %+v, want issue 2", got)
+	}
+}
+
+// Quitting waits only briefly for a notification centre that does not
+// answer.
+func TestStopDoesNotWaitLongForStuckSends(t *testing.T) {
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+	rt := NewRuntime(RuntimeOptions{StateDir: t.TempDir(), Notifier: &blockingSender{release: block}})
+	rt.sendWait = 100 * time.Millisecond
+	rt.notifyOpened([]issues.Issue{{ID: "1", Kind: issues.KindUnreachable, Status: issues.StatusOpen}}, nil)
+	start := time.Now()
+	rt.Stop()
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("Stop took %v with a stuck send", d)
 	}
 }

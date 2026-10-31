@@ -46,4 +46,30 @@ test.describe('action menus', () => {
     await expect(page.getByRole('menu')).toBeHidden()
     await expect(trigger).toBeFocused()
   })
+
+  test('copying a command puts it on the clipboard', async ({ page }) => {
+    // Record what the page writes: WebKit gives tests no clipboard to read.
+    await page.addInitScript(() => {
+      const w = window as unknown as { copied: string[] }
+      w.copied = []
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: async (t: string) => void w.copied.push(t) },
+      })
+    })
+    await waitForDashboard(page)
+    await page.getByRole('button', { name: 'Actions for shop-queue:shop-queue_00' }).click()
+    await page.getByRole('button', { name: 'Copy command: supervisorctl restart shop-queue:shop-queue_00' }).click()
+    await expect(page.getByRole('status').filter({ hasText: 'Copied' })).toBeVisible()
+    expect(await page.evaluate(() => (window as unknown as { copied: string[] }).copied)).toEqual(['supervisorctl restart shop-queue:shop-queue_00'])
+  })
+
+  test('without a browser clipboard the server build says it could not copy', async ({ page }) => {
+    await page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }))
+    await waitForDashboard(page)
+    await page.getByRole('button', { name: 'Actions for shop-queue:shop-queue_00' }).click()
+    await page.getByRole('button', { name: 'Copy command: supervisorctl restart shop-queue:shop-queue_00' }).click()
+    await expect(page.getByRole('alert').filter({ hasText: 'Can’t copy' })).toBeVisible()
+    await expect(page.getByRole('status').filter({ hasText: /^Copied/ })).toHaveCount(0)
+  })
 })

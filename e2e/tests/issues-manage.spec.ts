@@ -99,6 +99,8 @@ test.describe('issues page', () => {
     await expect(bar).toContainText(`${n} selected`)
 
     await resolve.click()
+    // Resolving is not destructive: its button is not the red one.
+    await expect(dialog(page).getByRole('button', { name: `Resolve ${issues}` })).not.toHaveClass(/danger/)
     await dialog(page).getByRole('button', { name: `Resolve ${issues}` }).click()
     await expect(page.getByText(`Resolved ${issues}`)).toBeVisible()
     await expect(bar).toHaveCount(0)
@@ -117,6 +119,7 @@ test.describe('issues page', () => {
     await expect(flaky(page)).toHaveCount(before)
 
     await row.getByRole('button', { name: 'Delete' }).click()
+    await expect(dialog(page).getByRole('button', { name: 'Delete issue' })).toHaveClass(/danger/)
     await dialog(page).getByRole('button', { name: 'Delete issue' }).click()
     await expect(page.getByText(/^Deleted 1 issue$/)).toBeVisible()
     await expect(flaky(page)).toHaveCount(before - 1)
@@ -150,5 +153,41 @@ test.describe('issues page', () => {
     await show(page, 'All', 'mailer-digest')
     await expect(rowsOf(page).filter({ hasText: 'mailer-digest' }).first()).toBeVisible({ timeout: 30_000 })
   })
-})
 
+  test('filters live in the URL and survive a reload and a tab switch', async ({ page }) => {
+    await page.goto('/#/issues')
+    await page.getByRole('button', { name: /^Resolved\b/ }).click()
+    await page.getByLabel('Kind', { exact: true }).selectOption({ label: "Can't start" })
+    await page.getByLabel('Notified only').check()
+    await page.getByRole('searchbox', { name: 'Search issues' }).fill('mailer')
+    await expect(page).toHaveURL(/#\/issues\?s=resolved&k=fatal&q=mailer&n=1$/)
+    // The server build never shows a notification, so nothing is notified.
+    await expect(page.getByText('No issues match your filters.')).toBeVisible()
+
+    const kept = async () => {
+      await expect(page.getByRole('button', { name: /^Resolved\b/ })).toHaveAttribute('aria-pressed', 'true')
+      await expect(page.getByLabel('Kind', { exact: true })).toHaveValue('fatal')
+      await expect(page.getByLabel('Notified only')).toBeChecked()
+      await expect(page.getByRole('searchbox', { name: 'Search issues' })).toHaveValue('mailer')
+    }
+    await page.reload()
+    await kept()
+    await page.getByRole('link', { name: 'supervisord log' }).click()
+    await expect(page.getByRole('region', { name: 'supervisord log' })).toBeVisible()
+    await page.getByRole('navigation', { name: 'Issues sections' }).getByRole('link', { name: 'Issues' }).click()
+    await kept()
+
+    await page.getByLabel('Notified only').uncheck()
+    await expect(page).toHaveURL(/#\/issues\?s=resolved&k=fatal&q=mailer$/)
+  })
+
+  test('row actions fit the default window width', async ({ page }) => {
+    await show(page, 'All', '')
+    await expect(rowsOf(page).first()).toBeVisible({ timeout: 30_000 })
+    const scroll = page.locator('.box .scroll')
+    expect(await scroll.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
+    const box = (await scroll.boundingBox())!
+    const btn = (await rowsOf(page).first().locator('.acts .btn').last().boundingBox())!
+    expect(btn.x + btn.width).toBeLessThanOrEqual(box.x + box.width)
+  })
+})

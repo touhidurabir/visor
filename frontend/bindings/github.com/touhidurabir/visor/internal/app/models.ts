@@ -61,10 +61,12 @@ export interface ConnectionInput {
  * only issues after it are returned, so issues opened in the same
  * millisecond are neither skipped nor repeated. BeforeMs <= 0 means no
  * cursor. Limit 0 means no limit; Query matches process, kind or message.
+ * Notified keeps only issues Visor showed a notification for.
  */
 export interface IssueQuery {
     "Status": string;
     "Kind": string;
+    "Notified": boolean;
     "FromMs": number;
     "ToMs": number;
     "BeforeMs": number;
@@ -151,6 +153,9 @@ export interface MainLogLineView {
  * MainLogQuery picks lines of supervisord's main log. Empty Levels means
  * every level; FromMs and ToMs bound the time as [from, to) in Unix
  * milliseconds, 0 meaning open; Query is a case-insensitive substring.
+ * After is the Cursor of an earlier result: only lines written since are
+ * read and returned (the result says Since), unless the log was rotated or
+ * grew too much meanwhile, when it is read in full as without a cursor.
  */
 export interface MainLogQuery {
     "Levels": string[] | null;
@@ -162,10 +167,13 @@ export interface MainLogQuery {
      * newest lines to return: 2000 if <= 0, at most 10000
      */
     "Limit": number;
+    "After": string;
 }
 
 /**
- * MainLogResult is the newest matching lines, oldest first.
+ * MainLogResult is the newest matching lines, oldest first. With Since,
+ * they are only the lines written after the query's After cursor, to add
+ * to the ones shown; otherwise they replace them.
  */
 export interface MainLogResult {
     "Lines": MainLogLineView[] | null;
@@ -179,6 +187,12 @@ export interface MainLogResult {
      * lines matching the query, which may exceed len(Lines)
      */
     "Matched": number;
+    "Since": boolean;
+
+    /**
+     * pass as After to read only newer lines
+     */
+    "Cursor": string;
 }
 
 /**

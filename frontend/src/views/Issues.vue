@@ -1,13 +1,29 @@
+<script lang="ts">
+import { reactive } from 'vue'
+import type { LocationQuery } from 'vue-router'
+
+// Each tab's filters, from its URL, so switching tabs and back keeps them.
+const lastQuery = reactive<Record<'issues' | 'issues-log', LocationQuery>>({ issues: {}, 'issues-log': {} })
+</script>
+
 <script setup lang="ts">
 // The Issues page: two tabs, each its own URL. "Issues" lists every issue
-// Visor has recorded; "supervisord log" reads supervisord's own log.
-import { computed } from 'vue'
+// Visor has recorded; "supervisord log" reads supervisord's own log. Both
+// keep their filters in the URL query.
+import { computed, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import IssuesList from '../components/IssuesList.vue'
 import MainLogTab from '../components/MainLogTab.vue'
 
 const route = useRoute()
 const onLog = computed(() => route.name === 'issues-log')
+watch(
+  () => [route.name, route.query] as const,
+  ([name, query]) => {
+    if (name === 'issues' || name === 'issues-log') lastQuery[name] = query
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -15,8 +31,8 @@ const onLog = computed(() => route.name === 'issues-log')
     <header>
       <h1>Issues</h1>
       <nav class="tabs" aria-label="Issues sections">
-        <RouterLink to="/issues" class="tab" exact-active-class="on">Issues</RouterLink>
-        <RouterLink to="/issues/log" class="tab" exact-active-class="on">supervisord log</RouterLink>
+        <RouterLink :to="{ path: '/issues', query: lastQuery.issues }" class="tab" exact-active-class="on">Issues</RouterLink>
+        <RouterLink :to="{ path: '/issues/log', query: lastQuery['issues-log'] }" class="tab" exact-active-class="on">supervisord log</RouterLink>
       </nav>
     </header>
     <div v-if="onLog" role="region" aria-label="supervisord log">

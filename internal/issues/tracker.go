@@ -102,7 +102,8 @@ func (e *expectation) live(now time.Time) bool {
 }
 
 // NewTracker loads the issues that are still open in s, and when the user
-// last closed an issue for each process and kind.
+// last closed an issue for each process and kind (including closed issues
+// they have since deleted).
 func NewTracker(s *Store, r Rules, p Programs, now func() time.Time) *Tracker {
 	t := &Tracker{
 		store: s, rules: r, progs: p, now: now,
@@ -119,6 +120,12 @@ func NewTracker(s *Store, r Rules, p Programs, now func() time.Time) *Tracker {
 			case StatusResolvedUser, StatusDismissed:
 				t.noteUserClosed(is)
 			}
+		}
+	}
+	// Issues the user closed and then deleted still count as decided.
+	if sup, err := s.suppressions(); err == nil {
+		for _, x := range sup {
+			t.noteUserClosed(Issue{Process: x.Process, Kind: x.Kind, ClosedAt: x.ClosedAt})
 		}
 	}
 	return t

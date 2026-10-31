@@ -63,6 +63,10 @@ const (
 	// notifyWindow is how long after a notification about a process (or
 	// supervisord) another of the same kind about it is held back.
 	notifyWindow = 60 * time.Second
+	// stopSendWait is how long Stop waits for notifications in flight. A
+	// stuck notification centre could otherwise hold up quitting for the
+	// 20 s of Wails' own timeouts.
+	stopSendWait = 2 * time.Second
 )
 
 // noteNotHere closes the issues of processes that the supervisord Visor
@@ -165,9 +169,10 @@ type Runtime struct {
 	wg sync.WaitGroup
 
 	// limiter holds back repeat notifications; sends counts notifications
-	// in flight, which Stop waits for.
-	limiter *notify.Limiter
-	sends   sync.WaitGroup
+	// in flight, which Stop waits for, up to sendWait.
+	limiter  *notify.Limiter
+	sends    sync.WaitGroup
+	sendWait time.Duration
 }
 
 // NewRuntime returns a Runtime that does nothing until Start.
@@ -185,7 +190,7 @@ func NewRuntime(o RuntimeOptions) *Runtime {
 	}
 	return &Runtime{
 		opts: o, prefs: prefs, watch: newWatchStore(o.StateDir), ctx: context.Background(),
-		limiter: notify.NewLimiter(notifyWindow),
+		limiter: notify.NewLimiter(notifyWindow), sendWait: stopSendWait,
 	}
 }
 
@@ -205,7 +210,9 @@ func (r *Runtime) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop ends the connection and waits for every goroutine to end. It is
+// Stop ends the connection and waits for every poll goroutine to end, and
+// for notifications in flight up to sendWait: a send that is still stuck
+// after that finishes on its own (it only marks its issue Notified). It is
 // safe to call more than once, and before Start. Reconnect does nothing
 // afterwards.
 func (r *Runtime) Stop() {
@@ -213,7 +220,17 @@ func (r *Runtime) Stop() {
 	defer r.life.Unlock()
 	r.stopped = true
 	r.disconnect()
-	r.sends.Wait() // no poll is left to start another
+	done := make(chan struct{})
+	go func() {
+		r.sends.Wait() // no poll is left to start another
+		close(done)
+	}()
+	t := time.NewTimer(r.sendWait)
+	defer t.Stop()
+	select {
+	case <-done:
+	case <-t.C:
+	}
 }
 
 // Reconnect drops the connection and builds a new one from the current
@@ -540,7 +557,7 @@ func (r *Runtime) handle(u monitor.Update) {
 
 // notifyOpened shows a notification for each newly opened issue that the
 // settings and watched configs allow, at most one per process and kind
-// every notifyWindow. Sending happens in the background, so a slow
+// every notifyWindow (one that could not be shown does not count). Sending happens in the background, so a slow
 // notification centre never holds up the poll loop; a sent notification
 // marks its issue Notified and refreshes the overview.
 func (r *Runtime) notifyOpened(opened []issues.Issue, tracker *issues.Tracker) {
@@ -561,6 +578,7 @@ func (r *Runtime) notifyOpened(opened []issues.Issue, tracker *issues.Tracker) {
 		go func() {
 			defer r.sends.Done()
 			if err := sender.Send(msg); err != nil {
+				r.limiter.Release(is, now) // nothing was shown: do not hold back the next one
 				if !errors.Is(err, notify.ErrUnavailable) && !errors.Is(err, notify.ErrNotAllowed) {
 					log.Printf("visor: cannot show the notification for %s: %v", is.ID, err)
 				}

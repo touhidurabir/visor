@@ -107,3 +107,53 @@ export function deleteAsk(n: number, single = false): Ask {
     confirmLabel: `Delete ${issues(n)}`,
   }
 }
+
+export type StatusFilter = 'open' | 'resolved' | 'all'
+
+/** The Issues tab's filters, kept in the URL query like the log tab's. */
+export interface IssueFilters {
+  status: StatusFilter
+  kind: string
+  date: DatePreset
+  from: string // custom range days, "YYYY-MM-DD"
+  to: string
+  q: string
+  notified: boolean // only issues Visor sent a notification for
+}
+
+const STATUSES: StatusFilter[] = ['open', 'resolved', 'all']
+const DAY = /^\d{4}-\d{2}-\d{2}$/
+const str = (v: unknown) => (typeof v === 'string' ? v : '')
+
+/** parseIssueFilters reads the filters from the URL query; junk gives the default. */
+export function parseIssueFilters(query: Record<string, unknown>): IssueFilters {
+  const status = str(query.s) as StatusFilter
+  const kind = str(query.k)
+  const date = str(query.d) as DatePreset
+  const custom = date === 'custom'
+  const day = (v: unknown) => (custom && DAY.test(str(v)) ? str(v) : '')
+  return {
+    status: STATUSES.includes(status) ? status : 'open',
+    kind: KIND_OPTIONS.some((o) => o.value === kind) ? kind : '',
+    date: DATE_OPTIONS.some((o) => o.value === date) ? date : 'any',
+    from: day(query.from),
+    to: day(query.to),
+    q: str(query.q).trim(),
+    notified: query.n === '1',
+  }
+}
+
+/** issueFiltersQuery writes the filters as a URL query, leaving defaults out. */
+export function issueFiltersQuery(f: IssueFilters): Record<string, string> {
+  const q: Record<string, string> = {}
+  if (f.status !== 'open') q.s = f.status
+  if (f.kind) q.k = f.kind
+  if (f.date !== 'any') q.d = f.date
+  if (f.date === 'custom') {
+    if (f.from) q.from = f.from
+    if (f.to) q.to = f.to
+  }
+  if (f.q) q.q = f.q
+  if (f.notified) q.n = '1'
+  return q
+}

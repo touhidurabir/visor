@@ -1477,3 +1477,105 @@ func TestMarkNotified(t *testing.T) {
 		t.Errorf("MarkNotified(unknown) = %v, want ErrNotOpen", err)
 	}
 }
+
+// A deleted user-closed issue keeps suppressing the same failure after
+// Visor relaunches, so it neither reopens nor notifies again.
+func TestDeletedIssueStaysSuppressedAcrossLaunches(t *testing.T) {
+	for _, closeIt := range []func(*Tracker, string) error{(*Tracker).Dismiss, (*Tracker).Resolve} {
+		tr, s, c := newTracker(t, nil)
+		failed := fatalInfo(c.now().Add(-time.Minute), c.now().Add(-50*time.Second))
+		opened, _ := tr.Apply(added(c.now(), failed))
+		if len(opened) != 1 {
+			t.Fatalf("opened = %+v", opened)
+		}
+		c.advance(time.Minute)
+		if err := closeIt(tr, opened[0].ID); err != nil {
+			t.Fatal(err)
+		}
+		if n, err := s.Delete(opened[0].ID); err != nil || n != 1 {
+			t.Fatalf("Delete = %d, %v", n, err)
+		}
+		if got, _ := s.Issues(Filter{}); len(got) != 0 {
+			t.Fatalf("deleted issue still listed: %+v", got)
+		}
+		if st, _ := s.Stats(c.now()); st.Total != 0 {
+			t.Fatalf("deleted issue still counted: %+v", st)
+		}
+
+		// Visor relaunches; supervisord still shows the same failure.
+		c.advance(time.Hour)
+		s2, err := OpenStore(s.dir, 90*24*time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tr2 := NewTracker(s2, DefaultRules, programs(nil, ""), c.now)
+		if o, _ := tr2.Apply(added(c.now(), failed)); len(o) != 0 {
+			t.Fatalf("the deleted failure reopened after a relaunch: %+v", o)
+		}
+		// A genuinely new failure still opens.
+		again := fatalInfo(c.now().Add(-10*time.Second), c.now().Add(-5*time.Second))
+		if o, _ := tr2.Apply(change(c.now(), supervisor.StateBackoff, supervisor.StateFatal, again)); len(o) != 1 {
+			t.Fatalf("a new failure: opened %+v", o)
+		}
+	}
+}
+
+// Deleting an issue that closed by itself keeps nothing: it never
+// suppressed anything.
+func TestDeletedAutoResolvedIssueKeepsNoSuppression(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := OpenStore(dir, time.Hour)
+	now := time.Now()
+	_ = s.putIssue(Issue{ID: "a", Kind: KindFatal, Process: "g:w", OpenedAt: now, ClosedAt: now, Status: StatusResolvedAuto})
+	if n, err := s.Delete("a"); err != nil || n != 1 {
+		t.Fatalf("Delete = %d, %v", n, err)
+	}
+	if sup, err := s.suppressions(); err != nil || len(sup) != 0 {
+		t.Fatalf("suppressions = %+v, %v", sup, err)
+	}
+}
+
+// Suppressions of deleted issues go once the issue itself would have:
+// after the retention window.
+func TestSuppressionsCompactWithRetention(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := OpenStore(dir, 90*24*time.Hour)
+	old := time.Now().Add(-91 * 24 * time.Hour)
+	recent := time.Now().Add(-time.Hour)
+	_ = s.putIssue(Issue{ID: "old", Kind: KindFatal, Process: "g:old", OpenedAt: old, ClosedAt: old, Status: StatusResolvedUser})
+	_ = s.putIssue(Issue{ID: "new", Kind: KindFatal, Process: "g:new", OpenedAt: recent, ClosedAt: recent, Status: StatusDismissed})
+	_ = s.putIssue(Issue{ID: "newer", Kind: KindFatal, Process: "g:new", OpenedAt: recent, ClosedAt: recent.Add(time.Minute), Status: StatusResolvedUser})
+	if n, err := s.Delete("old", "new", "newer"); err != nil || n != 3 {
+		t.Fatalf("Delete = %d, %v", n, err)
+	}
+	s2, err := OpenStore(dir, 90*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup, err := s2.suppressions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The old one is past retention; the two for g:new fold into the latest.
+	if len(sup) != 1 || sup[0].Process != "g:new" || !sup[0].ClosedAt.Equal(recent.Add(time.Minute)) {
+		t.Fatalf("suppressions after compaction = %+v", sup)
+	}
+}
+
+func TestStoreFilterNotified(t *testing.T) {
+	s, _ := OpenStore(t.TempDir(), time.Hour)
+	now := time.Now()
+	_ = s.putIssue(Issue{ID: "a", OpenedAt: now, Status: StatusOpen, Notified: true})
+	_ = s.putIssue(Issue{ID: "b", OpenedAt: now, Status: StatusOpen})
+	_ = s.putIssue(Issue{ID: "c", OpenedAt: now, ClosedAt: now, Status: StatusResolvedUser, Notified: true})
+	got, err := s.Issues(Filter{Notified: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].ID != "c" || got[1].ID != "a" {
+		t.Fatalf("notified only = %+v", got)
+	}
+	if got, _ := s.Issues(Filter{}); len(got) != 3 {
+		t.Fatalf("no filter = %+v", got)
+	}
+}

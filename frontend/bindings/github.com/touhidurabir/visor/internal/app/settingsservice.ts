@@ -48,8 +48,9 @@ export function Get(): $CancellablePromise<$models.SettingsView> {
 
 /**
  * Save saves everything but the connection (config path and username,
- * which SaveConnection changes) and the issue retention (ApplyRetention's,
- * R27), and puts it into use: the poll interval and crash-loop thresholds
+ * which SaveConnection changes), the issue retention (ApplyRetention's,
+ * R27) and the appearance (SetAppearance's, so a page save built from an
+ * older view never puts back an older theme), and puts it into use: the poll interval and crash-loop thresholds
  * apply straight away. Out-of-range values are clamped; the returned view
  * shows what was saved.
  */
@@ -70,4 +71,13 @@ export function Save($in: settings$0.Settings): $CancellablePromise<$models.Sett
  */
 export function SaveConnection($in: $models.ConnectionInput): $CancellablePromise<$models.SettingsView> {
     return $Call.ByID(2142484833, $in);
+}
+
+/**
+ * SetAppearance saves the colour theme ("system", "light" or "dark";
+ * anything else means system) and nothing else, puts it into the window
+ * chrome and tells every window, so the menu-bar popover follows.
+ */
+export function SetAppearance(appearance: string): $CancellablePromise<$models.SettingsView> {
+    return $Call.ByID(1844860626, appearance);
 }

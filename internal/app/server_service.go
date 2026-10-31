@@ -243,6 +243,7 @@ func (s *ServerService) ShutdownDaemon() error {
 
 const (
 	mainLogReadBytes    = 4 << 20
+	mainLogFollowBytes  = 64 << 10
 	defaultMainLogLimit = 2000
 	maxMainLogLimit     = 10000
 )
@@ -250,12 +251,16 @@ const (
 // MainLogQuery picks lines of supervisord's main log. Empty Levels means
 // every level; FromMs and ToMs bound the time as [from, to) in Unix
 // milliseconds, 0 meaning open; Query is a case-insensitive substring.
+// After is the Cursor of an earlier result: only lines written since are
+// read and returned (the result says Since), unless the log was rotated or
+// grew too much meanwhile, when it is read in full as without a cursor.
 type MainLogQuery struct {
 	Levels []string
 	FromMs int64
 	ToMs   int64
 	Query  string
 	Limit  int // newest lines to return: 2000 if <= 0, at most 10000
+	After  string
 }
 
 // MainLogLineView is one entry of the main log. Text may hold several
@@ -266,20 +271,25 @@ type MainLogLineView struct {
 	Text  string
 }
 
-// MainLogResult is the newest matching lines, oldest first.
+// MainLogResult is the newest matching lines, oldest first. With Since,
+// they are only the lines written after the query's After cursor, to add
+// to the ones shown; otherwise they replace them.
 type MainLogResult struct {
 	Lines     []MainLogLineView
 	Truncated bool // the log is longer than what was read, so older lines were not searched
 	Matched   int  // lines matching the query, which may exceed len(Lines)
+	Since     bool
+	Cursor    string // pass as After to read only newer lines
 }
 
 // MainLogLines reads the last 4 MiB of supervisord's own log, parses it and
-// returns the newest lines matching q.
+// returns the newest lines matching q. With q.After (following), it reads
+// only the last 64 KiB and returns the lines written since.
 func (s *ServerService) MainLogLines(q MainLogQuery) (MainLogResult, error) {
-	var text string
+	var chunk supervisor.MainLogChunk
 	err := s.rt.act(expectation{}, func(ctx context.Context, c *supervisor.Client) error {
 		var err error
-		text, err = c.ReadLog(ctx, -mainLogReadBytes, 0)
+		chunk, err = c.ReadMainLog(ctx, q.After, mainLogFollowBytes, mainLogReadBytes)
 		if errors.Is(err, supervisor.ErrNoFile) {
 			return noMainLogError{err}
 		}
@@ -288,8 +298,8 @@ func (s *ServerService) MainLogLines(q MainLogQuery) (MainLogResult, error) {
 	if err != nil {
 		return MainLogResult{}, err
 	}
-	res := filterMainLog(supervisor.ParseMainLogLines(text, time.Local), q)
-	res.Truncated = len(text) >= mainLogReadBytes
+	res := filterMainLog(supervisor.ParseMainLogLines(chunk.Text, time.Local), q)
+	res.Truncated, res.Since, res.Cursor = chunk.Truncated, chunk.Since, chunk.Cursor
 	return res, nil
 }
 

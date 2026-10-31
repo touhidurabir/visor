@@ -120,7 +120,8 @@ func NewLimiter(window time.Duration) *Limiter {
 }
 
 // Allow reports whether a notification for is may be sent at now, and if
-// so counts it.
+// so counts it. Call Release when that notification then could not be
+// shown.
 func (l *Limiter) Allow(is issues.Issue, now time.Time) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -135,4 +136,16 @@ func (l *Limiter) Allow(is issues.Issue, now time.Time) bool {
 		}
 	}
 	return true
+}
+
+// Release gives back the turn Allow(is, at) took, when that notification
+// could not be shown, so it does not hold back the next one. A later turn
+// for the same process and kind is kept.
+func (l *Limiter) Release(is issues.Issue, at time.Time) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	k := limitKey{is.Process, is.Kind}
+	if last, ok := l.last[k]; ok && last.Equal(at) {
+		delete(l.last, k)
+	}
 }

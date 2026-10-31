@@ -33,7 +33,7 @@ function procName(p: ProcessView) {
   <div class="frame">
     <div class="grid">
       <div class="row head label">
-        <span>Name</span><span>State</span><span>For</span><span>PID</span><span>Details</span><span>Notify</span><span />
+        <span>Name</span><span>State</span><span>For</span><span>PID</span><span class="detail">Details</span><span>Notify</span><span />
       </div>
       <p v-if="!configs.length" class="empty">No configs or processes match.</p>
       <div v-for="c in configs" :key="key(c)" class="cfg">
@@ -100,8 +100,9 @@ function procName(p: ProcessView) {
 </template>
 
 <style scoped>
-.frame { border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; }
-.grid { min-width: 1000px; }
+.frame { border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; container-type: inline-size; }
+/* The narrow layout's columns (180 + 110 + 120 + 56 + 104 + 40), 5 gaps and the padding. */
+.grid { min-width: 694px; }
 .row {
   display: grid;
   grid-template-columns: minmax(280px, 2.4fr) 110px 140px 60px minmax(150px, 1.6fr) 110px 40px;
@@ -139,4 +140,11 @@ a.pname:hover { text-decoration: underline; }
 .mono { font-family: var(--font-mono); font-size: 12px; }
 .detail { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empty { margin: 0; padding: 16px 12px; color: var(--text-muted); }
+/* Narrower than the full layout (the default 1000 px window): drop the
+   Details column, so Name and the ⋯ column both stay in view. */
+@container (max-width: 989px) {
+  .row { grid-template-columns: minmax(180px, 1fr) 110px 120px 56px 104px 40px; }
+  .row .detail { display: none; }
+  .cfg-row .summary { grid-column: span 3; }
+}
 </style>

@@ -1,20 +1,39 @@
 // Keeps the page's theme in step with the saved appearance and the OS:
 // applies the cached choice at once, follows OS changes live while the
 // choice is 'system', follows the visor:settings event (so a change in the
-// main window reaches the menu-bar popover), and saves changes.
+// main window reaches the menu-bar popover), and saves changes one at a
+// time through SetAppearance, which changes nothing else.
 import { ref } from 'vue'
 import { Events } from '@wailsio/runtime'
 import { SettingsService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import type { SettingsView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { VisorSettings } from '../../bindings/events'
+import { createSaveQueue } from './save-queue'
 import { APPEARANCE_CACHE_KEY, applyTheme, normalizeAppearance, type Appearance } from './theme'
 import { currentSettings } from './settings'
 
 /** The appearance in use, shared by every control. */
 export const appearance = ref<Appearance>('system')
 
-// Saves in flight: an event that arrives meanwhile is older than the click.
-let pending = 0
 let started = false
+// The appearance Visor last confirmed saved.
+let saved: Appearance = 'system'
+// Why the last run of saves failed, for the first caller waiting on it.
+let failure: unknown = null
+
+// One save in flight; choices made meanwhile fold into the next, so quick
+// arrow presses save once more at most and the last choice wins. While it
+// runs, visor:settings events are older than the choice on screen.
+const queue = createSaveQueue<{ appearance: Appearance }, SettingsView>({
+  base: () => ({ appearance: saved }),
+  settingsOf: (v) => ({ appearance: normalizeAppearance(v.Settings.appearance) }),
+  send: (next) => SettingsService.SetAppearance(next.appearance),
+  done(v, errors) {
+    if (v) saved = normalizeAppearance(v.Settings.appearance)
+    failure = errors.length ? errors[errors.length - 1] : null
+    show(saved) // what is on screen is what is stored
+  },
+})
 
 const query = () => (typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null)
 
@@ -48,36 +67,35 @@ export function startThemeSync() {
   } catch {
     // keep 'system'
   }
+  saved = appearance.value
   render()
   query()?.addEventListener('change', render)
-  Events.On(VisorSettings, (ev) => {
-    if (pending === 0) show(normalizeAppearance(ev.data?.Settings?.appearance))
-  })
+  Events.On(VisorSettings, (ev) => adopt(ev.data?.Settings?.appearance))
   void SettingsService.Get()
-    .then((v) => {
-      if (pending === 0) show(normalizeAppearance(v.Settings.appearance))
-    })
+    .then((v) => adopt(v.Settings.appearance))
     .catch(() => {
       // The page reports a settings load failure itself.
     })
 }
 
+/** adopt shows a saved appearance from Go, unless a save of ours is still running. */
+function adopt(raw: unknown) {
+  if (queue.busy()) return
+  saved = normalizeAppearance(raw)
+  show(saved)
+}
+
 /**
  * setAppearance shows the choice at once and saves it. If the save fails the
- * previous choice comes back and the error is thrown for the caller to show.
+ * stored choice comes back and the error is thrown for the caller to show.
  */
 export async function setAppearance(next: Appearance): Promise<void> {
-  const before = appearance.value
-  if (next === before) return
-  pending++
+  if (next === appearance.value) return
   show(next)
-  try {
-    const cur = await SettingsService.Get()
-    await SettingsService.Save({ ...cur.Settings, appearance: next })
-  } catch (e) {
-    show(before)
-    throw e
-  } finally {
-    pending--
-  }
+  await queue.enqueue((s) => {
+    s.appearance = next
+  })
+  const e = failure
+  failure = null
+  if (e) throw e
 }

@@ -90,8 +90,8 @@ function adopt(v: SettingsView, keepDraft = false) {
   showSaved(v.Settings)
 }
 
-// The switch saves on its own; keep this page's copy current so its next
-// save (built from it) doesn't put the old appearance back.
+// The switch saves on its own (SetAppearance; Save leaves the appearance
+// alone); keep this page's copy current so it shows what is in use.
 watch(appearance, (a) => {
   if (view.value) view.value.Settings.appearance = a
 })
@@ -199,11 +199,18 @@ const queue = createSaveQueue<Settings, SettingsView>({
     saving.value = false
     const cur = view.value!
     if (v) {
-      // Save never changes the connection or retention; keep what the page
-      // shows for them, which their own saves may have changed meanwhile.
+      // Save never changes the connection, retention or appearance; keep
+      // what the page shows for them, which their own saves may have
+      // changed meanwhile.
       const merged: SettingsView = {
         ...cur,
-        Settings: { ...v.Settings, configPath: cur.Settings.configPath, username: cur.Settings.username, retentionDays: cur.Settings.retentionDays },
+        Settings: {
+          ...v.Settings,
+          configPath: cur.Settings.configPath,
+          username: cur.Settings.username,
+          retentionDays: cur.Settings.retentionDays,
+          appearance: cur.Settings.appearance,
+        },
         LoadError: v.LoadError,
         Warning: v.Warning,
       }

@@ -1,5 +1,6 @@
-// Pure helpers for the supervisord log tab: level chips, URL state and
-// the wording of the footer.
+// Pure helpers for the supervisord log tab: level chips, URL state,
+// following and the wording of the footer.
+import type { MainLogLineView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 export type LevelGroup = 'errors' | 'warnings' | 'info' | 'debug'
 
 export const LEVEL_GROUPS: { key: LevelGroup; label: string; levels: string[] }[] = [
@@ -46,4 +47,20 @@ export function logTime(ms: number): string {
 export function footerNote(shown: number, matched: number): string {
   const lines = (n: number) => `${n} ${n === 1 ? 'line' : 'lines'}`
   return shown < matched ? `Showing ${shown} of ${matched} matching lines` : `Showing ${lines(matched)}`
+}
+
+/** What the log tab shows: the newest matching lines and how many matched. */
+export interface ShownLines {
+  lines: MainLogLineView[]
+  matched: number
+}
+
+/**
+ * appendLines adds a follow read (the lines written since the last read,
+ * already filtered) to what is shown, keeping the newest limit lines.
+ */
+export function appendLines(shown: ShownLines, res: { Lines: MainLogLineView[] | null; Matched: number }, limit: number): ShownLines {
+  const added = res.Lines ?? []
+  if (!added.length && !res.Matched) return shown
+  return { lines: [...shown.lines, ...added].slice(-limit), matched: shown.matched + res.Matched }
 }

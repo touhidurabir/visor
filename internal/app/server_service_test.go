@@ -432,8 +432,37 @@ func TestCheckForChangesAndMainLog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Lines) == 0 || res.Lines[0].Level != "INFO" || res.Truncated || res.Matched != len(res.Lines) {
+	if len(res.Lines) == 0 || res.Lines[0].Level != "INFO" || res.Truncated || res.Matched != len(res.Lines) || res.Since || res.Cursor == "" {
 		t.Errorf("main log = %+v", res)
+	}
+
+	// Following: only what was written since, filtered the same way.
+	all, err := svc.MainLogLines(MainLogQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := svc.MainLogLines(MainLogQuery{After: all.Cursor, Query: "spawned"}); err != nil || !got.Since {
+		t.Fatalf("follow with no news = %+v, %v", got, err)
+	}
+	if err := svc.Restart("sleeper:sleeper"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		got, err := svc.MainLogLines(MainLogQuery{After: all.Cursor, Query: "spawned"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !got.Since {
+			t.Fatalf("follow read the whole log: %+v", got)
+		}
+		if len(got.Lines) == 1 && strings.Contains(got.Lines[0].Text, "spawned: 'sleeper'") && got.Matched == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("follow = %+v, want the new spawned line only", got)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 

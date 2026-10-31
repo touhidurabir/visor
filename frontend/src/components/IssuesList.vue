@@ -1,10 +1,11 @@
 <script setup lang="ts">
 // Every issue Visor has recorded (spec §5.4): stats, filters (status, kind,
-// date, search), multi-select with bulk resolve and delete, and paging back
-// through history 50 at a time. The list reloads when an issue opens or the
-// open count changes.
+// date, notified, search), multi-select with bulk resolve and delete, and
+// paging back through history 50 at a time. Filters live in the URL query,
+// like the log tab's. The list reloads when an issue opens or the open count
+// changes.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { RouterLink, type RouteLocationRaw } from 'vue-router'
+import { RouterLink, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import { Events } from '@wailsio/runtime'
 import { IssueService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { IssueStats, IssueView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
@@ -19,32 +20,39 @@ import {
   allSelected,
   dateRange,
   deleteAsk,
+  issueFiltersQuery,
   issues as issuesLabel,
   keepLoaded,
+  parseIssueFilters,
   resolveAsk,
   selectionActions,
   toggleAll,
   type Ask,
   type DatePreset,
   type MsRange,
+  type StatusFilter,
 } from '../lib/issues-page'
 import { configRoute } from '../lib/links'
 import { useOverview } from '../lib/overview'
 import { currentSettings, loadSettings } from '../lib/settings'
 import { showToast } from '../lib/toast'
 
-type Filter = 'open' | 'resolved' | 'all'
+type Filter = StatusFilter
 const PAGE = 50
 const DEBOUNCE_MS = 200
 
+const route = useRoute()
+const router = useRouter()
+const initial = parseIssueFilters(route.query)
 const { overview } = useOverview()
-const filter = ref<Filter>('open')
-const kind = ref('')
-const datePreset = ref<DatePreset>('any')
-const fromDay = ref('')
-const toDay = ref('')
-const typed = ref('')
-const query = ref('')
+const filter = ref<Filter>(initial.status)
+const kind = ref(initial.kind)
+const datePreset = ref<DatePreset>(initial.date)
+const fromDay = ref(initial.from)
+const toDay = ref(initial.to)
+const notified = ref(initial.notified)
+const typed = ref(initial.q)
+const query = ref(initial.q)
 const rows = ref<IssueView[]>([])
 const stats = ref<IssueStats>({ Total: 0, Open: 0, Resolved: 0, Last24h: 0, Last7d: 0, Last30d: 0 })
 const hasMore = ref(false)
@@ -63,7 +71,7 @@ let debounce: ReturnType<typeof setTimeout> | undefined
 let tick: ReturnType<typeof setInterval> | undefined
 let offOpened: (() => void) | undefined
 
-const filtered = computed(() => query.value !== '' || kind.value !== '' || datePreset.value !== 'any')
+const filtered = computed(() => query.value !== '' || kind.value !== '' || datePreset.value !== 'any' || notified.value)
 
 /**
  * load replaces the list: the first page, or (refresh) as many rows as are
@@ -91,7 +99,7 @@ async function loadOnce(keep: number) {
     () => {}, // keep the last stats
   )
   try {
-    const list = (await IssueService.List({ Status: filter.value, Kind: kind.value, FromMs: range.fromMs, ToMs: range.toMs, BeforeMs: 0, BeforeID: '', Limit: limit, Query: query.value })) ?? []
+    const list = (await IssueService.List({ Status: filter.value, Kind: kind.value, Notified: notified.value, FromMs: range.fromMs, ToMs: range.toMs, BeforeMs: 0, BeforeID: '', Limit: limit, Query: query.value })) ?? []
     if (mine !== seq) return
     rows.value = list
     selected.value = keepLoaded(list, selected.value)
@@ -111,7 +119,7 @@ async function older() {
   const mine = seq
   loading.value = true
   try {
-    const list = (await IssueService.List({ Status: filter.value, Kind: kind.value, FromMs: range.fromMs, ToMs: range.toMs, BeforeMs: last.OpenedMs, BeforeID: last.ID, Limit: PAGE, Query: query.value })) ?? []
+    const list = (await IssueService.List({ Status: filter.value, Kind: kind.value, Notified: notified.value, FromMs: range.fromMs, ToMs: range.toMs, BeforeMs: last.OpenedMs, BeforeID: last.ID, Limit: PAGE, Query: query.value })) ?? []
     if (mine !== seq) return // filter or search changed meanwhile
     const have = new Set(rows.value.map((r) => r.ID))
     rows.value = [...rows.value, ...list.filter((r) => !have.has(r.ID))]
@@ -125,8 +133,14 @@ async function older() {
 
 const refresh = () => load(rows.value.length)
 
+function syncUrl() {
+  const q = issueFiltersQuery({ status: filter.value, kind: kind.value, date: datePreset.value, from: fromDay.value, to: toDay.value, q: query.value, notified: notified.value })
+  void router.replace({ query: q })
+}
+
 /** A filter changed: the old selection no longer describes what is shown. */
 function reload() {
+  syncUrl()
   selected.value = new Set()
   void load()
 }
@@ -145,10 +159,11 @@ watch(typed, (v) => {
     reload()
   }, DEBOUNCE_MS)
 })
-watch(kind, reload)
+watch([kind, notified], reload)
 watch(datePreset, (p) => {
   // Choosing "Custom range…" waits for a day; every other choice loads now.
   if (p !== 'custom' || fromDay.value || toDay.value) reload()
+  else syncUrl()
 })
 watch([fromDay, toDay], () => {
   if (datePreset.value === 'custom') reload()
@@ -291,6 +306,7 @@ const empty = computed(() => {
         <label for="idt" class="sr-only">To date</label>
         <input id="idt" v-model="toDay" type="date" :min="fromDay || undefined" />
       </template>
+      <label class="check" title="Only issues Visor sent a notification for"><input v-model="notified" type="checkbox" /> Notified only</label>
       <label for="iq" class="sr-only">Search issues</label>
       <input id="iq" v-model="typed" type="search" placeholder="Search issues" autocomplete="off" />
     </div>
@@ -357,6 +373,7 @@ const empty = computed(() => {
       :title="pending.ask.title"
       :message="pending.ask.message"
       :confirm-label="pending.ask.confirmLabel"
+      :danger="pending.remove"
       @confirm="confirmPending"
       @cancel="pending = null"
     />
@@ -374,6 +391,7 @@ select, input[type='date'] { min-height: 32px; box-sizing: border-box; padding: 
 .bulk > span { margin-right: 6px; font-weight: 600; }
 .danger-text { color: var(--failing-fg); }
 .pick { display: flex; align-items: center; }
+.check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .picked { background: var(--selected-bg); }
 .status .notified { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-muted); }
 .intro { margin: 0; max-width: 640px; color: var(--text-muted); }
@@ -384,8 +402,9 @@ select, input[type='date'] { min-height: 32px; box-sizing: border-box; padding: 
 input[type='search'] { min-height: 32px; width: 200px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; }
 .box { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .scroll { overflow-x: auto; }
-.table { min-width: 980px; }
-.row { display: grid; grid-template-columns: 24px 120px minmax(220px, 2.2fr) 150px 110px 150px 150px; align-items: center; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--line); }
+/* Columns (24 + 120 + 200 + 130 + 90 + 130 + 150), 6 gaps and the padding: 950px. */
+.table { min-width: 950px; }
+.row { display: grid; grid-template-columns: 24px 120px minmax(200px, 1fr) 130px 90px 130px 150px; align-items: center; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--line); }
 .head { border-top: 0; background: var(--bg-subtle); }
 .label { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
 .what { min-width: 0; }

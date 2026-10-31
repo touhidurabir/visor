@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { IssueView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
-import { allSelected, dateRange, deleteAsk, keepLoaded, resolveAsk, selectionActions, toggleAll } from './issues-page'
+import { allSelected, dateRange, deleteAsk, issueFiltersQuery, keepLoaded, parseIssueFilters, resolveAsk, selectionActions, toggleAll, type IssueFilters } from './issues-page'
 
 const row = (ID: string, Status = 'open') =>
   ({ ID, Kind: 'fatal', Process: 'g:w', Config: '', Message: '', OpenedMs: 1, ClosedMs: 0, Status, Notified: false, Note: '' }) as IssueView
@@ -65,5 +65,24 @@ describe('confirm wording', () => {
     expect(deleteAsk(2).message).toBe("This can't be undone.")
     expect(deleteAsk(2).confirmLabel).toBe('Delete 2 issues')
     expect(deleteAsk(1, true).title).toBe('Delete this issue?')
+  })
+})
+
+describe('issue filters in the URL', () => {
+  const defaults: IssueFilters = { status: 'open', kind: '', date: 'any', from: '', to: '', q: '', notified: false }
+  it('reads nothing as the defaults and writes the defaults as nothing', () => {
+    expect(parseIssueFilters({})).toEqual(defaults)
+    expect(issueFiltersQuery(parseIssueFilters({}))).toEqual({})
+  })
+  it('round-trips every filter', () => {
+    const f = { status: 'resolved', kind: 'fatal', date: 'custom', from: '2026-10-01', to: '2026-10-31', q: 'mailer', notified: true } as const
+    const q = issueFiltersQuery(f)
+    expect(q).toEqual({ s: 'resolved', k: 'fatal', d: 'custom', from: '2026-10-01', to: '2026-10-31', q: 'mailer', n: '1' })
+    expect(parseIssueFilters(q)).toEqual(f)
+  })
+  it('drops junk and days outside a custom range', () => {
+    expect(parseIssueFilters({ s: 'nope', k: 'boom', d: 'week', n: 'yes', q: ['a'] })).toEqual(defaults)
+    expect(issueFiltersQuery({ ...defaults, date: '7d', from: '2026-10-01' })).toEqual({ d: '7d' })
+    expect(parseIssueFilters({ d: 'custom', from: 'soon' })).toEqual({ ...defaults, date: 'custom' })
   })
 })

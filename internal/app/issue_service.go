@@ -27,9 +27,11 @@ func NewIssueService(rt *Runtime) *IssueService {
 // only issues after it are returned, so issues opened in the same
 // millisecond are neither skipped nor repeated. BeforeMs <= 0 means no
 // cursor. Limit 0 means no limit; Query matches process, kind or message.
+// Notified keeps only issues Visor showed a notification for.
 type IssueQuery struct {
 	Status   string
 	Kind     string
+	Notified bool
 	FromMs   int64
 	ToMs     int64
 	BeforeMs int64
@@ -44,7 +46,7 @@ func (s *IssueService) List(q IssueQuery) ([]IssueView, error) {
 	if err != nil {
 		return nil, err
 	}
-	f := issues.Filter{Status: q.Status, Kind: issues.Kind(q.Kind), Limit: q.Limit, Query: q.Query}
+	f := issues.Filter{Status: q.Status, Kind: issues.Kind(q.Kind), Notified: q.Notified, Limit: q.Limit, Query: q.Query}
 	if q.FromMs > 0 {
 		f.From = time.UnixMilli(q.FromMs)
 	}
@@ -103,7 +105,9 @@ func (s *IssueService) ResolveMany(ids []string) (int, error) {
 }
 
 // Delete removes the closed issues among ids for good and returns how many
-// it removed; open issues and unknown ids are skipped. The history stays.
+// it removed; open issues and unknown ids are skipped. The history stays,
+// and so does the fact that the user closed an issue: the same failure
+// does not reopen, even after a relaunch.
 func (s *IssueService) Delete(ids []string) (int, error) {
 	store, _, err := s.rt.issueStore()
 	if err != nil {

@@ -1,17 +1,19 @@
 <script setup lang="ts">
 // supervisord's own log, parsed: level chips, date range and search, newest
 // lines last. Filters live in the URL query, so a reload or a shared link
-// keeps them. Follow re-reads every 2 seconds while the tab is open and the
-// window is visible.
+// keeps them. Follow reads what was written since the last read, 2 seconds
+// after the previous read finished, while the tab is open and the window is
+// visible.
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ServerService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { MainLogLineView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { describeError } from '../lib/faults'
 import { DATE_OPTIONS, dateRange, type DatePreset } from '../lib/issues-page'
-import { DEFAULT_GROUPS, LEVEL_GROUPS, footerNote, groupsParam, levelClass, levelsFor, logTime, parseGroups, type LevelGroup } from '../lib/main-log'
+import { DEFAULT_GROUPS, LEVEL_GROUPS, appendLines, footerNote, groupsParam, levelClass, levelsFor, logTime, parseGroups, type LevelGroup } from '../lib/main-log'
 
 const FOLLOW_MS = 2000
+const LIMIT = 2000
 const DEBOUNCE_MS = 200
 const PRESETS = DATE_OPTIONS.map((o) => o.value)
 
@@ -36,29 +38,44 @@ const scroller = ref<HTMLElement>()
 
 let seq = 0
 let debounce: ReturnType<typeof setTimeout> | undefined
-let timer: ReturnType<typeof setInterval> | undefined
+let timer: ReturnType<typeof setTimeout> | undefined
+let cursor = '' // where the lines shown end, for a follow read; '' means read in full
+let gone = false
 
 const nothingPicked = () => groups.value.length === 0
 
-async function load(stick = true) {
+/**
+ * load reads the log: in full (filters changed, Refresh, the first read), or
+ * with more = true only what was written since the last read, to add.
+ */
+async function load(stick = true, more = false) {
   const mine = ++seq
   if (nothingPicked()) {
     lines.value = []
     matched.value = 0
     error.value = ''
     loaded.value = true
+    cursor = ''
     return
   }
   const r = dateRange(datePreset.value, Date.now(), fromDay.value, toDay.value)
+  const after = more ? cursor : ''
   fetching.value++
   try {
-    const res = await ServerService.MainLogLines({ Levels: levelsFor(groups.value), FromMs: r.fromMs, ToMs: r.toMs, Query: query.value, Limit: 2000 })
+    const res = await ServerService.MainLogLines({ Levels: levelsFor(groups.value), FromMs: r.fromMs, ToMs: r.toMs, Query: query.value, Limit: LIMIT, After: after })
     if (mine !== seq) return
     const el = scroller.value
     const atEnd = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 24
-    lines.value = res.Lines ?? []
-    matched.value = res.Matched
-    truncated.value = res.Truncated
+    if (after && res.Since) {
+      const next = appendLines({ lines: lines.value, matched: matched.value }, res, LIMIT)
+      lines.value = next.lines
+      matched.value = next.matched
+    } else {
+      lines.value = res.Lines ?? []
+      matched.value = res.Matched
+      truncated.value = res.Truncated
+    }
+    cursor = res.Cursor
     error.value = ''
     if (stick && (atEnd || !loaded.value)) {
       await nextTick()
@@ -110,22 +127,30 @@ watch([fromDay, toDay], () => {
   if (datePreset.value === 'custom') changed()
 })
 
-// Follow polls only while it is on and the window is visible.
+// Follow reads only while it is on, the tab is open and the window is
+// visible. Each read is scheduled after the previous one finished, so
+// reads never pile up on a slow or busy supervisord.
 function stopTimer() {
-  clearInterval(timer)
+  clearTimeout(timer)
   timer = undefined
 }
-function syncTimer() {
+function schedule() {
   stopTimer()
-  if (follow.value && document.visibilityState === 'visible') timer = setInterval(() => void load(), FOLLOW_MS)
+  if (!gone && follow.value && document.visibilityState === 'visible') timer = setTimeout(followTick, FOLLOW_MS)
+}
+async function followTick() {
+  timer = undefined
+  // A read already in flight (a filter change, Refresh) brings the news.
+  if (fetching.value === 0) await load(true, true)
+  schedule()
 }
 function onVisibility() {
-  if (document.visibilityState === 'visible' && follow.value) void load()
-  syncTimer()
+  if (document.visibilityState === 'visible' && follow.value) void followTick()
+  else stopTimer()
 }
 watch(follow, (on) => {
-  syncTimer()
-  if (on) void load()
+  if (on) void followTick()
+  else stopTimer()
 })
 
 onMounted(() => {
@@ -135,6 +160,7 @@ onMounted(() => {
   void load()
 })
 onBeforeUnmount(() => {
+  gone = true
   document.removeEventListener('visibilitychange', onVisibility)
   clearTimeout(debounce)
   stopTimer()

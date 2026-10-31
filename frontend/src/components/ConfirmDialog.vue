@@ -1,9 +1,10 @@
 <script setup lang="ts">
-// A small modal for destructive actions. Cancel has initial focus, Tab stays
-// inside the dialog, Esc or the backdrop cancels.
+// A small modal for confirming actions, destructive ones by default (a red
+// confirm button; pass :danger="false" for one that is not). Cancel has
+// initial focus, Tab stays inside the dialog, Esc or the backdrop cancels.
 import { nextTick, onMounted, ref } from 'vue'
 
-const props = defineProps<{ title: string; message: string; confirmLabel: string }>()
+const props = withDefaults(defineProps<{ title: string; message: string; confirmLabel: string; danger?: boolean }>(), { danger: true })
 const emit = defineEmits<{ confirm: []; cancel: [] }>()
 
 const cancelBtn = ref<HTMLButtonElement>()
@@ -39,7 +40,7 @@ function onKeydown(e: KeyboardEvent) {
         <p>{{ props.message }}</p>
         <div class="actions">
           <button ref="cancelBtn" type="button" class="btn" @click="emit('cancel')">Cancel</button>
-          <button ref="confirmBtn" type="button" class="btn danger" @click="emit('confirm')">
+          <button ref="confirmBtn" type="button" :class="['btn', { danger: props.danger, primary: !props.danger }]" @click="emit('confirm')">
             {{ props.confirmLabel }}
           </button>
         </div>
@@ -84,4 +85,6 @@ p { margin: 0 0 18px; color: var(--text-muted); line-height: 1.45; }
 .btn:hover { background: var(--bg-hover); }
 .btn.danger { background: var(--danger-bg); border-color: var(--danger-bg); color: #fff; font-weight: 600; }
 .btn.danger:hover { filter: brightness(0.92); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 </style>

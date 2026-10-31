@@ -93,7 +93,8 @@ export function notifyPermission(status: string): { text: string; cls: 'running'
     case 'allowed':
       return { text: 'Allowed', cls: 'running' }
     case 'denied':
-      return { text: 'Off in System Settings — open System Settings → Notifications → Visor', cls: 'failing' }
+      // Not answered yet, or turned off: macOS reports both the same way.
+      return { text: 'Not allowed. Allow Visor in System Settings → Notifications.', cls: 'failing' }
     case 'unavailable':
       return { text: 'Not available in this build', cls: 'stopped' }
   }

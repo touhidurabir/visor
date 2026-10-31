@@ -16,7 +16,9 @@ import * as $models from "./models.js";
 
 /**
  * Delete removes the closed issues among ids for good and returns how many
- * it removed; open issues and unknown ids are skipped. The history stays.
+ * it removed; open issues and unknown ids are skipped. The history stays,
+ * and so does the fact that the user closed an issue: the same failure
+ * does not reopen, even after a relaunch.
  */
 export function Delete(ids: string[] | null): $CancellablePromise<number> {
     return $Call.ByID(3819825321, ids);

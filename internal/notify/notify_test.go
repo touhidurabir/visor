@@ -125,3 +125,23 @@ func TestLimiter(t *testing.T) {
 		t.Error("window did not restart after the allowed notification")
 	}
 }
+
+// A notification that could not be shown gives its turn back, so the next
+// one for the same process and kind is not held back by it.
+func TestLimiterReleaseAfterFailedSend(t *testing.T) {
+	l := NewLimiter(time.Minute)
+	t0 := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	exit := issues.Issue{Kind: issues.KindUnexpectedExit, Process: "flaky:flaky"}
+	if !l.Allow(exit, t0) {
+		t.Fatal("first notification limited")
+	}
+	l.Release(exit, t0)
+	if !l.Allow(exit, t0.Add(time.Second)) {
+		t.Fatal("limited by a notification that was never shown")
+	}
+	// Releasing an older turn does not undo a newer one.
+	l.Release(exit, t0)
+	if l.Allow(exit, t0.Add(2*time.Second)) {
+		t.Error("a stale release undid the newer turn")
+	}
+}
