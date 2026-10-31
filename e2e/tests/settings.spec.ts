@@ -16,13 +16,14 @@ test.describe('settings', () => {
     const conn = (await card('Connection').boundingBox())!
     expect(conn.width).toBeGreaterThan(1000)
     const poll = (await card('Polling').boundingBox())!
-    const history = (await card('Issue history').boundingBox())!
-    expect(poll.x).toBeLessThan(history.x)
+    const crash = (await card('Crash loops').boundingBox())!
+    expect(poll.x).toBeLessThan(crash.x)
+    expect(crash.y).toBe(poll.y)
 
     await page.setViewportSize({ width: 900, height: 900 })
     await expect(async () => {
       const p = (await card('Polling').boundingBox())!
-      const n = (await card('Issue history').boundingBox())!
+      const n = (await card('Crash loops').boundingBox())!
       expect(n.y).toBeGreaterThan(p.y)
       expect(n.x).toBe(p.x)
     }).toPass()

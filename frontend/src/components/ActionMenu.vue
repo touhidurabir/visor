@@ -24,7 +24,7 @@ const trigger = ref<HTMLButtonElement>()
 const menu = ref<HTMLElement>()
 
 const pos = ref<{ top?: string; bottom?: string; left?: string; right?: string; maxHeight: string }>({ maxHeight: '' })
-const MENU_W = 320
+const MENU_W = 360
 const GAP = 4
 const EDGE = 8
 
@@ -241,7 +241,7 @@ function cancelled() {
 .menu {
   position: fixed;
   z-index: 20;
-  width: 320px;
+  width: 360px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -270,7 +270,8 @@ function cancelled() {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 40px;
+  min-height: 32px;
+  box-sizing: border-box;
   padding: 4px 10px;
   border: 0;
   border-radius: 6px;
@@ -285,7 +286,7 @@ function cancelled() {
 .ico { flex: none; }
 .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .lbl { white-space: nowrap; }
-.cmd { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cmd { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); overflow-wrap: anywhere; line-height: 1.35; }
 .copy {
   flex: none;
   display: inline-flex;

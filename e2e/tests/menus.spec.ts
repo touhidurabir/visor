@@ -24,7 +24,7 @@ test.describe('action menus', () => {
     await expect(menu).toBeVisible()
     const box = (await menu.boundingBox())!
     const vp = page.viewportSize()!
-    expect(box.width).toBe(320)
+    expect(box.width).toBe(360)
     expect(box.x).toBeGreaterThanOrEqual(0)
     expect(box.x + box.width).toBeLessThanOrEqual(vp.width)
     expect(box.y + box.height).toBeLessThanOrEqual(vp.height)

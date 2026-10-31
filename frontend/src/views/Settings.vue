@@ -416,6 +416,8 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
           </div>
         </div>
 
+        <div class="more">
+          <div class="col">
         <!-- Polling -->
         <div class="card" role="group" aria-labelledby="poll-title">
           <h2 id="poll-title">Polling</h2>
@@ -453,6 +455,8 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
           </fieldset>
         </div>
 
+          </div>
+          <div class="col">
         <!-- Crash loops -->
         <div class="card" role="group" aria-labelledby="loop-title">
           <h2 id="loop-title">Crash loops</h2>
@@ -511,6 +515,8 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
             </div>
           </div>
         </div>
+          </div>
+        </div>
       </div>
     </template>
 
@@ -528,11 +534,10 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
 <style scoped>
 .page { display: flex; flex-direction: column; gap: 16px; container-type: inline-size; }
 .cards { display: flex; flex-direction: column; gap: 16px; }
-/* Wide windows: two columns of cards that flow without gaps; Connection spans both. */
+/* Wide windows: the other cards sit in two columns, under Connection. */
+.more, .col { display: flex; flex-direction: column; gap: 16px; }
 @container (min-width: 1100px) {
-  .cards { display: block; columns: 2; column-gap: 16px; }
-  .cards > .card { break-inside: avoid; margin-bottom: 16px; }
-  .cards > .card:first-child { column-span: all; }
+  .more { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
 }
 header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
 h1 { margin: 0; font-size: 22px; font-weight: 650; }
