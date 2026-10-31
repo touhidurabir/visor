@@ -9,6 +9,7 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"github.com/touhidurabir/visor/internal/platform"
 	"github.com/touhidurabir/visor/internal/supervisor"
 )
 
@@ -34,6 +35,15 @@ func (s *ServerService) ServiceStartup(ctx context.Context, _ application.Servic
 func (s *ServerService) ServiceShutdown() error {
 	s.rt.Stop()
 	return nil
+}
+
+// Reconnect drops the connection to supervisord and connects again with
+// the current settings, re-reading the config. It waits for the first poll
+// (a few seconds at most) and returns the overview after it, which says
+// whether supervisord answered. Doctor's "Check again" calls it.
+func (s *ServerService) Reconnect() (OverviewView, error) {
+	err := s.rt.Reconnect()
+	return s.rt.Overview(), err
 }
 
 // Overview returns the current dashboard view. The same view is pushed as
@@ -112,6 +122,10 @@ func (s *ServerService) RestartFile(path string) error {
 }
 
 func (s *ServerService) fileAction(path string, stop, start bool) error {
+	// Without a connection, say so rather than that the file is unknown.
+	if _, err := s.rt.conn(); err != nil {
+		return err
+	}
 	groups, err := s.rt.groupsInFile(path)
 	if err != nil {
 		return err
@@ -134,6 +148,25 @@ func (s *ServerService) fileAction(path string, stop, start bool) error {
 		return errors.Join(errs...)
 	})
 }
+
+// ConfigDetail returns the config detail page for one include file: its
+// live processes, the paths it refers to, where each process logs, and its
+// most recent failure.
+func (s *ServerService) ConfigDetail(path string) (ConfigDetailView, error) {
+	return s.rt.configDetail(path)
+}
+
+// Reveal shows a file or folder in Finder.
+func (s *ServerService) Reveal(path string) error { return platform.Reveal(path) }
+
+// OpenInEditor opens a file with its default app, or a folder in Finder.
+// It never launches anything: executable files are refused, and app
+// bundles and file types macOS would run are revealed in Finder instead.
+func (s *ServerService) OpenInEditor(path string) error { return platform.Open(path) }
+
+// OpenLog opens a log file in the default text editor (open -t), whatever
+// its extension, so no other app can run it. Folders are refused.
+func (s *ServerService) OpenLog(path string) error { return platform.OpenText(path) }
 
 // StartAll starts every process.
 func (s *ServerService) StartAll() error {
@@ -221,10 +254,24 @@ func (s *ServerService) MainLog(maxBytes int) (string, error) {
 	err := s.rt.act(expectation{}, func(ctx context.Context, c *supervisor.Client) error {
 		var err error
 		out, err = c.ReadLog(ctx, -maxBytes, 0)
+		if errors.Is(err, supervisor.ErrNoFile) {
+			return noMainLogError{err}
+		}
 		return wrap("read the supervisord log", err)
 	})
 	return out, err
 }
+
+// noMainLogError is readLog's NO_FILE, which here means supervisord keeps
+// no log file of its own (not a missing command, as NO_FILE means when
+// starting a process). It still matches supervisor.ErrNoFile.
+type noMainLogError struct{ err error }
+
+func (e noMainLogError) Error() string {
+	return "supervisord writes no log file (logfile= is unset or syslog). Set [supervisord] logfile= to see it here."
+}
+
+func (e noMainLogError) Unwrap() error { return e.err }
 
 func startGroup(ctx context.Context, c *supervisor.Client, g string) error {
 	res, err := c.StartProcessGroup(ctx, g, true)

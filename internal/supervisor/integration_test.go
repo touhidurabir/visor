@@ -308,3 +308,79 @@ func TestIntegrationListMethods(t *testing.T) {
 		}
 	}
 }
+
+func TestRecentExitsHarness(t *testing.T) {
+	t.Parallel()
+	// autorestart=true restarts both whatever the code. crash_er's exit is
+	// "not expected" whether or not it outlives startsecs=1; finisher's exit
+	// 0 is "expected" only once it is RUNNING, so it runs past startsecs.
+	i := supervisortest.Start(t,
+		supervisortest.Program{Name: "crash_er", Command: "sh -c 'sleep 1; exit 3'", Extra: map[string]string{"autorestart": "true"}},
+		supervisortest.Program{Name: "finisher", Command: "sh -c 'sleep 2; exit 0'", Extra: map[string]string{"autorestart": "true"}},
+	)
+	ctx := context.Background()
+	var crash, finish *supervisor.ExitLine
+	deadline := time.Now().Add(8 * time.Second)
+	for crash == nil || finish == nil {
+		plog, err := i.Client().RecentProcessLog(ctx, 64<<10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, l := range plog.Exits {
+			switch l.Name {
+			case "crash_er":
+				crash = &l
+			case "finisher":
+				finish = &l
+			}
+		}
+		if time.Now().After(deadline) {
+			log, _ := i.Client().ReadLog(ctx, 0, 0)
+			t.Fatalf("no exit lines for both programs after 8s; main log:\n%s", log)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if crash.Expected || crash.Status != 3 || crash.Desc != "exit status 3" {
+		t.Errorf("crash_er exit = %+v, want status 3, not expected", *crash)
+	}
+	if !finish.Expected || finish.Status != 0 {
+		t.Errorf("finisher exit = %+v, want status 0, expected", *finish)
+	}
+	for _, l := range []*supervisor.ExitLine{crash, finish} {
+		if d := time.Since(l.At); d < 0 || d > 10*time.Second {
+			t.Errorf("%s exited at %v, %v ago: wrong zone or format?", l.Name, l.At, d)
+		}
+	}
+}
+
+// A stop someone asked for is a "stopped:" line, and the start after it a
+// "spawned:" line with the new pid, as supervisord 4 writes them.
+func TestRecentProcessLogStopAndSpawnHarness(t *testing.T) {
+	t.Parallel()
+	i := supervisortest.Start(t, supervisortest.Sleeper)
+	ctx := context.Background()
+	i.WaitFor(t, "sleeper", supervisor.StateRunning)
+	if err := i.Client().StopProcess(ctx, "sleeper", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := i.Client().StartProcess(ctx, "sleeper", true); err != nil {
+		t.Fatal(err)
+	}
+	p := i.WaitFor(t, "sleeper", supervisor.StateRunning)
+	plog, err := i.Client().RecentProcessLog(ctx, 64<<10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(plog.Exits); n != 1 || !plog.Exits[0].Stopped || plog.Exits[0].Name != "sleeper" ||
+		plog.Exits[0].Desc != "terminated by SIGTERM" || plog.Exits[0].Status != -1 {
+		t.Errorf("exits = %+v, want one stopped: sleeper (terminated by SIGTERM)", plog.Exits)
+	}
+	if n := len(plog.Spawns); n != 2 || plog.Spawns[1].PID != p.PID || plog.Spawns[1].Name != "sleeper" {
+		t.Errorf("spawns = %+v, want two, the last with pid %d", plog.Spawns, p.PID)
+	}
+	if len(plog.Exits) == 1 && len(plog.Spawns) == 2 {
+		if stop, spawn := plog.Exits[0].At, plog.Spawns[1].At; spawn.Before(stop) || p.Stop.Sub(stop).Abs() > 2*time.Second {
+			t.Errorf("stopped at %v, spawned at %v, process Stop %v", stop, spawn, p.Stop)
+		}
+	}
+}

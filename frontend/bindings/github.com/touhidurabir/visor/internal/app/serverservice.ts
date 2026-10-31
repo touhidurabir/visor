@@ -37,6 +37,15 @@ export function ClearLogs(name: string): $CancellablePromise<void> {
 }
 
 /**
+ * ConfigDetail returns the config detail page for one include file: its
+ * live processes, the paths it refers to, where each process logs, and its
+ * most recent failure.
+ */
+export function ConfigDetail(path: string): $CancellablePromise<$models.ConfigDetailView> {
+    return $Call.ByID(2359427357, path);
+}
+
+/**
  * MainLog returns the last maxBytes of supervisord's own log (64 KiB if
  * maxBytes <= 0, at most 1 MiB).
  */
@@ -45,11 +54,38 @@ export function MainLog(maxBytes: number): $CancellablePromise<string> {
 }
 
 /**
+ * OpenInEditor opens a file with its default app, or a folder in Finder.
+ * It never launches anything: executable files are refused, and app
+ * bundles and file types macOS would run are revealed in Finder instead.
+ */
+export function OpenInEditor(path: string): $CancellablePromise<void> {
+    return $Call.ByID(2624086760, path);
+}
+
+/**
+ * OpenLog opens a log file in the default text editor (open -t), whatever
+ * its extension, so no other app can run it. Folders are refused.
+ */
+export function OpenLog(path: string): $CancellablePromise<void> {
+    return $Call.ByID(4025706144, path);
+}
+
+/**
  * Overview returns the current dashboard view. The same view is pushed as
  * the visor:overview event after every poll and action.
  */
 export function Overview(): $CancellablePromise<$models.OverviewView> {
     return $Call.ByID(1884398785);
+}
+
+/**
+ * Reconnect drops the connection to supervisord and connects again with
+ * the current settings, re-reading the config. It waits for the first poll
+ * (a few seconds at most) and returns the overview after it, which says
+ * whether supervisord answered. Doctor's "Check again" calls it.
+ */
+export function Reconnect(): $CancellablePromise<$models.OverviewView> {
+    return $Call.ByID(2689955699);
 }
 
 /**
@@ -87,6 +123,13 @@ export function RestartFile(path: string): $CancellablePromise<void> {
  */
 export function RestartGroup(g: string): $CancellablePromise<void> {
     return $Call.ByID(792332780, g);
+}
+
+/**
+ * Reveal shows a file or folder in Finder.
+ */
+export function Reveal(path: string): $CancellablePromise<void> {
+    return $Call.ByID(2942324023, path);
 }
 
 /**

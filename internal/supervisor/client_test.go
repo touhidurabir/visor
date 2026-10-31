@@ -285,3 +285,39 @@ func TestUnexpectedResultType(t *testing.T) {
 		t.Error("want error for int where string expected")
 	}
 }
+
+func TestCloseDropsIdleConnections(t *testing.T) {
+	path := socketPath(t)
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := make(chan struct{}, 4)
+	srv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { respond(w, `<string>4.2.5</string>`) }),
+		ConnState: func(_ net.Conn, s http.ConnState) {
+			if s == http.StateClosed {
+				closed <- struct{}{}
+			}
+		},
+	}
+	go srv.Serve(ln)
+	t.Cleanup(func() { srv.Close() })
+
+	c := New(UnixTransport{Path: path})
+	if _, err := c.GetSupervisorVersion(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-closed:
+		t.Fatal("the connection closed before Close: it should be kept for reuse")
+	case <-time.After(50 * time.Millisecond):
+	}
+	c.Close()
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close left the idle connection open")
+	}
+	c.Close() // safe to call again
+}

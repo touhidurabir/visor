@@ -17,6 +17,7 @@ import (
 	"github.com/touhidurabir/visor/internal/config"
 	"github.com/touhidurabir/visor/internal/issues"
 	"github.com/touhidurabir/visor/internal/monitor"
+	"github.com/touhidurabir/visor/internal/settings"
 	"github.com/touhidurabir/visor/internal/supervisor"
 )
 
@@ -34,8 +35,6 @@ func init() {
 }
 
 const (
-	// issueRetention is how long closed issues and history are kept.
-	issueRetention = 90 * 24 * time.Hour
 	// actionTimeout bounds one user action, including waiting for
 	// processes to start or stop.
 	actionTimeout = 2 * time.Minute
@@ -47,7 +46,19 @@ const (
 	minRestartGrace = 30 * time.Second
 	// rpcTimeout bounds quick calls made outside the poll loop.
 	rpcTimeout = 5 * time.Second
+	// exitReasonTimeout bounds reading supervisord's main log for why a
+	// process exited. The tracker waits on it, so it is short.
+	exitReasonTimeout = time.Second
+	// exitLogTail is how much of the main log's end is read for exit lines.
+	exitLogTail = 64 << 10
+	// exitLineSlack is how far an exit line's time may be from the
+	// process's stop time (whole seconds) and still be that exit.
+	exitLineSlack = 2 * time.Second
 )
+
+// noteNotHere closes the issues of processes that the supervisord Visor
+// switched to does not run.
+const noteNotHere = "not in this supervisord"
 
 // StateDir is where Visor keeps its state: $VISOR_STATE_DIR if set,
 // otherwise ~/Library/Application Support/Visor.
@@ -71,29 +82,53 @@ func WailsEmit(name string, data any) {
 
 // RuntimeOptions configures a Runtime.
 type RuntimeOptions struct {
-	ConfigPath string        // supervisord.conf; "" auto-discovers
-	StateDir   string        // where issues, history, loaded.json and watch.json live
-	Interval   time.Duration // poll interval; <= 0 means the monitor's default
+	// ConfigPath is supervisord.conf from VISOR_CONFIG. It overrides
+	// Settings.ConfigPath; "" uses the setting (and "" there auto-discovers).
+	ConfigPath string
+	StateDir   string // where settings, issues, history, loaded.json and watch.json live
+	// Settings are the saved preferences; the zero value means the defaults.
+	Settings settings.Settings
+	// Interval, when > 0, replaces Settings.PollInterval until settings are
+	// next applied, without its limits (tests poll faster than 1s).
+	Interval time.Duration
+	// Keychain holds the supervisord password for a username saved in
+	// Settings. nil means no saved password (tests never use the real one).
+	Keychain settings.Keychain
 	// Emit sends an event to the frontend; nil drops events. WailsEmit in
 	// the app, a recorder in tests.
 	Emit func(name string, data any)
 }
 
+// reconnectWait bounds how long Reconnect waits for the first poll.
+const reconnectWait = 5 * time.Second
+
 // Runtime wires discovery, the supervisord client, the monitor, the issue
 // tracker and the config watcher together, and turns every monitor update
 // into frontend events. Services share one Runtime.
 //
-// Locking: mu is a leaf lock. It is never held while calling the tracker,
-// the watcher, the monitor or supervisord, because the tracker calls back
-// into the Runtime (configOf, expectedExit, autorestart) under its own lock.
+// A connection (client, monitor, watcher and their goroutines) is rebuilt
+// by Reconnect and by settings that change how Visor connects. The issue
+// store and tracker live as long as the Runtime.
+//
+// Locking: life serialises Start, Stop, Reconnect and ApplySettings, and is
+// never held while waiting on a poll. mu is a leaf lock. It is never held
+// while calling the tracker, the watcher, the monitor or supervisord,
+// because the tracker calls back into the Runtime (configOf, expectedExit,
+// autorestart, exitReasons) under its own lock.
 type Runtime struct {
 	opts  RuntimeOptions
 	watch *watchStore
 
+	life    sync.Mutex
+	started bool
+	stopped bool
+	parent  context.Context
+
 	mu       sync.Mutex
-	started  bool
-	cancel   context.CancelFunc
-	ctx      context.Context
+	prefs    settings.Settings
+	cancel   context.CancelFunc // ends the current connection
+	ctx      context.Context    // the current connection's context
+	first    chan struct{}      // closed when the current connection's first poll is handled
 	d        config.Discovery
 	connErr  error // no usable connection: no config, or no socket
 	storeErr error
@@ -108,6 +143,12 @@ type Runtime struct {
 	version  string
 	// failedPolls counts consecutive unreachable polls, for health.
 	failedPolls int
+	// lastConfig is the config the previous connection used; it outlives
+	// disconnect. pruneAbsent is set when a rebuild connects to a
+	// different config, until its first reachable snapshot closes the
+	// issues of processes this supervisord does not run (M4).
+	lastConfig  string
+	pruneAbsent bool
 
 	wg sync.WaitGroup
 }
@@ -117,80 +158,301 @@ func NewRuntime(o RuntimeOptions) *Runtime {
 	if o.Emit == nil {
 		o.Emit = func(string, any) {}
 	}
-	return &Runtime{opts: o, watch: newWatchStore(o.StateDir), ctx: context.Background()}
+	prefs := o.Settings
+	if prefs == (settings.Settings{}) {
+		prefs = settings.Defaults()
+	}
+	prefs = prefs.Clamp()
+	if o.Interval > 0 {
+		prefs.PollInterval = o.Interval
+	}
+	return &Runtime{opts: o, prefs: prefs, watch: newWatchStore(o.StateDir), ctx: context.Background()}
 }
 
-// Start connects and starts polling. A missing config or socket is not an
-// error: Overview reports it, so the app can still open and explain the
-// fix. Start may be called once; later calls do nothing.
+// Start opens the issue store, connects and starts polling. A missing
+// config or socket is not an error: Overview reports it, so the app can
+// still open and explain the fix. Start may be called once; later calls do
+// nothing.
 func (r *Runtime) Start(ctx context.Context) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.life.Lock()
+	defer r.life.Unlock()
 	if r.started {
 		return nil
 	}
-	r.started = true
-	r.ctx, r.cancel = context.WithCancel(ctx)
+	r.started, r.parent = true, ctx
+	r.openStore()
+	r.connect()
+	return nil
+}
 
-	r.store, r.storeErr = issues.OpenStore(r.opts.StateDir, issueRetention)
-	if r.storeErr != nil {
-		r.storeErr = fmt.Errorf("cannot open the issue history in %s: %w", r.opts.StateDir, r.storeErr)
+// Stop ends the connection and waits for every goroutine to end. It is
+// safe to call more than once, and before Start. Reconnect does nothing
+// afterwards.
+func (r *Runtime) Stop() {
+	r.life.Lock()
+	defer r.life.Unlock()
+	r.stopped = true
+	r.disconnect()
+}
+
+// Reconnect drops the connection and builds a new one from the current
+// settings: it re-discovers the config, reads the Keychain password, makes
+// a new client and monitor, and emits a fresh overview. It then waits for
+// the first poll (up to reconnectWait), so the overview it leaves behind
+// says whether supervisord answered.
+func (r *Runtime) Reconnect() error {
+	r.life.Lock()
+	if err := r.reconnectLocked(); err != nil {
+		r.life.Unlock()
+		return err
 	}
+	r.mu.Lock()
+	first, ctx := r.first, r.ctx
+	r.mu.Unlock()
+	r.life.Unlock()
 
-	d, err := config.Resolve(r.opts.ConfigPath)
+	r.emitOverview()
+	t := time.NewTimer(reconnectWait)
+	defer t.Stop()
+	select {
+	case <-first:
+	case <-ctx.Done():
+	case <-t.C:
+	}
+	return nil
+}
+
+// reconnectLocked rebuilds the connection. Caller holds life.
+func (r *Runtime) reconnectLocked() error {
+	switch {
+	case r.stopped:
+		return errors.New("cannot reconnect: Visor is quitting")
+	case !r.started:
+		return errors.New("cannot reconnect: Visor has not started yet")
+	}
+	r.disconnect()
+	r.openStore() // retry a store that failed to open
+	r.connect()
+	return nil
+}
+
+// Settings returns the settings in use.
+func (r *Runtime) Settings() settings.Settings {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.prefs
+}
+
+// ApplySettings puts s (clamped) into use. A change to how Visor connects
+// (the config path or username), or reconnect, rebuilds the connection as
+// Reconnect does; the poll interval and crash-loop thresholds apply in
+// place. A new retention deletes nothing until the next launch opens the
+// store, or compactIssues runs. Before Start, s is only kept for Start.
+func (r *Runtime) ApplySettings(s settings.Settings, reconnect bool) error {
+	s = s.Clamp()
+	r.life.Lock()
+	r.mu.Lock()
+	old := r.prefs
+	r.prefs = s
+	mon, tracker := r.mon, r.tracker
+	r.mu.Unlock()
+	running := r.started && !r.stopped
+	connChanged := r.configPathOf(old) != r.configPathOf(s) || old.Username != s.Username
+	if !running || (!reconnect && !connChanged) {
+		defer r.life.Unlock()
+		if !running {
+			return nil
+		}
+		if mon != nil {
+			mon.SetInterval(s.PollInterval)
+		}
+		if tracker != nil {
+			tracker.SetRules(rulesOf(s))
+		}
+		return nil
+	}
+	r.life.Unlock()
+	return r.Reconnect()
+}
+
+// compactIssues deletes closed issues and history older than s's
+// retention. Only an explicit, confirmed action calls it (R27).
+func (r *Runtime) compactIssues(s settings.Settings) error {
+	r.mu.Lock()
+	store := r.store
+	r.mu.Unlock()
+	if store == nil {
+		return nil
+	}
+	if err := store.Compact(s.Retention()); err != nil {
+		return fmt.Errorf("saved, but cannot clear issues older than %d days: %w", s.RetentionDays, err)
+	}
+	return nil
+}
+
+// configPathOf is the config Visor uses with s: VISOR_CONFIG wins.
+func (r *Runtime) configPathOf(s settings.Settings) string {
+	if r.opts.ConfigPath != "" {
+		return r.opts.ConfigPath
+	}
+	return s.ConfigPath
+}
+
+// Connection is the config in use (or, before discovery succeeds, the one
+// asked for) and supervisord's address from it ("" if it has none).
+func (r *Runtime) Connection() (configPath, address string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	configPath = r.d.ConfigPath
+	if configPath == "" {
+		configPath = r.configPathOf(r.prefs)
+	}
+	return configPath, transportAddress(r.d.Transport)
+}
+
+// transportAddress describes where t connects: a socket path or a URL.
+func transportAddress(t supervisor.Transport) string {
+	switch t := t.(type) {
+	case nil:
+		return ""
+	case supervisor.UnixTransport:
+		return t.Path
+	case supervisor.TCPTransport:
+		return "http://" + t.Addr
+	}
+	return t.URL()
+}
+
+func rulesOf(s settings.Settings) issues.Rules {
+	r := issues.DefaultRules
+	r.CrashLoopRestarts, r.CrashLoopWindow = s.CrashLoop.Restarts, s.CrashLoop.Window
+	return r
+}
+
+// openStore opens the issue store if it is not open. Caller holds life.
+func (r *Runtime) openStore() {
+	r.mu.Lock()
+	open, retention := r.store != nil, r.prefs.Retention()
+	r.mu.Unlock()
+	if open {
+		return
+	}
+	store, err := issues.OpenStore(r.opts.StateDir, retention)
+	var tracker *issues.Tracker
 	if err != nil {
-		r.connErr = err
-		return nil
-	}
-	r.d = d
-	if d.Transport == nil {
-		r.connErr = fmt.Errorf("%s defines no socket or port: add an [unix_http_server] section with file= set", d.ConfigPath)
-		return nil
-	}
-	var copts []supervisor.Option
-	if d.Username != "" {
-		copts = append(copts, supervisor.WithBasicAuth(d.Username, d.Password))
-	}
-	r.client = supervisor.New(d.Transport, copts...)
-	if inv, err := config.LoadInventory(d); err == nil {
-		r.inv = inv
-	}
-	r.watcher = config.NewWatcher(d, r.opts.StateDir)
-	if r.store != nil {
-		r.tracker = issues.NewTracker(r.store, issues.DefaultRules, issues.Programs{
+		err = fmt.Errorf("cannot open the issue history in %s: %w", r.opts.StateDir, err)
+	} else {
+		// One tracker for the Runtime's life, like the store: what it
+		// remembers (user actions in flight, a user's shutdown, restarts
+		// counted toward a crash loop, who closed what) must outlive a
+		// reconnect, and a Resolve racing a rebuild must not land in a
+		// tracker that is about to be dropped.
+		r.mu.Lock()
+		rules := rulesOf(r.prefs)
+		r.mu.Unlock()
+		tracker = issues.NewTracker(store, rules, issues.Programs{
 			ConfigOf:     r.configOf,
 			ExpectedExit: r.expectedExit,
 			Autorestart:  r.autorestart,
+			ExitReasons:  r.exitReasons,
 		}, time.Now)
 	}
-	r.mon = monitor.New(r.client, r.opts.Interval)
+	r.mu.Lock()
+	r.store, r.tracker, r.storeErr = store, tracker, err
+	r.mu.Unlock()
+}
 
-	updates, unsubscribe := r.mon.Subscribe()
+// connect builds a connection from the current settings and starts
+// polling. Caller holds life, after disconnect (or at Start).
+func (r *Runtime) connect() {
+	r.mu.Lock()
+	prefs, tracker := r.prefs, r.tracker
+	ctx, cancel := context.WithCancel(r.parent)
+	first := make(chan struct{})
+	r.ctx, r.cancel, r.first = ctx, cancel, first
+	r.mu.Unlock()
+
+	fail := func(d config.Discovery, err error) {
+		r.mu.Lock()
+		r.d, r.connErr = d, err
+		r.mu.Unlock()
+		close(first) // no poll will come
+	}
+	d, err := config.Resolve(r.configPathOf(prefs))
+	if err != nil {
+		fail(d, err)
+		return
+	}
+	if d.Transport == nil {
+		fail(d, fmt.Errorf("%s defines no socket or port: add an [unix_http_server] section with file= set", d.ConfigPath))
+		return
+	}
+	savedPass := ""
+	if prefs.Username != "" && r.opts.Keychain != nil {
+		if savedPass, err = settings.Password(r.opts.Keychain, d.ConfigPath); err != nil {
+			fail(d, fmt.Errorf("%w. Allow Visor to use the Keychain item, or enter the password again in Settings", err))
+			return
+		}
+	}
+	var copts []supervisor.Option
+	if user, pass := settings.Credentials(prefs.Username, savedPass, d.Username, d.Password); user != "" {
+		copts = append(copts, supervisor.WithBasicAuth(user, pass))
+	}
+	client := supervisor.New(d.Transport, copts...)
+	inv, _ := config.LoadInventory(d)
+	r.mu.Lock()
+	if r.lastConfig != "" && r.lastConfig != d.ConfigPath {
+		r.pruneAbsent = true
+	}
+	r.lastConfig = d.ConfigPath
+	r.mu.Unlock()
+	watcher := config.NewWatcher(d, r.opts.StateDir)
+	if tracker != nil {
+		tracker.SetRules(rulesOf(prefs))
+	}
+	mon := monitor.New(client, prefs.PollInterval)
+
+	r.mu.Lock()
+	r.d, r.client, r.inv, r.watcher, r.mon = d, client, inv, watcher, mon
+	r.mu.Unlock()
+
+	updates, unsubscribe := mon.Subscribe()
 	r.wg.Add(2)
 	go func() {
 		defer r.wg.Done()
-		r.mon.Run(r.ctx)
+		mon.Run(ctx)
 	}()
 	go func() {
 		defer r.wg.Done()
 		defer unsubscribe()
+		once := sync.OnceFunc(func() { close(first) })
+		defer once()             // Run ended before a poll was handled
 		for u := range updates { // closed when Run returns
 			r.handle(u)
+			once()
 		}
 	}()
-	return nil
 }
 
-// Stop cancels polling and waits for every goroutine to end. It is safe to
-// call more than once, and before Start.
-func (r *Runtime) Stop() {
+// disconnect ends the current connection, waits for its goroutines and
+// forgets everything learned from it. Caller holds life.
+func (r *Runtime) disconnect() {
 	r.mu.Lock()
-	cancel := r.cancel
+	cancel, client := r.cancel, r.client
 	r.mu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
 	r.wg.Wait()
+	if client != nil {
+		client.Close()
+	}
+	r.mu.Lock()
+	r.cancel, r.client, r.mon, r.watcher = nil, nil, nil, nil // the tracker and store stay
+	r.d, r.connErr = config.Discovery{}, nil
+	r.inv, r.changes, r.last = config.Inventory{}, config.ChangeSet{}, monitor.Update{}
+	r.version, r.failedPolls = "", 0
+	r.mu.Unlock()
 }
 
 // handle applies one monitor update and tells the frontend.
@@ -235,11 +497,18 @@ func (r *Runtime) handle(u monitor.Update) {
 		r.failedPolls++
 	}
 	r.last = u
+	prune := r.pruneAbsent && u.Snapshot.Reachable
+	if prune {
+		r.pruneAbsent = false
+	}
 	r.mu.Unlock()
 
 	var opened []issues.Issue
 	if tracker != nil {
 		opened, _ = tracker.Apply(u) // after the inventory refresh, so configOf sees new files
+		if prune {
+			tracker.CloseAbsent(u.Snapshot.Processes, noteNotHere)
+		}
 	}
 	r.emitOverview()
 	for _, is := range opened {
@@ -261,6 +530,14 @@ func (r *Runtime) configOf(process string) string {
 	return ""
 }
 
+// program returns the [program:x] behind a process full name.
+func (r *Runtime) program(process string) (config.Program, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, p, ok := r.inv.Lookup(process)
+	return p, ok
+}
+
 func (r *Runtime) expectedExit(process string) []int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -271,6 +548,83 @@ func (r *Runtime) autorestart(process string) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.inv.Autorestart(process)
+}
+
+// exitReasons reads supervisord's main log for why processes last exited.
+// The tracker calls it at most once while applying the update in r.last.
+func (r *Runtime) exitReasons() issues.ExitLookup {
+	r.mu.Lock()
+	base, client, procs := r.ctx, r.client, r.last.Snapshot.Processes
+	r.mu.Unlock()
+	if client == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(base, exitReasonTimeout)
+	defer cancel()
+	plog, err := client.RecentProcessLog(ctx, exitLogTail)
+	if err != nil {
+		return nil
+	}
+	return func(_ string, info supervisor.ProcessInfo) (issues.ExitReason, bool) {
+		return exitReasonFrom(plog, info, procs)
+	}
+}
+
+// exitReasonFrom picks the main log line that ended info's previous run.
+// Exit lines name no group, so a name that procs has in two groups is
+// never matched.
+//
+// With a stop time, it is the latest exit or stop line for its name within
+// exitLineSlack of it. Without one, supervisord has never stopped this
+// process: the daemon restarted (a reload) or its group was re-added (an
+// update). Then it is the last exit or stop line for the name before the
+// "spawned:" line of info's pid, provided no other spawn of the name came
+// between them (which would mean the old daemon died without stopping it).
+//
+// A "stopped:" line means someone asked supervisord to stop the process,
+// so the restart is Deliberate.
+func exitReasonFrom(plog supervisor.ProcessLog, info supervisor.ProcessInfo, procs []supervisor.ProcessInfo) (issues.ExitReason, bool) {
+	for _, p := range procs {
+		if p.Name == info.Name && p.Group != info.Group {
+			return issues.ExitReason{}, false
+		}
+	}
+	reason := func(l supervisor.ExitLine) (issues.ExitReason, bool) {
+		return issues.ExitReason{Desc: l.Desc, Status: l.Status, Expected: l.Expected, Deliberate: l.Stopped}, true
+	}
+	if !info.Stop.IsZero() {
+		for _, l := range slices.Backward(plog.Exits) {
+			if d := l.At.Sub(info.Stop); l.Name == info.Name && d.Abs() <= exitLineSlack {
+				return reason(l)
+			}
+		}
+		return issues.ExitReason{}, false
+	}
+	if info.PID <= 0 {
+		return issues.ExitReason{}, false
+	}
+	var spawned time.Time
+	for _, s := range slices.Backward(plog.Spawns) {
+		if s.Name == info.Name && s.PID == info.PID {
+			spawned = s.At
+			break
+		}
+	}
+	if spawned.IsZero() {
+		return issues.ExitReason{}, false
+	}
+	for _, l := range slices.Backward(plog.Exits) {
+		if l.Name != info.Name || l.At.After(spawned) {
+			continue
+		}
+		for _, s := range plog.Spawns {
+			if s.Name == info.Name && s.PID != info.PID && s.At.After(l.At) && !s.At.After(spawned) {
+				return issues.ExitReason{}, false // another run began after it
+			}
+		}
+		return reason(l)
+	}
+	return issues.ExitReason{}, false
 }
 
 // Overview builds the dashboard view from the latest handled update.
@@ -289,7 +643,7 @@ func (r *Runtime) Overview() OverviewView {
 		failedPolls: r.failedPolls,
 	}
 	if in.configPath == "" {
-		in.configPath = r.opts.ConfigPath
+		in.configPath = r.configPathOf(r.prefs)
 	}
 	pidFile, tracker := r.d.PidFile, r.tracker
 	r.mu.Unlock()
@@ -328,14 +682,29 @@ func (r *Runtime) conn() (actionConn, error) {
 	return actionConn{r.ctx, r.client, r.mon, r.tracker}, nil
 }
 
+// errReconnecting replaces the bare "context canceled" of a call cut short
+// because its connection was rebuilt (Reconnect or a settings change).
+var errReconnecting = errors.New("reconnecting to supervisord: try again in a moment")
+
+// reconnecting maps err to errReconnecting when the connection it ran on
+// (conn, the context from Runtime.conn) has ended.
+func reconnecting(conn context.Context, err error) error {
+	if err != nil && conn.Err() != nil {
+		return errReconnecting
+	}
+	return err
+}
+
 // actionGrace is how long after a user action ends the changes it caused
 // are still the user's: two polls, at least minActionGrace (or e's own
 // minimum, e.g. minRestartGrace).
 func (r *Runtime) actionGrace(e expectation) time.Duration {
-	interval := r.opts.Interval
-	if interval <= 0 {
-		interval = monitor.DefaultInterval
+	r.mu.Lock()
+	interval := r.prefs.PollInterval
+	if r.mon != nil {
+		interval = r.mon.Interval()
 	}
+	r.mu.Unlock()
 	return max(2*interval, minActionGrace, e.minGrace)
 }
 
@@ -353,7 +722,7 @@ func (r *Runtime) act(e expectation, do func(ctx context.Context, c *supervisor.
 	settle := e.register(ac.tracker, time.Now().Add(actionTimeout+grace))
 	ctx, cancel := context.WithTimeout(ac.ctx, actionTimeout)
 	defer cancel()
-	err = do(ctx, ac.client)
+	err = reconnecting(ac.ctx, do(ctx, ac.client))
 	switch {
 	case err != nil && e.daemon:
 		// supervisord refused or never got the call: an outage from now

@@ -14,8 +14,11 @@ import (
 // fakeSource returns procs(n) on the nth poll (1-based). With gate set,
 // each poll first waits for a value on gate, so a test can step the loop.
 type fakeSource struct {
-	gate  chan struct{}
-	procs func(n int) ([]supervisor.ProcessInfo, error)
+	gate chan struct{}
+	// entered, when set, receives a value as each poll starts (before the
+	// gate), so a test knows a poll is in progress.
+	entered chan struct{}
+	procs   func(n int) ([]supervisor.ProcessInfo, error)
 
 	mu    sync.Mutex
 	calls int
@@ -26,6 +29,13 @@ func (f *fakeSource) GetState(context.Context) (supervisor.SupervisorState, erro
 }
 
 func (f *fakeSource) GetAllProcessInfo(ctx context.Context) ([]supervisor.ProcessInfo, error) {
+	if f.entered != nil {
+		select {
+		case f.entered <- struct{}{}:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	if f.gate != nil {
 		select {
 		case <-f.gate:
@@ -102,7 +112,7 @@ func find(s Snapshot, fullName string) (supervisor.ProcessInfo, bool) {
 
 func TestNewDefaultsInterval(t *testing.T) {
 	for _, d := range []time.Duration{0, -time.Second} {
-		if got := New(&fakeSource{}, d).interval; got != 2*time.Second {
+		if got := New(&fakeSource{}, d).Interval(); got != 2*time.Second {
 			t.Errorf("New(%v).interval = %v, want 2s", d, got)
 		}
 	}
@@ -471,5 +481,55 @@ func restartBetweenPolls(t *testing.T) {
 	e := u.Events[0]
 	if e.Kind != Restarted || e.Process != "sleeper:sleeper" || e.To != supervisor.StateRunning || e.Info.PID == before.PID {
 		t.Errorf("event = %+v, want sleeper Restarted with a new pid", e)
+	}
+}
+
+func TestSetIntervalChangesCadence(t *testing.T) {
+	gate, entered := make(chan struct{}), make(chan struct{})
+	src := &fakeSource{gate: gate, entered: entered, procs: func(int) ([]supervisor.ProcessInfo, error) { return nil, nil }}
+	m := New(src, time.Hour)
+	ch, unsub := m.Subscribe()
+	defer unsub()
+	start(t, m)
+	began := func() {
+		t.Helper()
+		select {
+		case <-entered:
+		case <-time.After(5 * time.Second):
+			t.Fatal("no poll started within 5s")
+		}
+	}
+	poll := func() { // one whole poll: it starts, is let through, publishes
+		t.Helper()
+		began()
+		step(t, gate)
+		recv(t, ch, 5*time.Second)
+	}
+	poll() // the immediate first poll; the next is an hour away
+
+	m.SetInterval(20 * time.Millisecond)
+	if got := m.Interval(); got != 20*time.Millisecond {
+		t.Errorf("Interval = %v, want 20ms", got)
+	}
+	for range 3 { // polls resume at the new cadence without a Poke
+		poll()
+	}
+
+	// Slow down while a poll is in progress: it finishes, and no tick
+	// already due at the old cadence starts another.
+	began()
+	m.SetInterval(time.Hour)
+	time.Sleep(60 * time.Millisecond) // hold the poll until a 20ms tick is due
+	step(t, gate)
+	recv(t, ch, 5*time.Second)
+	select {
+	case <-entered:
+		t.Fatal("polled again after slowing to an hour")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	m.SetInterval(0) // <= 0 means the default
+	if got := m.Interval(); got != DefaultInterval {
+		t.Errorf("Interval after SetInterval(0) = %v, want %v", got, DefaultInterval)
 	}
 }

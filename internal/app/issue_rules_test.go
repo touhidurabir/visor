@@ -2,9 +2,16 @@ package app
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/touhidurabir/visor/internal/settings"
 	"github.com/touhidurabir/visor/internal/supervisor"
 	"github.com/touhidurabir/visor/internal/supervisor/supervisortest"
 )
@@ -30,16 +37,35 @@ func openOfKind(ov OverviewView, kind string) []IssueView {
 	return out
 }
 
+// crashMessages are the two correct issues for crasher's exit 1: read
+// from supervisord's log after the restart, or (when a poll lands in the
+// few milliseconds it sits in EXITED) the observed exit.
+var crashMessages = []string{"Exited with status 1 and was restarted by supervisord", "Exited with status 1"}
+
 func TestAutoRestartedCrashOpensUnexpectedExit(t *testing.T) {
 	inst := supervisortest.Start(t, crasher(""))
 	rt, rec := startRuntime(t, confOf(inst), t.TempDir(), 500*time.Millisecond)
 	svc := NewServerService(rt)
+	assertOneCrashIssue(t, svc, rec)
+}
+
+func TestAutorestartTrueCrashOpensIssueHarness(t *testing.T) {
+	inst := supervisortest.Start(t, crasher("true"))
+	rt, rec := startRuntime(t, confOf(inst), t.TempDir(), 500*time.Millisecond)
+	svc := NewServerService(rt)
+	assertOneCrashIssue(t, svc, rec)
+}
+
+// assertOneCrashIssue waits for crasher's unexpected_exit, then checks a
+// second crash cycle opens no other.
+func assertOneCrashIssue(t *testing.T, svc *ServerService, rec *recorder) {
+	t.Helper()
 	ov := waitOverview(t, svc, 10*time.Second, "an unexpected_exit issue", func(ov OverviewView) bool {
 		return len(openOfKind(ov, "unexpected_exit")) > 0
 	})
 	got := openOfKind(ov, "unexpected_exit")
-	if len(got) != 1 || got[0].Process != "crasher:crasher" || got[0].Message != "Exited and was restarted by supervisord" {
-		t.Fatalf("unexpected_exit issues = %+v", got)
+	if len(got) != 1 || got[0].Process != "crasher:crasher" || !slices.Contains(crashMessages, got[0].Message) {
+		t.Fatalf("unexpected_exit issues = %+v, want one with a message in %q", got, crashMessages)
 	}
 	time.Sleep(3 * time.Second) // another crash cycle must not open a second one
 	n := 0
@@ -53,34 +79,36 @@ func TestAutoRestartedCrashOpensUnexpectedExit(t *testing.T) {
 	}
 }
 
-func TestAutoRestartTrueCrashOpensNoUnexpectedExit(t *testing.T) {
-	inst := supervisortest.Start(t, crasher("true"))
+// A planned exit 0 under autorestart=true (e.g. queue:work --max-time) is
+// in supervisord's log as expected, so its restarts open nothing.
+func TestAutorestartTruePlannedExitOpensNothingHarness(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Program{
+		Name: "finisher", Command: "sh -c 'sleep 2; exit 0'", Extra: map[string]string{"autorestart": "true"},
+	})
 	rt, rec := startRuntime(t, confOf(inst), t.TempDir(), 500*time.Millisecond)
 	svc := NewServerService(rt)
-	waitOverview(t, svc, 5*time.Second, "crasher running", procState("crasher:crasher", "RUNNING"))
-	time.Sleep(8 * time.Second) // about four crash cycles
-
-	hist, err := NewIssueService(rt).History("crasher:crasher", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	restarts := 0
-	for _, h := range hist {
-		if h.To == "EXITED" {
-			// A poll landed in the few milliseconds the process sat in
-			// EXITED: that observed exit rightly opens an issue.
-			t.Skip("a poll caught the brief EXITED state; nothing to assert")
+	waitOverview(t, svc, 5*time.Second, "finisher running", procState("finisher:finisher", "RUNNING"))
+	is := NewIssueService(rt)
+	deadline := time.Now().Add(12 * time.Second)
+	for restarts := 0; restarts < 2; {
+		if time.Now().After(deadline) {
+			t.Fatalf("saw %d restarts in 12s, want 2", restarts)
 		}
-		if h.Note == "Restarted by supervisord" || h.To == "STARTING" {
-			restarts++
+		time.Sleep(200 * time.Millisecond)
+		hist, err := is.History("finisher:finisher", 0)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	if restarts == 0 {
-		t.Errorf("no restarts recorded in history: %+v", hist)
+		restarts = 0
+		for _, h := range hist {
+			if h.Note == "Restarted by supervisord" || (h.From == "RUNNING" && h.To == "STARTING") {
+				restarts++
+			}
+		}
 	}
 	for _, is := range rec.issuesOpened() {
 		if is.Kind == "unexpected_exit" {
-			t.Errorf("autorestart=true restart opened %+v", is)
+			t.Errorf("a planned exit 0 opened %+v", is)
 		}
 	}
 }
@@ -198,5 +226,172 @@ func TestDaemonActionGrace(t *testing.T) {
 	slow := NewRuntime(RuntimeOptions{Interval: 20 * time.Second})
 	if got := slow.actionGrace(expectDaemonRestart()); got != 40*time.Second {
 		t.Errorf("slow poll restart grace %v, want 40s", got)
+	}
+}
+
+// R26: restarts made outside Visor (supervisorctl restart, reload, a deploy
+// script). The crash-loop threshold is the lowest allowed, 2, so a single
+// counted restart pair would open a crash loop.
+
+// outsideRuntime starts a Runtime on inst whose crash loop opens after two
+// restarts.
+func outsideRuntime(t *testing.T, inst *supervisortest.Instance, interval time.Duration) (*Runtime, *recorder) {
+	t.Helper()
+	s := settings.Defaults()
+	s.CrashLoop = settings.CrashLoopRules{Restarts: 2, Window: 10 * time.Minute}
+	return newRuntimeWith(t, RuntimeOptions{ConfigPath: confOf(inst), Interval: interval, Settings: s})
+}
+
+// pidsOf returns the PID Visor shows for each process.
+func pidsOf(ov OverviewView) map[string]int {
+	out := map[string]int{}
+	for _, c := range ov.Configs {
+		for _, p := range c.Processes {
+			out[p.FullName] = p.PID
+		}
+	}
+	return out
+}
+
+// allRestarted waits until Visor shows every process in before RUNNING
+// with a new PID.
+func allRestarted(before map[string]int) func(OverviewView) bool {
+	return func(ov OverviewView) bool {
+		if !ov.Server.Reachable {
+			return false
+		}
+		for name, pid := range before {
+			p, _, ok := findProc(ov, name)
+			if !ok || p.State != "RUNNING" || p.PID == pid || p.PID == 0 {
+				return false
+			}
+		}
+		return true
+	}
+}
+
+// settle waits for n more polls to be handled.
+func settle(t *testing.T, rec *recorder, n int) {
+	t.Helper()
+	want := len(rec.overviews()) + n
+	deadline := time.Now().Add(10 * time.Second)
+	for len(rec.overviews()) < want {
+		if time.Now().After(deadline) {
+			t.Fatalf("only %d of %d overviews after 10s", len(rec.overviews()), want)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// assertNoIssues fails if any issue opened, or one is still open.
+func assertNoIssues(t *testing.T, svc *ServerService, rec *recorder) {
+	t.Helper()
+	if got := rec.issuesOpened(); len(got) != 0 {
+		t.Errorf("restarts made outside Visor opened %+v", got)
+	}
+	if ov := svc.Overview(); len(ov.Issues) != 0 || ov.Server.Health == "error" {
+		t.Errorf("open issues %+v, health %s", ov.Issues, ov.Server.Health)
+	}
+}
+
+// assertRestartsNoted checks that every restart of a RUNNING process in
+// proc's history is noted as a stop someone asked for.
+func assertRestartsNoted(t *testing.T, rt *Runtime, proc string) {
+	t.Helper()
+	hist, err := NewIssueService(rt).History(proc, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range hist {
+		if h.From == "RUNNING" && (h.To == "RUNNING" || h.To == "STARTING" || h.To == "BACKOFF") && h.Note != "Restarted (stopped on request)" {
+			t.Errorf("%s history row %+v: want the note \"Restarted (stopped on request)\"", proc, h)
+		}
+	}
+}
+
+// (a) supervisor.restart from another client: what supervisorctl reload does.
+func TestOutsideDaemonRestartOpensNoIssues(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Sleeper, supervisortest.Program{Name: "web", Command: "sleep 3600"})
+	rt, rec := outsideRuntime(t, inst, 300*time.Millisecond)
+	svc := NewServerService(rt)
+	for i := 0; i < 2; i++ {
+		ov := waitOverview(t, svc, 10*time.Second, "both running", func(ov OverviewView) bool {
+			return procState("sleeper:sleeper", "RUNNING")(ov) && procState("web:web", "RUNNING")(ov)
+		})
+		before := pidsOf(ov)
+		if err := inst.Client().Restart(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		waitOverview(t, svc, 15*time.Second, "both restarted", allRestarted(before))
+	}
+	settle(t, rec, 4)
+	assertNoIssues(t, svc, rec)
+	assertRestartsNoted(t, rt, "web:web")
+}
+
+// (b) stop, then start, from another client between two polls: what
+// supervisorctl restart does.
+func TestOutsideStopStartOpensNoIssues(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	rt, rec := outsideRuntime(t, inst, 300*time.Millisecond)
+	svc := NewServerService(rt)
+	ctx := context.Background()
+	for i := 0; i < 3; i++ {
+		ov := waitOverview(t, svc, 10*time.Second, "sleeper running", procState("sleeper:sleeper", "RUNNING"))
+		before := pidsOf(ov)
+		if err := inst.Client().StopProcess(ctx, "sleeper", true); err != nil {
+			t.Fatal(err)
+		}
+		if err := inst.Client().StartProcess(ctx, "sleeper", false); err != nil {
+			t.Fatal(err)
+		}
+		waitOverview(t, svc, 10*time.Second, "sleeper restarted", allRestarted(before))
+	}
+	settle(t, rec, 4)
+	assertNoIssues(t, svc, rec)
+	assertRestartsNoted(t, rt, "sleeper:sleeper")
+}
+
+// Review Focus 2 at the issue level: supervisord reloaded from outside
+// Visor (SIGHUP, as a deploy script or launchd might send) with a mix of
+// programs, numprocs, autorestart=true and one that exits 0 on SIGTERM.
+// Once things settle, nothing is open.
+func TestOutsideReloadSettlesWithNoOpenIssues(t *testing.T) {
+	inst := supervisortest.Start(t,
+		supervisortest.Sleeper,
+		supervisortest.Program{Name: "web", Command: "sleep 3600", Extra: map[string]string{
+			"numprocs": "2", "process_name": "%(program_name)s_%(process_num)02d",
+		}},
+		supervisortest.Program{Name: "graceful", Command: `sh -c 'trap "exit 0" TERM; while :; do sleep 0.2; done'`},
+		supervisortest.Program{Name: "always", Command: "sleep 3600", Extra: map[string]string{"autorestart": "true"}},
+	)
+	rt, rec := outsideRuntime(t, inst, 300*time.Millisecond)
+	svc := NewServerService(rt)
+	names := []string{"sleeper:sleeper", "web:web_00", "web:web_01", "graceful:graceful", "always:always"}
+	ov := waitOverview(t, svc, 10*time.Second, "all running", func(ov OverviewView) bool {
+		for _, n := range names {
+			if !procState(n, "RUNNING")(ov) {
+				return false
+			}
+		}
+		return true
+	})
+	before := pidsOf(ov)
+	raw, err := os.ReadFile(filepath.Join(inst.Dir(), "supervisord.pid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Kill(pid, syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	waitOverview(t, svc, 20*time.Second, "all restarted", allRestarted(before))
+	settle(t, rec, 5)
+	assertNoIssues(t, svc, rec)
+	for _, n := range names {
+		assertRestartsNoted(t, rt, n)
 	}
 }

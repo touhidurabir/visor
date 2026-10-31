@@ -1,31 +1,25 @@
-// A minimal hash router: the main window lives at #/ (and #/settings), the
-// menu-bar popover at #/tray. Task 14 replaces it with vue-router.
-import { readonly, ref, type Ref } from 'vue'
+// vue-router in hash mode: the Go side opens the main window at #/ and the
+// menu-bar popover at #/tray. Routes with meta.bare render without AppShell.
+import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
+import ConfigDetail from '../views/ConfigDetail.vue'
+import Dashboard from '../views/Dashboard.vue'
+import Issues from '../views/Issues.vue'
+import Placeholder from '../views/Placeholder.vue'
+import Settings from '../views/Settings.vue'
+import Tray from '../views/Tray.vue'
 
-export type Route = 'main' | 'tray' | 'settings'
+export const routes: RouteRecordRaw[] = [
+  { path: '/', name: 'dashboard', component: Dashboard },
+  { path: '/config/:path(.*)', name: 'config', component: ConfigDetail, meta: { title: 'Config' } },
+  { path: '/issues', name: 'issues', component: Issues, meta: { title: 'Issues' } },
+  { path: '/new', name: 'new', component: Placeholder, meta: { title: 'Add new' } },
+  { path: '/new/form', name: 'new-form', component: Placeholder, meta: { title: 'Add new' } },
+  { path: '/settings', name: 'settings', component: Settings, meta: { title: 'Settings' } },
+  { path: '/doctor', name: 'doctor', component: Placeholder, meta: { title: 'Doctor' } },
+  { path: '/tray', name: 'tray', component: Tray, meta: { bare: true } },
+  { path: '/:rest(.*)*', redirect: '/' },
+]
 
-export function routeOf(hash: string): Route {
-  const path = hash.replace(/^#/, '').replace(/\/+$/, '')
-  switch (path) {
-    case '/tray':
-      return 'tray'
-    case '/settings':
-      return 'settings'
-    default:
-      return 'main'
-  }
-}
-
-let current: Ref<Route> | undefined
-
-/** useRoute returns the current route, kept in step with location.hash. */
-export function useRoute(): Readonly<Ref<Route>> {
-  if (!current) {
-    const r = ref(routeOf(window.location.hash))
-    window.addEventListener('hashchange', () => {
-      r.value = routeOf(window.location.hash)
-    })
-    current = r
-  }
-  return readonly(current)
+export function createAppRouter(history = createWebHashHistory()) {
+  return createRouter({ history, routes })
 }

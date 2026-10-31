@@ -14,6 +14,11 @@ import "../github.com/wailsapp/wails/v3/internal/eventcreate.js";
 export const VisorIssueOpened = "visor:issue-opened";
 
 /**
+ * Name of the custom event "visor:log".
+ */
+export const VisorLog = "visor:log";
+
+/**
  * Name of the custom event "visor:overview".
  */
 export const VisorOverview = "visor:overview";

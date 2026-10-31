@@ -1,6 +1,7 @@
 package issues
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,11 +119,16 @@ func TestUnexpectedExit(t *testing.T) {
 // supervisord after a respawn, it reports exit status 0 and the last stop
 // one second ago.
 func restartEvent(at time.Time, state supervisor.ProcessState) monitor.Update {
-	pi := info(state)
+	return restartFrom(at, state, state)
+}
+
+// restartFrom is a process seen in from, then again in to with a new pid.
+func restartFrom(at time.Time, from, to supervisor.ProcessState) monitor.Update {
+	pi := info(to)
 	pi.PID = int(at.UnixNano() % 1e6)
 	pi.Start, pi.Stop = at, at.Add(-time.Second)
 	u := steady(at, pi)
-	u.Events = []monitor.Event{{Kind: monitor.Restarted, At: at, Process: "g:w", From: state, To: state, Info: pi}}
+	u.Events = []monitor.Event{{Kind: monitor.Restarted, At: at, Process: "g:w", From: from, To: to, Info: pi}}
 	return u
 }
 
@@ -142,7 +148,9 @@ func TestRestartBySupervisordOpensUnexpectedExit(t *testing.T) {
 		{"RUNNING to STARTING", func(at time.Time) monitor.Update { return crashChange(at, supervisor.StateStarting) }},
 		{"RUNNING to BACKOFF", func(at time.Time) monitor.Update { return crashChange(at, supervisor.StateBackoff) }},
 		{"restarted RUNNING", func(at time.Time) monitor.Update { return restartEvent(at, supervisor.StateRunning) }},
-		{"restarted STARTING", func(at time.Time) monitor.Update { return restartEvent(at, supervisor.StateStarting) }},
+		{"restarted RUNNING to STARTING", func(at time.Time) monitor.Update {
+			return restartFrom(at, supervisor.StateRunning, supervisor.StateStarting)
+		}},
 	}
 	for _, tc := range cases {
 		for _, auto := range []string{"", "unexpected", "UNEXPECTED"} {
@@ -846,6 +854,435 @@ func TestOpenIssuesOrderedLikeTheStore(t *testing.T) {
 	for i := range open {
 		if open[i].ID != stored[i].ID {
 			t.Fatalf("tracker order %v differs from store order %v", open, stored)
+		}
+	}
+}
+
+// newTrackerReason is newTrackerAuto whose exit lookup answers r, or no
+// reason when ok is false. calls counts the lookups.
+func newTrackerReason(t *testing.T, autorestart string, r ExitReason, ok bool) (tr *Tracker, c *clock, calls *int) {
+	t.Helper()
+	tr, c, calls, _ = newTrackerReads(t, autorestart, r, ok)
+	return tr, c, calls
+}
+
+// newTrackerReads is newTrackerReason that also counts reads of the log
+// (ExitReasons calls).
+func newTrackerReads(t *testing.T, autorestart string, r ExitReason, ok bool) (tr *Tracker, c *clock, calls, reads *int) {
+	t.Helper()
+	s, err := OpenStore(t.TempDir(), 90*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c = &clock{t: time.Now()}
+	calls, reads = new(int), new(int)
+	p := programs(nil, autorestart)
+	p.ExitReasons = func() ExitLookup {
+		*reads++
+		return func(process string, pi supervisor.ProcessInfo) (ExitReason, bool) {
+			*calls++
+			if !strings.HasPrefix(process, "g:") || "g:"+pi.Name != process {
+				t.Errorf("exit lookup(%q, %+v)", process, pi)
+			}
+			return r, ok
+		}
+	}
+	return NewTracker(s, DefaultRules, p, c.now), c, calls, reads
+}
+
+// restartsNobodyAskedFor are the polls that show supervisord restarted a
+// RUNNING process.
+var restartsNobodyAskedFor = []struct {
+	name string
+	u    func(time.Time) monitor.Update
+}{
+	{"RUNNING to STARTING", func(at time.Time) monitor.Update { return crashChange(at, supervisor.StateStarting) }},
+	{"RUNNING to BACKOFF", func(at time.Time) monitor.Update { return crashChange(at, supervisor.StateBackoff) }},
+	{"restarted RUNNING", func(at time.Time) monitor.Update { return restartEvent(at, supervisor.StateRunning) }},
+	{"restarted RUNNING to STARTING", func(at time.Time) monitor.Update {
+		return restartFrom(at, supervisor.StateRunning, supervisor.StateStarting)
+	}},
+}
+
+var autorestarts = []string{"", "unexpected", "true", "false"}
+
+func TestRestartWithExpectedReasonOpensNothing(t *testing.T) {
+	planned := ExitReason{Desc: "exit status 0", Status: 0, Expected: true}
+	for _, tc := range restartsNobodyAskedFor {
+		for _, auto := range autorestarts {
+			t.Run(tc.name+" autorestart="+auto, func(t *testing.T) {
+				tr, c, calls := newTrackerReason(t, auto, planned, true)
+				if opened, _ := tr.Apply(tc.u(c.now())); len(opened) != 0 {
+					t.Fatalf("opened = %+v", opened)
+				}
+				if *calls != 1 {
+					t.Errorf("ExitReason called %d times, want 1", *calls)
+				}
+			})
+		}
+	}
+	// Planned exits still count toward a crash loop.
+	tr, c, _ := newTrackerReason(t, "true", planned, true)
+	var opened []Issue
+	for i := 0; i < 5; i++ {
+		o, _ := tr.Apply(restartEvent(c.now(), supervisor.StateRunning))
+		opened = append(opened, o...)
+		c.advance(3 * time.Second)
+	}
+	if len(opened) != 1 || opened[0].Kind != KindCrashLoop {
+		t.Fatalf("five planned restarts opened %+v", opened)
+	}
+}
+
+func TestRestartWithUnexpectedReasonOpensUnderAutorestartTrue(t *testing.T) {
+	crash := ExitReason{Desc: "exit status 1", Status: 1}
+	for _, tc := range restartsNobodyAskedFor {
+		for _, auto := range autorestarts {
+			t.Run(tc.name+" autorestart="+auto, func(t *testing.T) {
+				tr, c, _ := newTrackerReason(t, auto, crash, true)
+				opened, _ := tr.Apply(tc.u(c.now()))
+				if len(opened) != 1 || opened[0].Kind != KindUnexpectedExit || opened[0].Message != "Exited with status 1 and was restarted by supervisord" {
+					t.Fatalf("opened = %+v", opened)
+				}
+				if want := c.now().Add(-time.Second); !opened[0].OpenedAt.Equal(want) {
+					t.Errorf("OpenedAt = %v, want the stop time %v", opened[0].OpenedAt, want)
+				}
+			})
+		}
+	}
+}
+
+func TestRestartSignalMessage(t *testing.T) {
+	for _, desc := range []string{"terminated by SIGSEGV", "terminated by SIGSEGV (core dumped)"} {
+		tr, c, _ := newTrackerReason(t, "true", ExitReason{Desc: desc, Status: -1}, true)
+		opened, _ := tr.Apply(restartEvent(c.now(), supervisor.StateRunning))
+		if len(opened) != 1 || opened[0].Message != "Was terminated by SIGSEGV and restarted by supervisord" {
+			t.Fatalf("%s: opened = %+v", desc, opened)
+		}
+	}
+}
+
+func TestRestartWithoutReasonFallsBackToR15(t *testing.T) {
+	for _, tc := range restartsNobodyAskedFor {
+		t.Run(tc.name, func(t *testing.T) {
+			tr, c, calls := newTrackerReason(t, "", ExitReason{}, false)
+			opened, _ := tr.Apply(tc.u(c.now()))
+			if len(opened) != 1 || opened[0].Message != "Exited and was restarted by supervisord" {
+				t.Fatalf("autorestart=unexpected: opened = %+v", opened)
+			}
+			if *calls != 1 {
+				t.Errorf("ExitReason called %d times, want 1", *calls)
+			}
+			tr, c, _ = newTrackerReason(t, "true", ExitReason{}, false)
+			if opened, _ := tr.Apply(tc.u(c.now())); len(opened) != 0 {
+				t.Fatalf("autorestart=true: opened = %+v", opened)
+			}
+		})
+	}
+}
+
+func TestStartupRetryNeverOpensUnexpectedExit(t *testing.T) {
+	crash := ExitReason{Desc: "exit status 1", Status: 1}
+	retries := [][2]supervisor.ProcessState{
+		{supervisor.StateStarting, supervisor.StateStarting},
+		{supervisor.StateStarting, supervisor.StateRunning},
+		{supervisor.StateBackoff, supervisor.StateBackoff},
+		{supervisor.StateBackoff, supervisor.StateStarting},
+		{supervisor.StateBackoff, supervisor.StateRunning},
+	}
+	for _, auto := range autorestarts {
+		for _, r := range retries {
+			tr, c, calls := newTrackerReason(t, auto, crash, true)
+			if opened, _ := tr.Apply(restartFrom(c.now(), r[0], r[1])); len(opened) != 0 {
+				t.Errorf("autorestart=%q %v→%v opened %+v", auto, r[0], r[1], opened)
+			}
+			if *calls != 0 {
+				t.Errorf("autorestart=%q %v→%v: ExitReason called %d times", auto, r[0], r[1], *calls)
+			}
+		}
+	}
+	// They still count toward a crash loop.
+	tr, c, _ := newTrackerReason(t, "", crash, true)
+	for i := 0; i < 5; i++ {
+		tr.Apply(restartFrom(c.now(), supervisor.StateStarting, supervisor.StateStarting))
+		c.advance(2 * time.Second)
+	}
+	if open := tr.Open(); len(open) != 1 || open[0].Kind != KindCrashLoop {
+		t.Fatalf("open = %+v", open)
+	}
+}
+
+func TestExitReasonOnlyAskedForUnaskedRestarts(t *testing.T) {
+	tr, c, calls := newTrackerReason(t, "true", ExitReason{Desc: "exit status 1", Status: 1}, true)
+	run := info(supervisor.StateRunning)
+	tr.Apply(change(c.now(), supervisor.StateStarting, supervisor.StateRunning, run))
+	for i := 0; i < 3; i++ {
+		c.advance(time.Second)
+		tr.Apply(steady(c.now(), run))
+	}
+	tr.Expect(func(p string) bool { return p == "g:w" }, c.now().Add(time.Minute))
+	if opened, _ := tr.Apply(restartEvent(c.now(), supervisor.StateRunning)); len(opened) != 0 {
+		t.Fatalf("the user's restart opened %+v", opened)
+	}
+	if *calls != 0 {
+		t.Errorf("exit lookup called %d times for polls and a user restart", *calls)
+	}
+	// With an unexpected_exit already open there is no issue to open, but
+	// the reason still decides whether the restart counts toward a crash
+	// loop (a stop someone asked for does not), so each restart asks.
+	c.advance(2 * time.Minute)
+	tr.Apply(restartEvent(c.now(), supervisor.StateRunning))
+	c.advance(5 * time.Second)
+	tr.Apply(restartEvent(c.now(), supervisor.StateRunning))
+	if *calls != 2 {
+		t.Errorf("exit lookup called %d times for two crashes with an issue open, want 2", *calls)
+	}
+}
+
+// R26: supervisord logs "stopped:" for a stop someone asked for, e.g.
+// supervisorctl restart, or stop and start from another client. Such a
+// restart opens nothing, does not count toward a crash loop, and is noted
+// in history.
+func TestDeliberateRestartOpensNothingAndCountsNoCrashLoop(t *testing.T) {
+	stopped := ExitReason{Desc: "terminated by SIGTERM", Status: -1, Deliberate: true}
+	for _, tc := range restartsNobodyAskedFor {
+		for _, auto := range autorestarts {
+			t.Run(tc.name+" autorestart="+auto, func(t *testing.T) {
+				tr, c, calls := newTrackerReason(t, auto, stopped, true)
+				var opened []Issue
+				for i := 0; i < 6; i++ {
+					o, _ := tr.Apply(tc.u(c.now()))
+					opened = append(opened, o...)
+					c.advance(2 * time.Second)
+				}
+				if len(opened) != 0 {
+					t.Fatalf("deliberate restarts opened %+v", opened)
+				}
+				if *calls != 6 {
+					t.Errorf("exit lookup called %d times, want 6", *calls)
+				}
+				h, _ := tr.store.History("g:w", 0)
+				if len(h) == 0 || h[0].Note != "Restarted (stopped on request)" {
+					t.Errorf("history = %+v, want the restart noted as stopped on request", h)
+				}
+			})
+		}
+	}
+}
+
+// A start from STOPPED is always someone's doing (supervisord never starts
+// a stopped process by itself), so it does not count toward a crash loop.
+func TestStartFromStoppedCountsNoCrashLoop(t *testing.T) {
+	tr, _, c := newTracker(t, nil)
+	for i := 0; i < 6; i++ {
+		tr.Apply(change(c.now(), supervisor.StateStopped, supervisor.StateStarting, info(0)))
+		c.advance(time.Second)
+		tr.Apply(restartEvent(c.now(), supervisor.StateStopped)) // started and stopped between polls
+		c.advance(time.Second)
+	}
+	if open := tr.Open(); len(open) != 0 {
+		t.Fatalf("starts from STOPPED opened %+v", open)
+	}
+}
+
+// After a daemon restart every process restarts in one update; the log is
+// read once for all of them.
+func TestOneLogReadPerApply(t *testing.T) {
+	for _, reason := range []ExitReason{
+		{Desc: "terminated by SIGTERM", Status: -1, Deliberate: true},
+		{Desc: "exit status 1", Status: 1},
+	} {
+		tr, c, calls, reads := newTrackerReads(t, "", reason, true)
+		at := c.now()
+		u := monitor.Update{Snapshot: monitor.Snapshot{At: at, Reachable: true}}
+		for _, name := range []string{"a", "b", "c", "d"} {
+			pi := supervisor.ProcessInfo{Name: name, Group: "g", State: supervisor.StateRunning, PID: len(name) + 100, Start: at}
+			u.Snapshot.Processes = append(u.Snapshot.Processes, pi)
+			u.Events = append(u.Events, monitor.Event{Kind: monitor.Restarted, At: at, Process: "g:" + name,
+				From: supervisor.StateRunning, To: supervisor.StateRunning, Info: pi})
+		}
+		tr.Apply(u)
+		if *reads != 1 || *calls != 4 {
+			t.Errorf("%+v: %d log reads and %d lookups for 4 restarts, want 1 and 4", reason, *reads, *calls)
+		}
+		// An update with no restart nobody asked for reads nothing.
+		tr.Apply(steady(c.now(), info(supervisor.StateRunning)))
+		if *reads != 1 {
+			t.Errorf("%d log reads after a quiet poll, want 1", *reads)
+		}
+	}
+}
+
+func TestClosedByUserSecondGranularity(t *testing.T) {
+	tr, s, c := newTracker(t, nil)
+	sec := c.now().Truncate(time.Second).Add(time.Hour) // T, a whole second
+	c.t = sec.Add(-time.Minute)
+	opened, _ := tr.Apply(added(c.now(), fatalInfo(c.now().Add(-10*time.Second), c.now().Add(-5*time.Second))))
+	if len(opened) != 1 {
+		t.Fatalf("opened = %+v", opened)
+	}
+	c.t = sec.Add(400 * time.Millisecond)
+	_ = tr.Dismiss(opened[0].ID)
+
+	// It fails again at T+0.9s; supervisord reports the stop as T, before
+	// the dismissal at T+0.4s. It is a new failure all the same.
+	c.t = sec.Add(900 * time.Millisecond)
+	again := fatalInfo(sec.Add(-2*time.Second), sec)
+	opened, _ = tr.Apply(change(c.now(), supervisor.StateBackoff, supervisor.StateFatal, again))
+	if len(opened) != 1 {
+		t.Fatalf("a failure in the second of the dismissal: opened %+v", opened)
+	}
+	// Dismissed a second later, the same failure stays closed on relaunch.
+	c.t = sec.Add(1200 * time.Millisecond)
+	_ = tr.Dismiss(opened[0].ID)
+	tr2 := NewTracker(s, DefaultRules, programs(nil, ""), c.now)
+	if o, _ := tr2.Apply(added(c.now(), again)); len(o) != 0 {
+		t.Fatalf("the dismissed failure reopened: %+v", o)
+	}
+}
+
+func TestStoreTornLineKeepsNextRecord(t *testing.T) {
+	dir := t.TempDir()
+	s, err := OpenStore(dir, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	_ = s.putIssue(Issue{ID: "a", OpenedAt: now, Status: StatusOpen})
+	_ = s.addTransitions([]Transition{{At: now, Process: "p", To: "RUNNING"}})
+	for _, name := range []string{"issues.jsonl", "history.jsonl"} {
+		f, err := os.OpenFile(filepath.Join(dir, name), os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = f.WriteString(`{"id":"torn","kin`) // a crash mid-write
+		_ = f.Close()
+	}
+	_ = s.putIssue(Issue{ID: "b", OpenedAt: now, Status: StatusOpen})
+	_ = s.addTransitions([]Transition{{At: now, Process: "p", To: "STOPPED"}})
+
+	got, err := s.Issues(Filter{})
+	if err != nil || len(got) != 2 {
+		t.Fatalf("issues = %+v, %v; want a and b", got, err)
+	}
+	if h, err := s.History("p", 0); err != nil || len(h) != 2 || h[0].To != "STOPPED" {
+		t.Fatalf("history = %+v, %v", h, err)
+	}
+}
+
+func TestStoreOversizeRecordSkipped(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	huge, _ := json.Marshal(Issue{ID: "huge", Message: strings.Repeat("x", 5<<20), OpenedAt: now, Status: StatusOpen})
+	small, _ := json.Marshal(Issue{ID: "small", OpenedAt: now, Status: StatusOpen})
+	body := append(append(append(huge, '\n'), small...), '\n')
+	if err := os.WriteFile(filepath.Join(dir, "issues.jsonl"), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenStore(dir, time.Hour)
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	got, err := s.Issues(Filter{})
+	if err != nil || len(got) != 1 || got[0].ID != "small" {
+		t.Fatalf("issues = %d records (%v); want only small", len(got), err)
+	}
+}
+
+func TestStoreCounts(t *testing.T) {
+	s, err := OpenStore(t.TempDir(), 90*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	put := func(id string, st Status) {
+		t.Helper()
+		if err := s.putIssue(Issue{ID: id, Kind: KindFatal, Process: id, OpenedAt: now, Status: st}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if o, c, err := s.Counts(); err != nil || o != 0 || c != 0 {
+		t.Fatalf("empty store: %d, %d, %v", o, c, err)
+	}
+	put("a", StatusOpen)
+	put("b", StatusOpen)
+	put("c", StatusResolvedAuto)
+	put("d", StatusDismissed)
+	put("b", StatusResolvedUser) // a later record replaces b
+	o, c, err := s.Counts()
+	if err != nil || o != 1 || c != 3 {
+		t.Errorf("Counts = open %d, closed %d, %v; want 1, 3", o, c, err)
+	}
+}
+
+func TestSetRulesAppliesToLaterRestarts(t *testing.T) {
+	tr, _, c := newTracker(t, nil)
+	r := DefaultRules
+	r.CrashLoopRestarts, r.CrashLoopWindow = 3, 2*time.Minute
+	tr.SetRules(r)
+	if got := tr.Rules(); got != r {
+		t.Errorf("Rules = %+v, want %+v", got, r)
+	}
+	var loops []Issue
+	for range 3 {
+		opened, _ := tr.Apply(change(c.now(), supervisor.StateBackoff, supervisor.StateStarting, info(0)))
+		loops = append(loops, opened...)
+		c.advance(10 * time.Second)
+	}
+	if len(loops) != 1 || loops[0].Message != "Restarted 3 times in 2 minutes" {
+		t.Fatalf("loops = %+v", loops)
+	}
+}
+
+func TestStoreCompactWithNewRetention(t *testing.T) {
+	s, err := OpenStore(t.TempDir(), 90*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-10 * 24 * time.Hour)
+	_ = s.putIssue(Issue{ID: "closed", OpenedAt: old, ClosedAt: old, Status: StatusResolvedAuto})
+	_ = s.putIssue(Issue{ID: "open", OpenedAt: old, Status: StatusOpen})
+	_ = s.addTransitions([]Transition{{At: old, Process: "p"}, {At: time.Now(), Process: "p"}})
+	if err := s.Compact(7 * 24 * time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.Issues(Filter{})
+	if len(got) != 1 || got[0].ID != "open" {
+		t.Errorf("issues after Compact = %+v, want only the open one", got)
+	}
+	if h, _ := s.History("", 0); len(h) != 1 {
+		t.Errorf("history after Compact = %+v, want 1", h)
+	}
+}
+
+// M4: after switching to another supervisord, issues of processes it does
+// not run can never close themselves, so they close as soon as its first
+// reachable snapshot shows they are absent.
+func TestCloseAbsent(t *testing.T) {
+	tr, s, c := newTracker(t, nil)
+	other := supervisor.ProcessInfo{Name: "x", Group: "old", State: supervisor.StateFatal}
+	tr.Apply(added(c.now(), other))
+	tr.Apply(added(c.now(), fatalInfo(c.now(), c.now())))
+	for i := 0; i < 2; i++ {
+		tr.Apply(down(c))
+		c.advance(time.Second)
+	}
+	if n := len(tr.Open()); n != 3 {
+		t.Fatalf("open = %+v, want old:x fatal, g:w fatal and unreachable", tr.Open())
+	}
+	c.advance(time.Minute)
+	closed := tr.CloseAbsent([]supervisor.ProcessInfo{info(supervisor.StateRunning)}, "not in this supervisord")
+	if len(closed) != 1 || closed[0].Process != "old:x" || closed[0].Status != StatusResolvedAuto || closed[0].Note != "not in this supervisord" {
+		t.Fatalf("closed = %+v", closed)
+	}
+	open := tr.Open()
+	if len(open) != 2 {
+		t.Errorf("open = %+v, want g:w and unreachable left", open)
+	}
+	stored, _ := s.Issues(Filter{})
+	for _, is := range stored {
+		if is.Process == "old:x" && (is.Status != StatusResolvedAuto || is.ClosedAt.IsZero()) {
+			t.Errorf("stored %+v", is)
 		}
 	}
 }

@@ -124,6 +124,52 @@ type ApplyResultView struct {
 	Errors                  []string
 }
 
+// ConfigDetailView is the config detail page: the config with its live
+// processes, the paths it refers to, each process's log files and, when a
+// process is failing, its last error.
+type ConfigDetailView struct {
+	Config    ConfigView
+	Programs  int // [program:x] sections in the file
+	Paths     []PathView
+	Logs      []ProcessLogView
+	LastError *LastErrorView // nil when nothing in the file is failing
+}
+
+// PathView is one path a config refers to. Kind is "dir" (a working
+// directory), "bin" (a command binary) or "log"; Exists is false when it
+// is missing (a binary not found on PATH keeps its name as written).
+type PathView struct {
+	Label  string
+	Path   string
+	Kind   string
+	Exists bool
+}
+
+// ProcessLogView is where one process's output goes. Stdout is "" when it
+// has no stdout log; Stderr is the stdout log when stderr is redirected
+// into it, and "" when stderr has no log.
+type ProcessLogView struct {
+	Process string // group:name
+	Stdout  string
+	Stderr  string
+}
+
+// LastErrorView is the most recent failure among a config's processes.
+// Since is how long it has been failing ("2h 12m"); StderrTail is the end
+// of its stderr (at most 20 lines); StderrLog is the file stderr goes to
+// ("" when it has none). ExitStatus is supervisord's, which stays 0 when a
+// process exits within startsecs (FATAL or BACKOFF after "Exited too
+// quickly"), so Message only quotes it for EXITED.
+type LastErrorView struct {
+	Process    string
+	State      string
+	Since      string
+	Message    string
+	ExitStatus int
+	StderrTail string
+	StderrLog  string
+}
+
 func toProcessView(p supervisor.ProcessInfo) ProcessView {
 	return ProcessView{
 		Name:        p.Name,

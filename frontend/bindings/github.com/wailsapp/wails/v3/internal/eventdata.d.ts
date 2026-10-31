@@ -13,6 +13,7 @@ declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
             "visor:issue-opened": app$0.IssueView;
+            "visor:log": app$0.LogChunkView;
             "visor:overview": app$0.OverviewView;
         }
     }

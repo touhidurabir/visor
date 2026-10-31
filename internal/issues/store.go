@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -103,6 +104,25 @@ func (s *Store) Issues(f Filter) ([]Issue, error) {
 	return out, nil
 }
 
+// Counts returns how many issues are open and how many are closed (resolved
+// or dismissed), in one pass over the log.
+func (s *Store) Counts() (open, closed int, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	all, err := s.readIssues()
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, is := range all {
+		if is.Status == StatusOpen {
+			open++
+		} else {
+			closed++
+		}
+	}
+	return open, closed, nil
+}
+
 // History returns state transitions, newest first. An empty process means
 // every process. A limit of 0 or less means no limit.
 func (s *Store) History(process string, limit int) ([]Transition, error) {
@@ -165,6 +185,12 @@ func (s *Store) readIssues() ([]Issue, error) {
 	return out, nil
 }
 
+// Compact drops issues closed, and history recorded, longer ago than
+// retention, as OpenStore does. Open issues are always kept.
+func (s *Store) Compact(retention time.Duration) error {
+	return s.compact(time.Now().Add(-retention))
+}
+
 func (s *Store) compact(cutoff time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -194,14 +220,23 @@ func (s *Store) compact(cutoff time.Time) error {
 	return rewriteJSONL(s.path(historyFile), hkeep)
 }
 
+// appendJSONL appends v as one line. If the file does not end in a newline
+// (a write torn by a crash), the record starts on a fresh line, so only
+// the torn record is lost.
 func appendJSONL(path string, v any) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return err
+	}
+	if fi, err := f.Stat(); err == nil && fi.Size() > 0 {
+		last := make([]byte, 1)
+		if _, err := f.ReadAt(last, fi.Size()-1); err == nil && last[0] != '\n' {
+			b = append([]byte{'\n'}, b...)
+		}
 	}
 	if _, err := f.Write(append(b, '\n')); err != nil {
 		_ = f.Close()
@@ -227,8 +262,11 @@ func rewriteJSONL[T any](path string, recs []T) error {
 	return os.Rename(tmp, path)
 }
 
-// readJSONL reads every record; a missing file is empty and a line that does
-// not parse (e.g. torn by a crash) is skipped.
+// maxRecord is the longest line readJSONL parses; longer ones are skipped.
+const maxRecord = 4 << 20
+
+// readJSONL reads every record; a missing file is empty, and a line that
+// does not parse (e.g. torn by a crash) or is over maxRecord is skipped.
 func readJSONL[T any](path string) ([]T, error) {
 	f, err := os.Open(path)
 	if os.IsNotExist(err) {
@@ -239,13 +277,28 @@ func readJSONL[T any](path string) ([]T, error) {
 	}
 	defer func() { _ = f.Close() }()
 	var out []T
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64*1024), 4*1024*1024)
-	for sc.Scan() {
+	r := bufio.NewReaderSize(f, 64<<10)
+	var line []byte
+	tooLong := false
+	for {
+		chunk, more, err := r.ReadLine()
+		if err == io.EOF {
+			return out, nil
+		}
+		if err != nil {
+			return out, err
+		}
+		if !tooLong {
+			line = append(line, chunk...)
+			tooLong = len(line) > maxRecord
+		}
+		if more {
+			continue
+		}
 		var v T
-		if json.Unmarshal(sc.Bytes(), &v) == nil {
+		if !tooLong && json.Unmarshal(line, &v) == nil {
 			out = append(out, v)
 		}
+		line, tooLong = line[:0], false
 	}
-	return out, sc.Err()
 }
