@@ -4,17 +4,12 @@
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
 import type { IssueView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { duration } from '../lib/format'
+import { issueKind } from '../lib/issue-status'
 
 defineProps<{ issues: IssueView[]; nowMs: number; logsTo: (i: IssueView) => RouteLocationRaw | null }>()
 const emit = defineEmits<{ restart: [i: IssueView]; resolve: [i: IssueView]; dismiss: [i: IssueView] }>()
 
-const KINDS: Record<string, { label: string; cls: string }> = {
-  fatal: { label: 'FATAL', cls: 'failing' },
-  unexpected_exit: { label: 'EXITED', cls: 'failing' },
-  crash_loop: { label: 'CRASH LOOP', cls: 'warning' },
-  unreachable: { label: 'UNREACHABLE', cls: 'failing' },
-}
-const kind = (i: IssueView) => KINDS[i.Kind] ?? { label: i.Kind.toUpperCase(), cls: 'stopped' }
+const kind = (i: IssueView) => issueKind(i.Kind)
 const restartable = (i: IssueView) => i.Process !== '' && (i.Kind === 'fatal' || i.Kind === 'unexpected_exit')
 </script>
 

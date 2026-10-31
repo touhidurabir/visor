@@ -1101,3 +1101,29 @@ func TestStoreOversizeRecordSkipped(t *testing.T) {
 		t.Fatalf("issues = %d records (%v); want only small", len(got), err)
 	}
 }
+
+func TestStoreCounts(t *testing.T) {
+	s, err := OpenStore(t.TempDir(), 90*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	put := func(id string, st Status) {
+		t.Helper()
+		if err := s.putIssue(Issue{ID: id, Kind: KindFatal, Process: id, OpenedAt: now, Status: st}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if o, c, err := s.Counts(); err != nil || o != 0 || c != 0 {
+		t.Fatalf("empty store: %d, %d, %v", o, c, err)
+	}
+	put("a", StatusOpen)
+	put("b", StatusOpen)
+	put("c", StatusResolvedAuto)
+	put("d", StatusDismissed)
+	put("b", StatusResolvedUser) // a later record replaces b
+	o, c, err := s.Counts()
+	if err != nil || o != 1 || c != 3 {
+		t.Errorf("Counts = open %d, closed %d, %v; want 1, 3", o, c, err)
+	}
+}

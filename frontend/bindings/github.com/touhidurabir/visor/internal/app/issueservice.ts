@@ -15,6 +15,13 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 /**
+ * Counts returns the issue totals, ignoring any filter or search.
+ */
+export function Counts(): $CancellablePromise<$models.IssueCounts> {
+    return $Call.ByID(4233040106);
+}
+
+/**
  * Dismiss closes an open issue without resolving it.
  */
 export function Dismiss(id: string): $CancellablePromise<void> {

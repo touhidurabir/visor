@@ -493,6 +493,9 @@ func TestIssueService(t *testing.T) {
 		t.Errorf("a cursor after the issue in the same millisecond dropped it: %+v", got)
 	}
 
+	if c, err := is.Counts(); err != nil || c != (IssueCounts{Open: 1}) {
+		t.Errorf("Counts before Resolve = %+v, %v", c, err)
+	}
 	n := len(rec.overviews())
 	if err := is.Resolve(open[0].ID); err != nil {
 		t.Fatal(err)
@@ -505,6 +508,9 @@ func TestIssueService(t *testing.T) {
 	}
 	if got, _ := is.List("resolved", 0, "", 0, ""); len(got) != 1 || got[0].Status != "resolved_user" || got[0].ClosedMs == 0 {
 		t.Errorf("List(resolved) = %+v", got)
+	}
+	if c, err := is.Counts(); err != nil || c != (IssueCounts{Resolved: 1}) {
+		t.Errorf("Counts after Resolve = %+v, %v", c, err)
 	}
 	if err := is.Dismiss(open[0].ID); err == nil {
 		t.Error("Dismiss of a closed issue: want error")

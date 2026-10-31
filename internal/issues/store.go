@@ -104,6 +104,25 @@ func (s *Store) Issues(f Filter) ([]Issue, error) {
 	return out, nil
 }
 
+// Counts returns how many issues are open and how many are closed (resolved
+// or dismissed), in one pass over the log.
+func (s *Store) Counts() (open, closed int, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	all, err := s.readIssues()
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, is := range all {
+		if is.Status == StatusOpen {
+			open++
+		} else {
+			closed++
+		}
+	}
+	return open, closed, nil
+}
+
 // History returns state transitions, newest first. An empty process means
 // every process. A limit of 0 or less means no limit.
 func (s *Store) History(process string, limit int) ([]Transition, error) {

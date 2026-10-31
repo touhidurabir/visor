@@ -46,6 +46,23 @@ func (s *IssueService) List(status string, beforeMs int64, beforeID string, limi
 	return out, nil
 }
 
+// IssueCounts is how many issues are open and how many are closed (resolved
+// or dismissed), for the filter labels on the Issues page.
+type IssueCounts struct {
+	Open     int
+	Resolved int
+}
+
+// Counts returns the issue totals, ignoring any filter or search.
+func (s *IssueService) Counts() (IssueCounts, error) {
+	store, _, err := s.rt.issueStore()
+	if err != nil {
+		return IssueCounts{}, err
+	}
+	open, closed, err := store.Counts()
+	return IssueCounts{Open: open, Resolved: closed}, err
+}
+
 // Resolve marks an open issue resolved by the user.
 func (s *IssueService) Resolve(id string) error {
 	return s.close(id, (*issues.Tracker).Resolve)

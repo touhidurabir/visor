@@ -38,6 +38,15 @@ export interface ConfigView {
 }
 
 /**
+ * IssueCounts is how many issues are open and how many are closed (resolved
+ * or dismissed), for the filter labels on the Issues page.
+ */
+export interface IssueCounts {
+    "Open": number;
+    "Resolved": number;
+}
+
+/**
  * IssueView is one issue. Status is "open", "resolved_auto",
  * "resolved_user" or "dismissed"; ClosedMs is 0 while open. Note says why
  * Visor closed it, e.g. "program removed" ("" otherwise).

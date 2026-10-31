@@ -15,6 +15,7 @@ export {
 export type {
     ConfigDetailView,
     ConfigView,
+    IssueCounts,
     IssueView,
     LastErrorView,
     LogChunkView,

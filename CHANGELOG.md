@@ -6,6 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Added
+- Issues page: filter by open or resolved with live counts (`IssueService.Counts`), search, resolve, and page back through history 50 at a time; each issue shows how long it lasted and whether it notified you.
 - `internal/logs`: overlap-safe log tailer. Each poll returns only new output (first poll: last 64 KiB), detects a cleared or rotated log (`Truncated`) and output lost to overflow (`Skipped`), keeps the newest 1 MiB in a line-aligned buffer, and reports a stream with no log file as `ErrNoLog`.
 - Main window shell: sidebar (Local health and failing count, Dashboard, Issues badge, Add new, Doctor, Settings), design tokens with a dark palette, vue-router (hash history; `#/tray` stays outside the shell), and keyboard-accessible action menus with confirmation for destructive items.
 - The menu-bar popover is now a non-activating floating panel that joins all Spaces and can show over full-screen apps.
