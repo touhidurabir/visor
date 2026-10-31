@@ -29,6 +29,14 @@ func lineNumbers(t *testing.T, text string) []int {
 	return out
 }
 
+// wholeLines drops a possibly partial last line.
+func wholeLines(s string) string {
+	if nl := strings.LastIndexByte(s, '\n'); nl >= 0 {
+		return s[:nl]
+	}
+	return ""
+}
+
 func TestTailSpammerNoGapsNoDupes(t *testing.T) {
 	i := supervisortest.Start(t, supervisortest.Spammer)
 	i.WaitFor(t, "spammer", supervisor.StateRunning)
@@ -50,8 +58,8 @@ func TestTailSpammerNoGapsNoDupes(t *testing.T) {
 	// Chunks are concatenated before parsing so a line split across two
 	// polls is whole again.
 	text := got.String()
-	if i := strings.LastIndexByte(text, '\n'); i >= 0 {
-		text = text[:i]
+	if nl := strings.LastIndexByte(text, '\n'); nl >= 0 {
+		text = text[:nl]
 	}
 	nums := lineNumbers(t, text)
 	if len(nums) < 20 {
@@ -79,7 +87,7 @@ func TestTailAfterClearLogs(t *testing.T) {
 		if _, err := tl.Poll(ctx); err != nil {
 			t.Fatal(err)
 		}
-		before = lineNumbers(t, tl.Buffer())
+		before = lineNumbers(t, wholeLines(tl.Buffer()))
 		time.Sleep(50 * time.Millisecond)
 	}
 	if len(before) < 40 {
@@ -110,7 +118,7 @@ func TestTailAfterClearLogs(t *testing.T) {
 	if _, err := tl.Poll(ctx); err != nil {
 		t.Fatal(err)
 	}
-	after := lineNumbers(t, tl.Buffer())
+	after := lineNumbers(t, wholeLines(tl.Buffer()))
 	if len(after) == 0 || after[0] <= last-len(before) {
 		t.Fatalf("buffer after clear = %v (before ended at %d)", after, last)
 	}

@@ -40,7 +40,10 @@ type TailClient interface {
 	TailProcessStderrLog(ctx context.Context, name string, offset, length int) (supervisor.TailResult, error)
 }
 
-// Chunk is what one Poll found.
+// Chunk is what one Poll found. Text is raw log bytes: a multi-byte character
+// written across two polls can be split between chunks (Buffer is always
+// whole). A log cleared and regrown past the old offset between two polls
+// cannot be detected; that is a limit of the tail RPC.
 type Chunk struct {
 	Text      string
 	Truncated bool // the log was cleared or rotated; Text is the new log
@@ -95,7 +98,10 @@ func (t *Tailer) Poll(ctx context.Context) (Chunk, error) {
 		}
 		t.started = true
 		t.known = r.Offset
-		text := trimLeadingPartialRune(r.Bytes)
+		text := r.Bytes
+		if r.Offset > len(text) {
+			text = trimLeadingPartialRune(text)
+		}
 		t.append(text)
 		return Chunk{Text: text}, nil
 	}
@@ -115,7 +121,7 @@ func (t *Tailer) Poll(ctx context.Context) (Chunk, error) {
 	text := r.Bytes
 	if start < t.known {
 		text = text[t.known-start:]
-	} else if c.Skipped {
+	} else if c.Skipped && start > 0 {
 		text = trimLeadingPartialRune(text)
 	}
 	t.known = r.Offset
@@ -132,14 +138,15 @@ func (t *Tailer) restart(ctx context.Context) (Chunk, error) {
 	}
 	t.known = r.Offset
 	text := r.Bytes
-	if r.Overflow {
+	skipped := r.Overflow || r.Offset > len(text)
+	if skipped {
 		text = trimLeadingPartialRune(text)
 	}
 	t.mu.Lock()
 	t.buf = t.buf[:0]
 	t.mu.Unlock()
 	t.append(text)
-	return Chunk{Text: text, Truncated: true}, nil
+	return Chunk{Text: text, Truncated: true, Skipped: skipped}, nil
 }
 
 // Buffer returns the newest output seen, at most maxBuffer bytes, starting
@@ -162,8 +169,9 @@ func (t *Tailer) append(text string) {
 	}
 	cut := len(t.buf) - t.max
 	// Prefer starting just after a newline within the kept part.
+	// A newline that is the last byte would leave nothing, so it doesn't count.
 	if t.buf[cut-1] != '\n' {
-		for i := cut; i < len(t.buf); i++ {
+		for i := cut; i+1 < len(t.buf); i++ {
 			if t.buf[i] == '\n' {
 				cut = i + 1
 				break

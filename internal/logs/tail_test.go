@@ -164,8 +164,28 @@ func TestTailBufferCap(t *testing.T) {
 	tr := NewTailer(g, "p", Stdout, 8)
 	g.write("héllo wörld héllo wörld\n")
 	poll(t, tr)
-	if b := tr.Buffer(); !utf8.ValidString(b) || len(b) > 8 {
+	if b := tr.Buffer(); b == "" || !utf8.ValidString(b) || len(b) > 8 || !strings.HasSuffix("héllo wörld héllo wörld\n", b) {
 		t.Errorf("Buffer = %q", b)
+	}
+
+	// A single line longer than the cap keeps its newest bytes.
+	h := &fakeLog{}
+	th := NewTailer(h, "p", Stdout, 10)
+	h.write(strings.Repeat("z", 50) + "\n")
+	poll(t, th)
+	if b := th.Buffer(); b != strings.Repeat("z", 9)+"\n" {
+		t.Errorf("long line: Buffer = %q", b)
+	}
+}
+
+func TestTailTruncationOverflowSkipped(t *testing.T) {
+	f := &fakeLog{}
+	f.write(strings.Repeat("o", 400<<10))
+	tl := NewTailer(f, "p", Stdout, 0)
+	poll(t, tl)
+	f.data = []byte(strings.Repeat("n", 300<<10))
+	if c := poll(t, tl); !c.Truncated || !c.Skipped {
+		t.Errorf("chunk = Truncated %v Skipped %v, want both", c.Truncated, c.Skipped)
 	}
 }
 
