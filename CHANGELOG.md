@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Added
+- Main window shell: sidebar (Local health and failing count, Dashboard, Issues badge, Add new, Doctor, Settings), design tokens with a dark palette, vue-router (hash history; `#/tray` stays outside the shell), and keyboard-accessible action menus with confirmation for destructive items.
+- The menu-bar popover is now a non-activating floating panel that joins all Spaces and can show over full-screen apps.
 - Wails v3.0.0 app scaffold (Vue 3 + TypeScript frontend), bundle ID `dev.getvisor.visor`, minimum macOS 13.
 - `internal/supervisor/xmlrpc`: dependency-free XML-RPC codec for supervisord. Log tails containing ANSI colour codes, other control characters, `\r` or invalid UTF-8 decode byte-for-byte instead of failing.
 - `internal/supervisor`: typed client for every supervisord RPC Visor needs (status, start/stop/restart, groups, signals, log tails, reloadConfig/add/remove, restart/shutdown) over a pluggable `Transport` (unix socket and TCP), with basic auth, per-call timeouts, and faults matchable via `errors.Is` (`ErrNotRunning`, `ErrBadName`, …, plus `ErrUnreachable` and `ErrUnauthorized`).

@@ -1,4 +1,5 @@
 // Display helpers shared by views.
+import type { ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 
 /**
  * formatDuration uses the two largest units, like the Go side's labels:
@@ -24,4 +25,25 @@ export function formatDuration(ms: number): string {
  */
 export function shortSince(since: string): string {
   return since.replace(/^up /, '')
+}
+
+/**
+ * duration is the human label for an elapsed time: "41m", "3h 2m", "6d 3h";
+ * under a minute it is "just now".
+ */
+export function duration(ms: number): string {
+  return ms < 60_000 ? 'just now' : formatDuration(ms)
+}
+
+/**
+ * sinceLabel re-computes ProcessView.Since against the browser clock so rows
+ * keep ticking between overview events. It falls back to the label the Go
+ * side sent when the process has no usable timestamp.
+ */
+export function sinceLabel(p: ProcessView, nowMs: number): string {
+  if (p.Status === 'running' && p.StartMs > 0) return `up ${duration(nowMs - p.StartMs)}`
+  if ((p.Status === 'failing' || p.Status === 'stopped') && p.StopMs > 0) {
+    return `${p.Status} ${duration(nowMs - p.StopMs)}`
+  }
+  return p.Since
 }

@@ -96,6 +96,14 @@ func (s *Shell) Setup(a *application.App, main *application.WebviewWindow, d *do
 		HideOnEscape:    true,
 		HideOnFocusLost: true,
 		URL:             "/" + routeTray,
+		// A non-activating floating panel that joins every Space and may sit
+		// over full-screen apps, so the popover opens where the menu bar is.
+		Mac: application.MacWindow{
+			WindowClass:      application.MacWindowClassPanel,
+			PanelPreferences: application.MacPanelPreferences{FloatingPanel: true, NonActivating: true},
+			CollectionBehavior: application.MacWindowCollectionBehaviorCanJoinAllSpaces |
+				application.MacWindowCollectionBehaviorFullScreenAuxiliary,
+		},
 	})
 
 	menu := a.NewMenu()
