@@ -1,7 +1,10 @@
 name: CI
 
+# Pull requests (every push to the PR branch) and main only, so a PR branch
+# isn't checked twice per push.
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
