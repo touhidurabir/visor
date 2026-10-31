@@ -38,6 +38,7 @@ export type {
     PathView,
     ProcessLogView,
     ProcessView,
+    ProgramForm,
     ServerView,
     SettingsView,
     StatsView,

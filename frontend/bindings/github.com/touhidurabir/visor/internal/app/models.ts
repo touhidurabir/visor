@@ -305,6 +305,15 @@ export interface ProcessView {
 }
 
 /**
+ * ProgramForm is the form's view of a config: the first program's name and
+ * the settings the form has fields for.
+ */
+export interface ProgramForm {
+    "Name": string;
+    "Values": { [_ in string]?: string } | null;
+}
+
+/**
  * ServerView describes the supervisord connection. Health is "ok",
  * "warning", "error" or "unknown" (before the first poll).
  */

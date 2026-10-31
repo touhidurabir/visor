@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -242,6 +243,80 @@ func (s *ConfigService) create(path, content string) (ApplyResultView, error) {
 		return ApplyResultView{}, err
 	}
 	return s.applyWritten(path, nil)
+}
+
+// Templates returns the starting points for a new config.
+func (s *ConfigService) Templates() []config.Template { return config.Templates() }
+
+// ProgramForm is the form's view of a config: the first program's name and
+// the settings the form has fields for.
+type ProgramForm struct {
+	Name   string
+	Values map[string]string
+}
+
+// RenderProgram writes the form's values as a [program:name] section.
+func (s *ConfigService) RenderProgram(name string, values map[string]string) string {
+	return config.RenderProgram(name, values)
+}
+
+// ProgramValues reads the first program of content into form values; it
+// fails when the text has no program or does not parse.
+func (s *ConfigService) ProgramValues(content string) (ProgramForm, error) {
+	name, values, err := config.ProgramValues(content)
+	return ProgramForm{Name: name, Values: values}, err
+}
+
+// IncludeDir is the folder new configs are written to: the directory of the
+// first include pattern. It is empty when supervisord has no usable one.
+func (s *ConfigService) IncludeDir() string {
+	dir, _ := s.rt.newFileHome()
+	return dir
+}
+
+// IncludeExt is the extension of the first include pattern (".ini", ".conf"),
+// which new file names get by default.
+func (s *ConfigService) IncludeExt() string {
+	_, ext := s.rt.newFileHome()
+	return ext
+}
+
+func (r *Runtime) newFileHome() (dir, ext string) {
+	r.mu.Lock()
+	globs := r.d.IncludeGlobs
+	r.mu.Unlock()
+	if len(globs) == 0 || !filepath.IsAbs(globs[0]) {
+		return "", ""
+	}
+	dir = filepath.Dir(globs[0])
+	if strings.ContainsAny(dir, "*?[") {
+		return "", ""
+	}
+	return dir, filepath.Ext(globs[0])
+}
+
+// Create writes content as a new config file named fileName in the include
+// folder, after the checks (errors refuse it), and has supervisord add just
+// its programs, so everything else keeps running. The new config is watched
+// for notifications. A file that already exists is never overwritten.
+func (s *ConfigService) Create(fileName, content string) (ApplyResultView, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	dir, _ := s.rt.newFileHome()
+	if dir == "" {
+		return ApplyResultView{}, errors.New("supervisord's [include] files= setting names no folder Visor can write to")
+	}
+	if fileName == "" || fileName != filepath.Base(fileName) || strings.HasPrefix(fileName, ".") {
+		return ApplyResultView{}, fmt.Errorf("%q is not a file name: use a plain name like web.ini, without folders", fileName)
+	}
+	path := filepath.Join(dir, fileName)
+	if _, err := os.Lstat(path); err == nil {
+		return ApplyResultView{}, fmt.Errorf("%s already exists in %s. Choose another file name: %w", fileName, dir, apply.ErrExists)
+	}
+	if err := s.rt.watch.set(path, true); err != nil {
+		return ApplyResultView{}, err
+	}
+	return s.create(path, content)
 }
 
 // invalidError is ErrInvalidConfig with the first error found.

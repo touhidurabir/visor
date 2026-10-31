@@ -1,12 +1,24 @@
 <script setup lang="ts">
 // The main window frame: sidebar plus a scrolling content area. The sidebar
 // health comes from the same visor:overview feed as every other view.
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useOverview } from '../lib/overview'
 import Sidebar from './Sidebar.vue'
 import ToastHost from './ToastHost.vue'
 
+const router = useRouter()
 const { overview } = useOverview()
+
+// ⌘N adds a new config (spec §4.5).
+function onKey(e: KeyboardEvent) {
+  if (e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey && e.key === 'n') {
+    e.preventDefault()
+    void router.push('/new')
+  }
+}
+onMounted(() => window.addEventListener('keydown', onKey))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 const name = computed(() => overview.value?.Server.Name ?? 'Local')
 const health = computed(() => overview.value?.Server.Health ?? 'unknown')
 const failing = computed(() => overview.value?.Stats.Failing ?? 0)

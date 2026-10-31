@@ -325,3 +325,73 @@ func TestConfigServiceDescribe(t *testing.T) {
 		t.Errorf("describe = %+v, %v", ps, err)
 	}
 }
+
+const newTaskContent = "[program:fresh-task]\ncommand=sleep 3600\nautorestart=unexpected\n"
+
+func TestCreateAddsAndWatches(t *testing.T) {
+	cs, svc, rt, inst := configFixture(t)
+	if got, want := cs.IncludeDir(), filepath.Join(inst.Dir(), "conf.d"); got != want {
+		t.Fatalf("IncludeDir = %q, want %q", got, want)
+	}
+	if cs.IncludeExt() != ".ini" {
+		t.Errorf("IncludeExt = %q", cs.IncludeExt())
+	}
+	workerPID := pidIn(t, svc, "worker:worker")
+	path := confFile(inst, "fresh-task")
+	// A person had turned notifications off for this path once: a new config is watched again.
+	if err := rt.watch.set(path, false); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := cs.Create("fresh-task.ini", newTaskContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(res.Added, []string{"fresh-task"}) || len(res.Changed)+len(res.Removed)+len(res.Errors) != 0 {
+		t.Errorf("result = %+v, want only fresh-task added", res)
+	}
+	if got := mustRead(t, path); got != newTaskContent {
+		t.Errorf("file = %q", got)
+	}
+	waitRunning(t, svc, "fresh-task:fresh-task")
+	if !rt.watch.watched(path) {
+		t.Error("the new config is not watched")
+	}
+	if got := pidIn(t, svc, "worker:worker"); got != workerPID {
+		t.Errorf("worker restarted (PID %d -> %d)", workerPID, got)
+	}
+	if c := changesOf(rt); len(c.Added)+len(c.Changed)+len(c.Removed) != 0 {
+		t.Errorf("changes = %+v, want none: the new file is recorded as loaded", c)
+	}
+}
+
+func TestCreateRefuses(t *testing.T) {
+	cs, _, _, inst := configFixture(t)
+	existing := confFile(inst, "worker")
+	before := mustRead(t, existing)
+
+	_, err := cs.Create("worker.ini", newTaskContent)
+	if !errors.Is(err, apply.ErrExists) || mustRead(t, existing) != before {
+		t.Errorf("existing file: err = %v", err)
+	}
+	if _, err := cs.Create("fresh.ini", "[program:fresh]\ncommand=sleep 1\nnumprocs=2\n"); !errors.Is(err, ErrInvalidConfig) {
+		t.Errorf("invalid: err = %v", err)
+	}
+	if _, err := cs.Create("fresh.conf", newTaskContent); !errors.Is(err, ErrInvalidConfig) {
+		t.Errorf("outside the include pattern: err = %v", err)
+	}
+	for _, bad := range []string{"", "../x.ini", "sub/x.ini", ".hidden.ini"} {
+		if _, err := cs.Create(bad, newTaskContent); err == nil {
+			t.Errorf("Create(%q) succeeded", bad)
+		}
+	}
+	// A program name another file defines is a duplicate.
+	if _, err := cs.Create("dup.ini", strings.Replace(newTaskContent, "fresh-task", "worker", 1)); !errors.Is(err, ErrInvalidConfig) {
+		t.Errorf("duplicate name: err = %v", err)
+	}
+	for _, n := range []string{"fresh.ini", "fresh.conf", "dup.ini"} {
+		if _, err := os.Stat(filepath.Join(cs.IncludeDir(), n)); err == nil {
+			t.Errorf("%s was written", n)
+		}
+	}
+}

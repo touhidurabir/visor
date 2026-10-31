@@ -70,3 +70,22 @@ export async function supervisorStates(): Promise<Record<string, string>> {
   }
   return states
 }
+
+/**
+ * Takes a config file out of supervisor the way the app does (ServerService.
+ * RemoveFromSupervisor: stop its programs, move the file into Visor's
+ * backups, remove its groups), through the same /wails/runtime endpoint the
+ * page uses. Specs that create a config call this to leave the sandbox as
+ * they found it; the menu item that does it in the UI arrives in Task 25.
+ * Does nothing when the file is already gone.
+ */
+export async function removeConfig(page: Page, path: string) {
+  const { existsSync } = await import('node:fs')
+  if (!existsSync(path)) return
+  const REMOVE_FROM_SUPERVISOR = 3287246372 // from frontend/bindings .../serverservice.ts
+  const res = await page.request.post('/wails/runtime', {
+    headers: { 'x-wails-client-id': 'e2e-cleanup' },
+    data: { object: 0, method: 0, args: { 'call-id': `cleanup-${Date.now()}`, methodID: REMOVE_FROM_SUPERVISOR, args: [path] } },
+  })
+  if (!res.ok()) throw new Error(`could not remove ${path}: ${res.status()} ${await res.text()}`)
+}

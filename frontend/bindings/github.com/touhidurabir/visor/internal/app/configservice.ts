@@ -13,6 +13,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as config$0 from "../config/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as describe$0 from "../describe/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -39,10 +42,36 @@ export function Backups(path: string): $CancellablePromise<$models.BackupView[] 
 }
 
 /**
+ * Create writes content as a new config file named fileName in the include
+ * folder, after the checks (errors refuse it), and has supervisord add just
+ * its programs, so everything else keeps running. The new config is watched
+ * for notifications. A file that already exists is never overwritten.
+ */
+export function Create(fileName: string, content: string): $CancellablePromise<$models.ApplyResultView> {
+    return $Call.ByID(534255015, fileName, content);
+}
+
+/**
  * Describe explains each program in content in plain English.
  */
 export function Describe(content: string): $CancellablePromise<describe$0.Program[] | null> {
     return $Call.ByID(3972818642, content);
+}
+
+/**
+ * IncludeDir is the folder new configs are written to: the directory of the
+ * first include pattern. It is empty when supervisord has no usable one.
+ */
+export function IncludeDir(): $CancellablePromise<string> {
+    return $Call.ByID(2745786844);
+}
+
+/**
+ * IncludeExt is the extension of the first include pattern (".ini", ".conf"),
+ * which new file names get by default.
+ */
+export function IncludeExt(): $CancellablePromise<string> {
+    return $Call.ByID(784500380);
 }
 
 /**
@@ -54,10 +83,25 @@ export function LoadedDiff(path: string): $CancellablePromise<$models.LoadedDiff
 }
 
 /**
+ * ProgramValues reads the first program of content into form values; it
+ * fails when the text has no program or does not parse.
+ */
+export function ProgramValues(content: string): $CancellablePromise<$models.ProgramForm> {
+    return $Call.ByID(1227596375, content);
+}
+
+/**
  * Read returns an include file's content, hash and whether it is writable.
  */
 export function Read(path: string): $CancellablePromise<$models.FileView> {
     return $Call.ByID(2072222435, path);
+}
+
+/**
+ * RenderProgram writes the form's values as a [program:name] section.
+ */
+export function RenderProgram(name: string, values: { [_ in string]?: string } | null): $CancellablePromise<string> {
+    return $Call.ByID(1859761989, name, values);
 }
 
 /**
@@ -79,6 +123,13 @@ export function Restore(path: string, backupID: string): $CancellablePromise<$mo
  */
 export function Save(path: string, content: string, hash: string): $CancellablePromise<$models.ApplyResultView> {
     return $Call.ByID(1099340586, path, content, hash);
+}
+
+/**
+ * Templates returns the starting points for a new config.
+ */
+export function Templates(): $CancellablePromise<config$0.Template[] | null> {
+    return $Call.ByID(1484955818);
 }
 
 /**
