@@ -254,3 +254,26 @@ func syncDir(dir string) {
 		_ = d.Close()
 	}
 }
+
+// CheckWritable reports whether Write could replace the existing file at
+// path: ErrNotWritable when the file or its folder (where the temp file is
+// made) does not allow it. For a symlink it looks at the file it points to.
+func CheckWritable(path string) error {
+	if err := checkPath(path); err != nil {
+		return err
+	}
+	target, err := filepath.EvalSymlinks(filepath.Clean(path))
+	if err != nil {
+		return err
+	}
+	const w, wx = 0x2, 0x2 | 0x1 // W_OK; W_OK | X_OK
+	for name, mode := range map[string]uint32{target: w, filepath.Dir(target): wx} {
+		if err := syscall.Access(name, mode); err != nil {
+			if errors.Is(err, syscall.EACCES) || errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EROFS) {
+				return fmt.Errorf("cannot write %s: %w", path, ErrNotWritable)
+			}
+			return fmt.Errorf("cannot write %s: %w", path, err)
+		}
+	}
+	return nil
+}

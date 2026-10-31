@@ -435,3 +435,30 @@ func TestWriteRejectsRelativePath(t *testing.T) {
 		t.Error("Remove accepted a relative path")
 	}
 }
+
+func TestCheckWritable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can write anything")
+	}
+	f := newFixture(t)
+	p := f.file(t, "mailer.ini", prog, 0o644)
+	if err := CheckWritable(p); err != nil {
+		t.Fatalf("writable file: %v", err)
+	}
+	if err := os.Chmod(p, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckWritable(p); !errors.Is(err, ErrNotWritable) {
+		t.Errorf("read-only file: err = %v, want ErrNotWritable", err)
+	}
+	if err := os.Chmod(p, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(f.conf, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(f.conf, 0o700) })
+	if err := CheckWritable(p); !errors.Is(err, ErrNotWritable) {
+		t.Errorf("read-only folder: err = %v, want ErrNotWritable", err)
+	}
+}
