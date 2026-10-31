@@ -6,8 +6,10 @@ import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { ConfigService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import AddHeader from '../components/AddHeader.vue'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import CreatedCard from '../components/CreatedCard.vue'
 import DescribeCard from '../components/DescribeCard.vue'
+import type { TemplateInfo } from '../lib/draft'
 import { FORM_SECTIONS, fieldNotes, fileChecks, nameProblem, type FormField } from '../lib/form-fields'
 import { resetNewConfig, useNewConfig } from '../lib/new-config'
 
@@ -40,6 +42,18 @@ function significant(text: string): string {
     .map((l) => l.trim())
     .filter((l) => l && !l.startsWith(';') && !l.startsWith('#'))
     .join('\n')
+}
+
+/** A template waiting for a yes, because choosing it would overwrite edits. */
+const pendingTemplate = ref<TemplateInfo | null>(null)
+function chooseTemplate(t: TemplateInfo) {
+  if (draft.isDirty()) pendingTemplate.value = t
+  else void draft.applyTemplate(t)
+}
+function confirmTemplate() {
+  const t = pendingTemplate.value
+  pendingTemplate.value = null
+  if (t) void draft.applyTemplate(t)
 }
 
 const notes = computed(() => (n.upToDate.value ? fieldNotes(n.checks.value ?? []) : {}))
@@ -104,7 +118,7 @@ const cantSave = computed(() => {
             class="chip"
             :class="{ on: draft.state.templateId === t.ID }"
             :aria-pressed="draft.state.templateId === t.ID"
-            @click="draft.applyTemplate(t)"
+            @click="chooseTemplate(t)"
           >
             {{ t.Label }}
           </button>
@@ -173,6 +187,14 @@ const cantSave = computed(() => {
         </div>
       </div>
     </template>
+    <ConfirmDialog
+      v-if="pendingTemplate"
+      title="Replace what you entered?"
+      :message="`The “${pendingTemplate.Label}” template replaces the text and settings you changed.`"
+      confirm-label="Replace"
+      @confirm="confirmTemplate"
+      @cancel="pendingTemplate = null"
+    />
   </div>
 </template>
 

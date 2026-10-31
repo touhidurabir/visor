@@ -7,16 +7,18 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ServerService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { ConfigView, ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import ApplyReport from '../components/ApplyReport.vue'
 import ChangedBanner from '../components/ChangedBanner.vue'
 import ConfigTable from '../components/ConfigTable.vue'
 import ActionMenu from '../components/ActionMenu.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import SignalDialog from '../components/SignalDialog.vue'
 import StatTile from '../components/StatTile.vue'
+import { useApplyFlow } from '../lib/apply-flow'
 import { describeError } from '../lib/faults'
 import { filterConfigs } from '../lib/filter'
 import { formatDuration } from '../lib/format'
-import { bulkConfirm, comingSoon, serverMenu, type BulkConfirm } from '../lib/menus'
+import { configGroups, bulkConfirm, serverMenu, type BulkConfirm } from '../lib/menus'
 import { useOverview } from '../lib/overview'
 import { copyText } from '../lib/clipboard'
 import { configRoute } from '../lib/links'
@@ -24,6 +26,7 @@ import { showToast } from '../lib/toast'
 
 const router = useRouter()
 const { overview, error: loadError, reload } = useOverview()
+const flow = useApplyFlow(() => reload())
 
 const query = ref('')
 const search = ref<HTMLInputElement>()
@@ -75,7 +78,7 @@ const longestUp = computed(() => {
   return `longest up ${formatDuration(nowMs.value - Math.min(...starts.map((p) => p.StartMs)))}`
 })
 
-const menuItems = computed(() => comingSoon(serverMenu(), ['apply-all']))
+const menuItems = serverMenu()
 
 const ifOk = (fn: () => unknown) => (ok: boolean) => {
   if (ok) fn()
@@ -109,6 +112,8 @@ function onServer(id: string) {
   switch (id) {
     case 'check':
       return void checkForChanges()
+    case 'apply-all':
+      return void flow.applyAll()
     case 'log':
       return void router.push('/issues/log')
     case 'restart':
@@ -167,7 +172,7 @@ function onProcess(p: ProcessView, c: ConfigView, id: string) {
 }
 
 function onConfig(c: ConfigView, id: string) {
-  const groups = [...new Set((c.Processes ?? []).map((p) => p.Group))]
+  const groups = configGroups(c)
   const each = (fn: (g: string) => Promise<void>) => async () => {
     for (const g of groups) await fn(g)
   }
@@ -190,6 +195,12 @@ function onConfig(c: ConfigView, id: string) {
       return
     case 'open-log':
       if (c.Path) void run(() => openFirstLog(c.Path))
+      return
+    case 'apply':
+      if (c.Path) void flow.applyFile(c.Path, c.FileName, groups)
+      return
+    case 'remove':
+      if (c.Path) void flow.removeFile(c.Path, c.FileName)
       return
   }
 }
@@ -247,7 +258,8 @@ function sendSignal(sig: string) {
         <p>Check that supervisord is running, or open Doctor to find out why.</p>
       </div>
 
-      <ChangedBanner v-if="configs.some((c) => c.Changed || c.Uncertain)" :configs="configs" />
+      <ChangedBanner v-if="configs.some((c) => c.Changed || c.Uncertain)" :configs="configs" :busy="flow.running.value" @apply="flow.applyAll" />
+      <ApplyReport v-if="flow.report.value" :report="flow.report.value" :busy="flow.running.value" @undo="flow.undo" @dismiss="flow.dismiss" />
 
       <section aria-labelledby="s1">
         <h2 id="s1" class="label">Overview</h2>
@@ -277,6 +289,15 @@ function sendSignal(sig: string) {
     </template>
 
     <SignalDialog v-if="signalFor" :process="signalFor.FullName" @send="sendSignal" @cancel="signalFor = null" />
+    <ConfirmDialog
+      v-if="flow.pending.value"
+      :title="flow.pending.value.title"
+      :message="flow.pending.value.message"
+      :confirm-label="flow.pending.value.confirmLabel"
+      :danger="flow.pending.value.danger"
+      @confirm="flow.confirm"
+      @cancel="flow.cancel"
+    />
     <ConfirmDialog
       v-if="pendingBulk"
       :title="pendingBulk.ask.title"

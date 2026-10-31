@@ -5,14 +5,17 @@
 import { computed, ref } from 'vue'
 import { ServerService, ShellService, type ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { errorMessage, useOverview } from '../lib/overview'
+import { useApplyFlow } from '../lib/apply-flow'
 import { formatDuration, shortSince } from '../lib/format'
 
 const { overview, error: loadError, reload } = useOverview()
+const flow = useApplyFlow(() => reload())
+const pending = flow.pending
+const report = flow.report
 
 // Full names with an action in flight, plus whole-popover actions.
 const busy = ref(new Set<string>())
 const restartingAll = ref(false)
-const checking = ref(false)
 // One inline message at a time: the latest action's failure or result.
 const notice = ref<{ kind: 'error' | 'info'; text: string } | null>(null)
 
@@ -75,29 +78,6 @@ async function restartAll() {
     notice.value = { kind: 'error', text: `Couldn't restart all processes: ${errorMessage(e)}` }
   } finally {
     restartingAll.value = false
-  }
-}
-
-// Applying arrives with the config editor; for now this reports what
-// supervisord would add, change or remove, and applies nothing.
-async function checkChanges() {
-  checking.value = true
-  try {
-    const d = await ServerService.CheckForChanges()
-    const added = d.Added?.length ?? 0
-    const changed = d.Changed?.length ?? 0
-    const removed = d.Removed?.length ?? 0
-    notice.value = {
-      kind: 'info',
-      text:
-        added + changed + removed === 0
-          ? 'No config changes found.'
-          : `Config changes found: ${added} added · ${changed} changed · ${removed} removed. Nothing was applied yet.`,
-    }
-  } catch (e) {
-    notice.value = { kind: 'error', text: `Couldn't check for config changes: ${errorMessage(e)}` }
-  } finally {
-    checking.value = false
   }
 }
 
@@ -172,6 +152,25 @@ function openVisor() {
       </section>
     </div>
 
+    <div v-if="pending" class="notice info" role="alertdialog" aria-label="Apply config changes">
+      <div class="body">
+        <strong>{{ pending.title }}</strong>
+        <span class="lines">{{ pending.message }}</span>
+        <div class="row">
+          <button type="button" class="pbtn" @click="flow.cancel">Cancel</button>
+          <button type="button" class="pbtn strong" :disabled="flow.running.value" @click="flow.confirm">Apply</button>
+        </div>
+      </div>
+    </div>
+    <div v-else-if="report" :class="['notice', report.failed ? 'error' : 'info']" :role="report.failed ? 'alert' : 'status'">
+      <div class="body">
+        <span class="lines">{{ report.title }}</span>
+        <span v-for="(e, i) in report.errors" :key="i" class="lines">{{ e }}</span>
+      </div>
+      <button type="button" class="ico close" aria-label="Dismiss" title="Dismiss" @click="flow.dismiss">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M5 5l14 14M19 5L5 19" /></svg>
+      </button>
+    </div>
     <div v-if="notice" :class="['notice', notice.kind]" :role="notice.kind === 'error' ? 'alert' : 'status'">
       <span>{{ notice.text }}</span>
       <button type="button" class="ico close" aria-label="Dismiss" title="Dismiss" @click="notice = null">
@@ -184,8 +183,8 @@ function openVisor() {
         <button type="button" class="pbtn" :disabled="restartingAll || !overview || !!server?.Error" @click="restartAll">
           {{ restartingAll ? 'Restarting…' : 'Restart all' }}
         </button>
-        <button type="button" class="pbtn" :disabled="checking || !overview || !!server?.Error" @click="checkChanges">
-          {{ checking ? 'Checking…' : 'Check for changes' }}
+        <button type="button" class="pbtn" :disabled="flow.running.value || !!pending || !overview || !!server?.Error" @click="flow.applyAll">
+          {{ flow.running.value ? 'Working…' : 'Apply config changes' }}
         </button>
       </div>
       <button type="button" class="pbtn strong" @click="openVisor">Open Visor…</button>
@@ -320,6 +319,9 @@ function openVisor() {
   user-select: text;
 }
 .notice span { flex: 1; padding-top: 4px; }
+.notice .body { display: flex; flex: 1; flex-direction: column; gap: 4px; padding-top: 2px; min-width: 0; }
+.notice .lines { white-space: pre-line; padding-top: 0; flex: none; }
+.notice .body .row { margin-top: 4px; }
 .notice.error { background: var(--fail-bg); color: var(--fail-text); }
 .notice.info { background: var(--info-bg); }
 .notice .close { width: 22px; height: 22px; color: inherit; }

@@ -51,6 +51,8 @@ export function createDraft(codec: Codec) {
   })
   // Edits are rendered one after another, so a slow render never overwrites a newer one.
   let renderSeq = 0
+  // The text the last template produced, to tell whether anything was edited since.
+  let baseline = ''
 
   function followName() {
     if (!state.fileNameEdited) state.fileName = defaultFileName(state.name, state.ext)
@@ -79,6 +81,12 @@ export function createDraft(codec: Codec) {
       state.values = values
       followName()
       await render()
+      baseline = state.content
+    },
+
+    /** True when the text holds edits a new template would overwrite. */
+    isDirty(): boolean {
+      return state.content.trim() !== '' && state.content !== baseline
     },
 
     /** A form field changed ("name" is the program name). */
@@ -134,6 +142,7 @@ export function createDraft(codec: Codec) {
       state.name = ''
       state.values = {}
       state.templateId = ''
+      baseline = ''
     },
   }
 }

@@ -75,11 +75,11 @@ export function configMenu(c: ConfigView): MenuItem[] {
     item('describe', 'Describe', ''),
     item('reveal', 'Reveal in Finder', ''),
     item('open-log', 'Open log in editor', ''),
-    item('apply', 'Apply changes', `supervisorctl update ${names}`, !c.Changed),
+    item('apply', 'Apply changes', `supervisorctl update ${names}`, !(c.Changed || c.Uncertain)),
     item('remove', 'Remove from supervisor', `supervisorctl remove ${names}`, false, {
       danger: true,
       confirm:
-        'Visor stops this file’s processes and removes them from supervisord. The file is not deleted: it moves to Visor’s backups, and you can restore it from there.',
+        'Visor stops this file’s processes and removes them from supervisord. The file is not deleted: it moves to Visor’s backups folder (Application Support/Visor/backups), and “Undo” right after brings it back.',
     }),
   ]
 }
@@ -118,9 +118,4 @@ export function bulkConfirm(what: 'start' | 'stop' | 'restart', processes: numbe
       return { title: `Restart all processes${scope}?`, message: `This stops and starts ${whose}. Work in progress is interrupted.`, confirmLabel: 'Restart all' }
   }
   return null
-}
-
-/** Disables items whose feature has not shipped yet, with an explaining tooltip. */
-export function comingSoon(items: MenuItem[], ids: string[]): MenuItem[] {
-  return items.map((i) => (ids.includes(i.id) ? { ...i, disabled: true, title: 'Coming in this release' } : i))
 }

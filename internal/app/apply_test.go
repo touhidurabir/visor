@@ -330,3 +330,58 @@ func TestRemoveFromSupervisorUnknownFile(t *testing.T) {
 		t.Errorf("file outside the include folder touched: %v", err)
 	}
 }
+
+// A file edited after startup shows up as Changed in the overview within the
+// next watch check (the runtime checks on every poll), with no explicit check.
+func TestRuntimeFlagsChangedFile(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Sleeper, worker)
+	rt, _ := startRuntime(t, confOf(inst), t.TempDir(), 100*time.Millisecond)
+	svc := NewServerService(rt)
+	waitRunning(t, svc, "worker:worker")
+	waitOverview(t, svc, 5*time.Second, "nothing flagged yet", func(ov OverviewView) bool {
+		for _, c := range ov.Configs {
+			if c.Changed {
+				return false
+			}
+		}
+		return true
+	})
+
+	inst.WriteProgram(t, supervisortest.Program{Name: "worker", Command: "sleep 3602"})
+	waitOverview(t, svc, 5*time.Second, "worker.ini flagged", func(ov OverviewView) bool {
+		for _, c := range ov.Configs {
+			if c.Path == confFile(inst, "worker") && c.Changed {
+				return true
+			}
+			if c.Path != confFile(inst, "worker") && c.Changed {
+				return false
+			}
+		}
+		return false
+	})
+}
+
+func TestApplyChangesClearsFlag(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Sleeper, worker)
+	rt, _ := startRuntime(t, confOf(inst), t.TempDir(), 100*time.Millisecond)
+	svc := NewServerService(rt)
+	waitRunning(t, svc, "worker:worker")
+
+	inst.WriteProgram(t, supervisortest.Program{Name: "worker", Command: "sleep 3603"})
+	waitOverview(t, svc, 5*time.Second, "worker.ini flagged", func(ov OverviewView) bool {
+		for _, c := range ov.Configs {
+			if c.Path == confFile(inst, "worker") && c.Changed {
+				return true
+			}
+		}
+		return false
+	})
+	if _, err := svc.ApplyChanges(nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range svc.Overview().Configs {
+		if c.Changed || c.Uncertain {
+			t.Errorf("%s still flagged after applying (Changed=%v Uncertain=%v)", c.FileName, c.Changed, c.Uncertain)
+		}
+	}
+}

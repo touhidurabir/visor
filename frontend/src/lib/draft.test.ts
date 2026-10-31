@@ -21,6 +21,21 @@ const codec: Codec = {
 const tpl = { ID: 'script', Label: 'Any script', Values: { name: 'acme-task', command: 'run.sh', directory: '/srv' } }
 
 describe('draft', () => {
+  it('is dirty only once the text differs from the last template', async () => {
+    const d = createDraft(codec)
+    expect(d.isDirty()).toBe(false)
+    await d.applyTemplate(tpl)
+    expect(d.isDirty()).toBe(false)
+    await d.setField('command', 'other.sh')
+    expect(d.isDirty()).toBe(true)
+    await d.applyTemplate(tpl)
+    expect(d.isDirty()).toBe(false)
+    d.setContent('[program:x]\ncommand=y\n')
+    expect(d.isDirty()).toBe(true)
+    d.reset()
+    expect(d.isDirty()).toBe(false)
+  })
+
   it('starts from a template and names the file after the program', async () => {
     const d = createDraft(codec)
     d.setExt('.conf')
