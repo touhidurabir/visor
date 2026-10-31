@@ -30,12 +30,15 @@ export function History(process: string, limit: number): $CancellablePromise<$mo
 }
 
 /**
- * List returns issues, newest first. status is "open", "resolved" or
- * "all"; beforeMs > 0 keeps issues opened before that time (for "Load
- * older"); limit 0 means no limit; query matches process, kind or message.
+ * List returns issues, newest first (by OpenedMs, then ID). status is
+ * "open", "resolved" or "all"; limit 0 means no limit; query matches
+ * process, kind or message. For "Load older", pass the last issue shown
+ * as the cursor (beforeMs = its OpenedMs, beforeID = its ID): only issues
+ * after it are returned, so issues opened in the same millisecond are
+ * neither skipped nor repeated. beforeMs <= 0 means no cursor.
  */
-export function List(status: string, beforeMs: number, limit: number, query: string): $CancellablePromise<$models.IssueView[] | null> {
-    return $Call.ByID(2849305994, status, beforeMs, limit, query);
+export function List(status: string, beforeMs: number, beforeID: string, limit: number, query: string): $CancellablePromise<$models.IssueView[] | null> {
+    return $Call.ByID(2849305994, status, beforeMs, beforeID, limit, query);
 }
 
 /**

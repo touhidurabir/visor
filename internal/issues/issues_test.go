@@ -3,6 +3,7 @@ package issues
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,15 +18,26 @@ func (c *clock) advance(d time.Duration) { c.t = c.t.Add(d) }
 
 func newTracker(t *testing.T, expected []int) (*Tracker, *Store, *clock) {
 	t.Helper()
+	return newTrackerAuto(t, expected, "")
+}
+
+// newTrackerAuto also sets every program's autorestart= ("" is the default).
+func newTrackerAuto(t *testing.T, expected []int, autorestart string) (*Tracker, *Store, *clock) {
+	t.Helper()
 	s, err := OpenStore(t.TempDir(), 90*24*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := &clock{t: time.Now()}
-	tr := NewTracker(s, DefaultRules,
-		func(p string) string { return "/conf/" + p + ".conf" },
-		func(string) []int { return expected }, c.now)
-	return tr, s, c
+	return NewTracker(s, DefaultRules, programs(expected, autorestart), c.now), s, c
+}
+
+func programs(expected []int, autorestart string) Programs {
+	return Programs{
+		ConfigOf:     func(p string) string { return "/conf/" + p + ".conf" },
+		ExpectedExit: func(string) []int { return expected },
+		Autorestart:  func(string) string { return autorestart },
+	}
 }
 
 func info(state supervisor.ProcessState) supervisor.ProcessInfo {
@@ -102,29 +114,382 @@ func TestUnexpectedExit(t *testing.T) {
 	}
 }
 
-func restartEvent(at time.Time, state supervisor.ProcessState, exit int) monitor.Update {
+// restartEvent is a process seen again in state with a new pid. Like
+// supervisord after a respawn, it reports exit status 0 and the last stop
+// one second ago.
+func restartEvent(at time.Time, state supervisor.ProcessState) monitor.Update {
 	pi := info(state)
-	pi.ExitStatus = exit
-	pi.PID = int(at.Unix())
+	pi.PID = int(at.UnixNano() % 1e6)
+	pi.Start, pi.Stop = at, at.Add(-time.Second)
 	u := steady(at, pi)
 	u.Events = []monitor.Event{{Kind: monitor.Restarted, At: at, Process: "g:w", From: state, To: state, Info: pi}}
 	return u
 }
 
-func TestUnexpectedExitFromRestarted(t *testing.T) {
-	tr, _, c := newTracker(t, nil)
-	if opened, _ := tr.Apply(restartEvent(c.now(), supervisor.StateRunning, 0)); len(opened) != 0 {
-		t.Fatalf("clean restart opened %+v", opened)
+// crashChange is a poll that finds a RUNNING process in state to: it
+// exited and supervisord restarted it in between.
+func crashChange(at time.Time, to supervisor.ProcessState) monitor.Update {
+	pi := info(to)
+	pi.Start, pi.Stop = at, at.Add(-time.Second)
+	return change(at, supervisor.StateRunning, to, pi)
+}
+
+func TestRestartBySupervisordOpensUnexpectedExit(t *testing.T) {
+	cases := []struct {
+		name string
+		u    func(time.Time) monitor.Update
+	}{
+		{"RUNNING to STARTING", func(at time.Time) monitor.Update { return crashChange(at, supervisor.StateStarting) }},
+		{"RUNNING to BACKOFF", func(at time.Time) monitor.Update { return crashChange(at, supervisor.StateBackoff) }},
+		{"restarted RUNNING", func(at time.Time) monitor.Update { return restartEvent(at, supervisor.StateRunning) }},
+		{"restarted STARTING", func(at time.Time) monitor.Update { return restartEvent(at, supervisor.StateStarting) }},
 	}
-	opened, _ := tr.Apply(restartEvent(c.now(), supervisor.StateRunning, 3))
-	if len(opened) != 1 || opened[0].Kind != KindUnexpectedExit || opened[0].Message != "Exited with status 3" {
+	for _, tc := range cases {
+		for _, auto := range []string{"", "unexpected", "UNEXPECTED"} {
+			t.Run(tc.name+" autorestart="+auto, func(t *testing.T) {
+				tr, _, c := newTrackerAuto(t, nil, auto)
+				opened, _ := tr.Apply(tc.u(c.now()))
+				if len(opened) != 1 || opened[0].Kind != KindUnexpectedExit || opened[0].Message != "Exited and was restarted by supervisord" {
+					t.Fatalf("opened = %+v", opened)
+				}
+				if want := c.now().Add(-time.Second); !opened[0].OpenedAt.Equal(want) {
+					t.Errorf("OpenedAt = %v, want the stop time %v", opened[0].OpenedAt, want)
+				}
+				if again, _ := tr.Apply(tc.u(c.now().Add(5 * time.Second))); len(again) != 0 {
+					t.Errorf("second crash opened a duplicate: %+v", again)
+				}
+			})
+		}
+		for _, auto := range []string{"true", "yes", "1", "false"} {
+			t.Run(tc.name+" autorestart="+auto, func(t *testing.T) {
+				tr, _, c := newTrackerAuto(t, nil, auto)
+				if opened, _ := tr.Apply(tc.u(c.now())); len(opened) != 0 {
+					t.Fatalf("opened = %+v", opened)
+				}
+			})
+		}
+	}
+}
+
+func TestRestartWithoutStopTimeOpensNow(t *testing.T) {
+	tr, _, c := newTracker(t, nil)
+	u := restartEvent(c.now(), supervisor.StateRunning)
+	u.Events[0].Info.Stop = time.Time{}
+	opened, _ := tr.Apply(u)
+	if len(opened) != 1 || !opened[0].OpenedAt.Equal(c.now()) {
 		t.Fatalf("opened = %+v", opened)
+	}
+}
+
+func TestStartsThatAreNotCrashesOpenNothing(t *testing.T) {
+	tr, _, c := newTracker(t, nil)
+	for _, u := range []monitor.Update{
+		change(c.now(), supervisor.StateStopped, supervisor.StateStarting, info(0)),
+		change(c.now(), supervisor.StateExited, supervisor.StateStarting, info(0)),
+		change(c.now(), supervisor.StateStarting, supervisor.StateBackoff, info(0)),
+		restartEvent(c.now(), supervisor.StateStopped),
+	} {
+		if opened, _ := tr.Apply(u); len(opened) != 0 {
+			t.Fatalf("%+v opened %+v", u.Events, opened)
+		}
+	}
+}
+
+func TestAutorestartTrueCrashesOnlyCountTowardCrashLoop(t *testing.T) {
+	tr, _, c := newTrackerAuto(t, nil, "true")
+	var opened []Issue
+	for i := 0; i < 5; i++ {
+		o, _ := tr.Apply(restartEvent(c.now(), supervisor.StateRunning))
+		opened = append(opened, o...)
+		c.advance(3 * time.Second)
+	}
+	if len(opened) != 1 || opened[0].Kind != KindCrashLoop {
+		t.Fatalf("opened = %+v", opened)
+	}
+}
+
+func TestRestartedWrittenToHistory(t *testing.T) {
+	tr, s, c := newTracker(t, nil)
+	tr.Apply(restartEvent(c.now(), supervisor.StateRunning))
+	h, _ := s.History("g:w", 0)
+	if len(h) != 1 || h[0].From != "RUNNING" || h[0].To != "RUNNING" || h[0].Note != "Restarted by supervisord" {
+		t.Fatalf("history = %+v", h)
+	}
+}
+
+func TestRestartedIntoFatalOpensFatal(t *testing.T) {
+	tr, _, c := newTracker(t, nil)
+	u := restartEvent(c.now(), supervisor.StateFatal)
+	u.Events[0].Info.SpawnErr = "can't find command"
+	opened, _ := tr.Apply(u)
+	if len(opened) != 1 || opened[0].Kind != KindFatal || opened[0].Message != "can't find command" {
+		t.Fatalf("opened = %+v", opened)
+	}
+}
+
+func TestRemovedClosesProcessIssues(t *testing.T) {
+	tr, _, c := newTracker(t, nil)
+	tr.Apply(change(c.now(), supervisor.StateBackoff, supervisor.StateFatal, info(0)))
+	other := supervisor.ProcessInfo{Name: "v", Group: "g", State: supervisor.StateFatal}
+	tr.Apply(monitor.Update{
+		Snapshot: monitor.Snapshot{At: c.now(), Reachable: true},
+		Events:   []monitor.Event{{Kind: monitor.StateChanged, At: c.now(), Process: "g:v", From: supervisor.StateBackoff, To: supervisor.StateFatal, Info: other}},
+	})
+	for i := 0; i < 5; i++ {
+		tr.Apply(restartEvent(c.now(), supervisor.StateRunning))
+		c.advance(time.Second)
+	}
+	if n := len(tr.Open()); n != 4 { // g:w fatal, unexpected exit, crash loop; g:v fatal
+		t.Fatalf("open = %+v", tr.Open())
+	}
+	_, closed := tr.Apply(monitor.Update{
+		Snapshot: monitor.Snapshot{At: c.now(), Reachable: true},
+		Events:   []monitor.Event{{Kind: monitor.Removed, At: c.now(), Process: "g:w", From: supervisor.StateRunning, Info: info(supervisor.StateRunning)}},
+	})
+	if len(closed) != 3 {
+		t.Fatalf("closed = %+v", closed)
+	}
+	for _, is := range closed {
+		if is.Process != "g:w" || is.Status != StatusResolvedAuto || is.Note != "program removed" {
+			t.Errorf("closed %+v", is)
+		}
+	}
+	if open := tr.Open(); len(open) != 1 || open[0].Process != "g:v" {
+		t.Fatalf("open = %+v", open)
+	}
+}
+
+func TestUserActionsAreNotFailures(t *testing.T) {
+	tr, s, c := newTracker(t, nil)
+	tr.Expect(func(p string) bool { return p == "g:w" }, c.now().Add(5*time.Second))
+	var opened []Issue
+	for i := 0; i < 5; i++ {
+		o, _ := tr.Apply(restartEvent(c.now(), supervisor.StateRunning))
+		opened = append(opened, o...)
+		o, _ = tr.Apply(change(c.now(), supervisor.StateStopped, supervisor.StateStarting, info(0)))
+		opened = append(opened, o...)
+		o, _ = tr.Apply(crashChange(c.now(), supervisor.StateStarting))
+		opened = append(opened, o...)
+		c.advance(time.Second)
+	}
+	// Start then Stop inside one poll: same state, new start time, and
+	// supervisord reports -1 for "killed by SIGTERM".
+	stopped := restartEvent(c.now(), supervisor.StateStopped)
+	stopped.Events[0].Info.ExitStatus = -1
+	o, _ := tr.Apply(stopped)
+	opened = append(opened, o...)
+	if len(opened) != 0 {
+		t.Fatalf("user actions opened %+v", opened)
+	}
+	h, _ := s.History("g:w", 2)
+	if len(h) != 2 || h[0].Note != "Restarted by you" || h[1].Note != "by you" {
+		t.Fatalf("history = %+v", h)
+	}
+
+	// Other processes are not covered.
+	pi := supervisor.ProcessInfo{Name: "v", Group: "g", State: supervisor.StateRunning, Stop: c.now()}
+	o, _ = tr.Apply(monitor.Update{
+		Snapshot: monitor.Snapshot{At: c.now(), Reachable: true},
+		Events:   []monitor.Event{{Kind: monitor.Restarted, At: c.now(), Process: "g:v", From: supervisor.StateRunning, To: supervisor.StateRunning, Info: pi}},
+	})
+	if len(o) != 1 || o[0].Process != "g:v" {
+		t.Fatalf("other process: opened %+v", o)
+	}
+
+	// After the deadline, a crash is a crash again.
+	c.advance(5 * time.Second)
+	if o, _ := tr.Apply(restartEvent(c.now(), supervisor.StateRunning)); len(o) != 1 || o[0].Kind != KindUnexpectedExit {
+		t.Fatalf("after deadline: opened %+v", o)
+	}
+}
+
+// The user starting a program that exits with a bad code is a failure:
+// only restarts and crash-loop counting are the user's doing.
+func TestUserActionStillOpensObservedExit(t *testing.T) {
+	tr, s, c := newTracker(t, nil)
+	tr.Expect(func(string) bool { return true }, c.now().Add(5*time.Second))
+	exited := info(supervisor.StateExited)
+	exited.ExitStatus = 1
+	opened, _ := tr.Apply(change(c.now(), supervisor.StateStarting, supervisor.StateExited, exited))
+	if len(opened) != 1 || opened[0].Kind != KindUnexpectedExit || opened[0].Message != "Exited with status 1" {
+		t.Fatalf("opened = %+v", opened)
+	}
+	if h, _ := s.History("g:w", 1); len(h) != 1 || h[0].Note != "by you" {
+		t.Fatalf("history = %+v", h)
+	}
+	exited.ExitStatus = 0 // an expected exit still opens nothing
+	tr2, _, c2 := newTracker(t, nil)
+	tr2.Expect(func(string) bool { return true }, c2.now().Add(5*time.Second))
+	if o, _ := tr2.Apply(change(c2.now(), supervisor.StateRunning, supervisor.StateExited, exited)); len(o) != 0 {
+		t.Fatalf("expected exit opened %+v", o)
+	}
+}
+
+func TestUserActionStillOpensFatal(t *testing.T) {
+	tr, _, c := newTracker(t, nil)
+	tr.Expect(func(string) bool { return true }, c.now().Add(5*time.Second))
+	if opened, _ := tr.Apply(change(c.now(), supervisor.StateBackoff, supervisor.StateFatal, info(0))); len(opened) != 1 {
+		t.Fatalf("opened = %+v", opened)
+	}
+}
+
+func TestExpectDeadlineCanMove(t *testing.T) {
+	tr, _, c := newTracker(t, nil)
+	settle := tr.Expect(func(string) bool { return true }, c.now().Add(2*time.Minute))
+	settle(c.now().Add(5 * time.Second))
+	c.advance(6 * time.Second)
+	if opened, _ := tr.Apply(restartEvent(c.now(), supervisor.StateRunning)); len(opened) != 1 {
+		t.Fatalf("expectation outlived its new deadline: opened %+v", opened)
+	}
+}
+
+func down(c *clock) monitor.Update {
+	return monitor.Update{Snapshot: monitor.Snapshot{At: c.now(), Err: supervisor.ErrUnreachable}}
+}
+
+func TestUserShutdownHoldsUntilReachable(t *testing.T) {
+	tr, _, c := newTracker(t, nil)
+	tr.ExpectDaemon(c.now().Add(5*time.Second), true)
+	for i := 0; i < 20; i++ { // 40s down, well past the deadline
+		if opened, _ := tr.Apply(down(c)); len(opened) != 0 {
+			t.Fatalf("poll %d: opened %+v", i, opened)
+		}
+		c.advance(2 * time.Second)
+	}
+	// supervisord comes back (started by the user): its restarted
+	// processes are still the user's doing.
+	u := restartEvent(c.now(), supervisor.StateRunning)
+	u.Events = append([]monitor.Event{{Kind: monitor.Reconnected, At: c.now()}}, u.Events...)
+	if opened, _ := tr.Apply(u); len(opened) != 0 {
+		t.Fatalf("reconnect opened %+v", opened)
+	}
+	c.advance(2 * time.Second)
+	tr.Apply(down(c))
+	c.advance(2 * time.Second)
+	if opened, _ := tr.Apply(down(c)); len(opened) != 1 || opened[0].Kind != KindUnreachable {
+		t.Fatalf("a later outage: opened %+v", opened)
+	}
+}
+
+// A restart the user asked for that never comes back is an outage once
+// its deadline passes.
+func TestUserRestartHoldsOnlyUntilDeadline(t *testing.T) {
+	tr, _, c := newTracker(t, nil)
+	tr.ExpectDaemon(c.now().Add(30*time.Second), false)
+	var opened []Issue
+	for i := 0; i < 15; i++ { // 0s..28s: inside the deadline
+		o, _ := tr.Apply(down(c))
+		opened = append(opened, o...)
+		c.advance(2 * time.Second)
+	}
+	if len(opened) != 0 {
+		t.Fatalf("opened before the deadline: %+v", opened)
+	}
+	c.advance(4 * time.Second)
+	o, _ := tr.Apply(down(c))
+	if len(o) != 1 || o[0].Kind != KindUnreachable {
+		t.Fatalf("after the deadline: opened %+v", o)
+	}
+}
+
+func TestFailedDaemonActionEndsExpectation(t *testing.T) {
+	tr, _, c := newTracker(t, nil)
+	settle := tr.ExpectDaemon(c.now().Add(2*time.Minute), true)
+	tr.Apply(down(c)) // supervisord was already down when the user asked
+	settle(time.Time{})
+	c.advance(2 * time.Second)
+	if opened, _ := tr.Apply(down(c)); len(opened) != 1 || opened[0].Kind != KindUnreachable {
+		t.Fatalf("opened = %+v", opened)
+	}
+}
+
+func TestDaemonExpectationEndsWhenNeverDown(t *testing.T) {
+	tr, _, c := newTracker(t, nil)
+	tr.ExpectDaemon(c.now().Add(5*time.Second), true)
+	tr.Apply(steady(c.now(), info(supervisor.StateRunning)))
+	c.advance(6 * time.Second)
+	tr.Apply(steady(c.now(), info(supervisor.StateRunning)))
+	tr.Apply(down(c))
+	c.advance(2 * time.Second)
+	if opened, _ := tr.Apply(down(c)); len(opened) != 1 {
+		t.Fatalf("outage after the deadline: opened %+v", opened)
+	}
+}
+
+func fatalInfo(start, stop time.Time) supervisor.ProcessInfo {
+	pi := info(supervisor.StateFatal)
+	pi.Start, pi.Stop = start, stop
+	return pi
+}
+
+func added(at time.Time, pi supervisor.ProcessInfo) monitor.Update {
+	u := steady(at, pi)
+	u.Events = []monitor.Event{{Kind: monitor.Added, At: at, Process: pi.FullName(), To: pi.State, Info: pi}}
+	return u
+}
+
+func TestUserClosedIssueStaysClosedAcrossLaunches(t *testing.T) {
+	for _, closeIt := range []func(*Tracker, string) error{(*Tracker).Dismiss, (*Tracker).Resolve} {
+		tr, s, c := newTracker(t, nil)
+		failed := fatalInfo(c.now().Add(-time.Minute), c.now().Add(-50*time.Second))
+		opened, _ := tr.Apply(added(c.now(), failed))
+		if len(opened) != 1 {
+			t.Fatalf("opened = %+v", opened)
+		}
+		c.advance(time.Minute)
+		if err := closeIt(tr, opened[0].ID); err != nil {
+			t.Fatal(err)
+		}
+
+		// Visor relaunches; supervisord still shows the same failure.
+		c.advance(time.Hour)
+		tr2 := NewTracker(s, DefaultRules, programs(nil, ""), c.now)
+		if o, _ := tr2.Apply(added(c.now(), failed)); len(o) != 0 {
+			t.Fatalf("the same failure reopened: %+v", o)
+		}
+		// A new failure (started and stopped after the close) opens.
+		again := fatalInfo(c.now().Add(-10*time.Second), c.now().Add(-5*time.Second))
+		o, _ := tr2.Apply(change(c.now(), supervisor.StateBackoff, supervisor.StateFatal, again))
+		if len(o) != 1 || o[0].Kind != KindFatal {
+			t.Fatalf("a new failure: opened %+v", o)
+		}
+	}
+}
+
+func TestUserClosedUnexpectedExitStaysClosed(t *testing.T) {
+	tr, s, c := newTracker(t, nil)
+	pi := info(supervisor.StateExited)
+	pi.ExitStatus, pi.Start, pi.Stop = 1, c.now().Add(-time.Hour), c.now().Add(-time.Minute)
+	opened, _ := tr.Apply(added(c.now(), pi))
+	if len(opened) != 1 || opened[0].Kind != KindUnexpectedExit {
+		t.Fatalf("opened = %+v", opened)
+	}
+	c.advance(time.Second)
+	_ = tr.Dismiss(opened[0].ID)
+	tr2 := NewTracker(s, DefaultRules, programs(nil, ""), c.now)
+	if o, _ := tr2.Apply(added(c.now(), pi)); len(o) != 0 {
+		t.Fatalf("reopened: %+v", o)
+	}
+}
+
+func TestAutoResolvedIssueDoesNotBlockReopen(t *testing.T) {
+	tr, s, c := newTracker(t, nil)
+	failed := fatalInfo(c.now().Add(-time.Minute), c.now().Add(-50*time.Second))
+	tr.Apply(added(c.now(), failed))
+	tr.Apply(change(c.now(), supervisor.StateStarting, supervisor.StateRunning, info(supervisor.StateRunning)))
+	c.advance(time.Minute)
+	if _, closed := tr.Apply(steady(c.now(), info(supervisor.StateRunning))); len(closed) != 1 {
+		t.Fatalf("closed = %+v", closed)
+	}
+	tr2 := NewTracker(s, DefaultRules, programs(nil, ""), c.now)
+	if o, _ := tr2.Apply(added(c.now(), failed)); len(o) != 1 {
+		t.Fatalf("opened = %+v", o)
 	}
 }
 
 func TestBackoffRetriesDoNotOpenUnexpectedExit(t *testing.T) {
 	tr, _, c := newTracker(t, nil)
-	if opened, _ := tr.Apply(restartEvent(c.now(), supervisor.StateBackoff, 1)); len(opened) != 0 {
+	if opened, _ := tr.Apply(restartEvent(c.now(), supervisor.StateBackoff)); len(opened) != 0 {
 		t.Fatalf("backoff retry opened %+v", opened)
 	}
 }
@@ -172,7 +537,7 @@ func TestCrashLoopWindowExpires(t *testing.T) {
 func TestCrashLoopCountsRestartedEvents(t *testing.T) {
 	tr, _, c := newTracker(t, nil)
 	for i := 0; i < 5; i++ {
-		tr.Apply(restartEvent(c.now(), supervisor.StateRunning, 0))
+		tr.Apply(restartEvent(c.now(), supervisor.StateBackoff))
 		c.advance(2 * time.Second)
 	}
 	open := tr.Open()
@@ -297,7 +662,7 @@ func TestStoreRoundTripAndLastRecordWins(t *testing.T) {
 func TestTrackerReloadsOpenIssues(t *testing.T) {
 	tr, s, c := newTracker(t, nil)
 	tr.Apply(change(c.now(), supervisor.StateBackoff, supervisor.StateFatal, info(0)))
-	tr2 := NewTracker(s, DefaultRules, nil, nil, c.now)
+	tr2 := NewTracker(s, DefaultRules, Programs{}, c.now)
 	if len(tr2.Open()) != 1 {
 		t.Fatalf("open = %+v", tr2.Open())
 	}
@@ -405,7 +770,7 @@ func TestUnreachableResolvesWithoutReconnectedEvent(t *testing.T) {
 func TestReloadedUnreachableResolvesOnFirstContact(t *testing.T) {
 	tr, s, c := newTracker(t, nil)
 	openUnreachable(t, tr, c)
-	tr2 := NewTracker(s, DefaultRules, nil, nil, c.now)
+	tr2 := NewTracker(s, DefaultRules, Programs{}, c.now)
 	if len(tr2.Open()) != 1 {
 		t.Fatal("not reloaded")
 	}
@@ -421,15 +786,66 @@ func TestReloadedUnreachableResolvesOnFirstContact(t *testing.T) {
 func TestSimultaneousIssuesHaveDistinctIDs(t *testing.T) {
 	tr, s, c := newTracker(t, nil)
 	for i := 0; i < 4; i++ {
-		tr.Apply(restartEvent(c.now(), supervisor.StateRunning, 0))
+		tr.Apply(restartEvent(c.now(), supervisor.StateBackoff))
 		c.advance(time.Second)
 	}
-	opened, _ := tr.Apply(restartEvent(c.now(), supervisor.StateRunning, 3))
+	u := restartEvent(c.now(), supervisor.StateBackoff)
+	u.Events = append(u.Events, monitor.Event{Kind: monitor.StateChanged, At: c.now(), Process: "g:w", From: supervisor.StateBackoff, To: supervisor.StateFatal, Info: info(supervisor.StateFatal)})
+	opened, _ := tr.Apply(u)
 	if len(opened) != 2 || opened[0].ID == opened[1].ID {
 		t.Fatalf("opened = %+v", opened)
 	}
 	stored, _ := s.Issues(Filter{Status: "open"})
 	if len(tr.Open()) != 2 || len(stored) != 2 {
 		t.Fatalf("open %d, stored %d", len(tr.Open()), len(stored))
+	}
+}
+
+func TestStorePagesIssuesOpenedTogether(t *testing.T) {
+	s, _ := OpenStore(t.TempDir(), time.Hour)
+	at := time.Now().Add(-time.Minute)
+	for _, id := range []string{"c", "a", "e", "b", "d"} {
+		_ = s.putIssue(Issue{ID: id, Kind: KindFatal, Process: "g:" + id, OpenedAt: at, Status: StatusOpen})
+	}
+	var got []string
+	f := Filter{Limit: 2}
+	for page := 0; page < 5; page++ {
+		l, err := s.Issues(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(l) == 0 {
+			break
+		}
+		for _, is := range l {
+			got = append(got, is.ID)
+		}
+		last := l[len(l)-1]
+		// The frontend's cursor has millisecond precision.
+		f.Before, f.BeforeID = time.UnixMilli(last.OpenedAt.UnixMilli()), last.ID
+	}
+	if strings.Join(got, "") != "edcba" {
+		t.Fatalf("paged %v, want each of e d c b a once", got)
+	}
+}
+
+func TestOpenIssuesOrderedLikeTheStore(t *testing.T) {
+	tr, s, c := newTracker(t, nil)
+	for _, p := range []string{"a", "b", "c"} {
+		pi := supervisor.ProcessInfo{Name: p, Group: "g", State: supervisor.StateFatal}
+		tr.Apply(monitor.Update{
+			Snapshot: monitor.Snapshot{At: c.now(), Reachable: true},
+			Events:   []monitor.Event{{Kind: monitor.Added, At: c.now(), Process: "g:" + p, To: supervisor.StateFatal, Info: pi}},
+		})
+	}
+	stored, _ := s.Issues(Filter{Status: "open"})
+	open := tr.Open()
+	if len(open) != 3 || len(stored) != 3 {
+		t.Fatalf("open %d, stored %d", len(open), len(stored))
+	}
+	for i := range open {
+		if open[i].ID != stored[i].ID {
+			t.Fatalf("tracker order %v differs from store order %v", open, stored)
+		}
 	}
 }

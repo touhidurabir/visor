@@ -37,6 +37,7 @@ type Issue struct {
 	ClosedAt time.Time `json:"closedAt"`
 	Status   Status    `json:"status"`
 	Notified bool      `json:"notified"`
+	Note     string    `json:"note,omitempty"`
 }
 
 // Transition is one process state change.

@@ -3,9 +3,11 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/touhidurabir/visor/internal/issues"
 	"github.com/touhidurabir/visor/internal/monitor"
 	"github.com/touhidurabir/visor/internal/supervisor"
 )
@@ -71,5 +73,68 @@ func TestBuildOverviewProcessStatus(t *testing.T) {
 		if got[name] != w {
 			t.Errorf("%s: Status = %q, want %q", name, got[name], w)
 		}
+	}
+}
+
+// One failed poll is a blip; the tray turns red from the second in a row,
+// when the unreachable issue opens.
+func TestHealthErrorAfterSecondUnreachablePoll(t *testing.T) {
+	now := time.UnixMilli(10_000_000)
+	snap := monitor.Snapshot{At: now, Err: supervisor.ErrUnreachable}
+	for polls, want := range map[int]string{1: "warning", 2: "error", 5: "error"} {
+		ov := buildOverview(overviewInput{now: now, snap: snap, failedPolls: polls})
+		if ov.Server.Health != want {
+			t.Errorf("%d failed polls: health %q, want %q", polls, ov.Server.Health, want)
+		}
+	}
+}
+
+func TestFailingSinceCountsFromLatestFailureIssue(t *testing.T) {
+	now := time.UnixMilli(1_000_000_000)
+	p := supervisor.ProcessInfo{Name: "w", Group: "g", State: supervisor.StateFatal, Stop: now.Add(-10 * time.Hour), Now: now}
+	is := func(k issues.Kind, ago time.Duration) issues.Issue {
+		return issues.Issue{Kind: k, Process: "g:w", OpenedAt: now.Add(-ago), Message: "Restarted 5 times in 10 minutes"}
+	}
+	open := []issues.Issue{
+		is(issues.KindCrashLoop, 5*time.Minute),
+		is(issues.KindFatal, 2*time.Hour),
+		is(issues.KindUnexpectedExit, 72*time.Hour),
+	}
+	if since, _ := sinceAndDetail(p, false, open, now); since != "failing 2h" {
+		t.Errorf("since = %q, want failing 2h (the latest fatal or unexpected exit)", since)
+	}
+	// A crash loop alone does not say when it started failing: use the stop.
+	if since, _ := sinceAndDetail(p, false, open[:1], now); since != "failing 10h" {
+		t.Errorf("crash loop only: since = %q, want failing 10h", since)
+	}
+}
+
+// A process that crashed and was restarted is running again: an open
+// unexpected exit warns; a crash loop is an error.
+func TestOpenIssuesRaiseHealth(t *testing.T) {
+	now := time.UnixMilli(10_000_000)
+	snap := monitor.Snapshot{At: now, Reachable: true, Processes: []supervisor.ProcessInfo{
+		{Name: "w", Group: "g", State: supervisor.StateRunning, Now: now},
+	}}
+	for kinds, want := range map[string]string{
+		"":                           "ok",
+		"unexpected_exit":            "warning",
+		"crash_loop":                 "error",
+		"unexpected_exit crash_loop": "error",
+	} {
+		var open []issues.Issue
+		for _, k := range strings.Fields(kinds) {
+			open = append(open, issues.Issue{Kind: issues.Kind(k), Process: "g:w", OpenedAt: now})
+		}
+		if got := buildOverview(overviewInput{now: now, snap: snap, open: open}).Server.Health; got != want {
+			t.Errorf("open %q: health %q, want %q", kinds, got, want)
+		}
+	}
+	// It never lowers an error.
+	fatal := snap
+	fatal.Processes = []supervisor.ProcessInfo{{Name: "w", Group: "g", State: supervisor.StateFatal, Now: now}}
+	open := []issues.Issue{{Kind: issues.KindUnexpectedExit, Process: "g:w", OpenedAt: now}}
+	if got := buildOverview(overviewInput{now: now, snap: fatal, open: open}).Server.Health; got != "error" {
+		t.Errorf("fatal with an unexpected exit: health %q, want error", got)
 	}
 }

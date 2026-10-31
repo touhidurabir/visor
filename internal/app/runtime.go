@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,12 @@ const (
 	// actionTimeout bounds one user action, including waiting for
 	// processes to start or stop.
 	actionTimeout = 2 * time.Minute
+	// minActionGrace is the least time after a user action during which
+	// the changes it caused are still taken as the user's.
+	minActionGrace = 5 * time.Second
+	// minRestartGrace is the same for a supervisord restart, which stops
+	// every process (up to each one's stopwaitsecs) before coming back.
+	minRestartGrace = 30 * time.Second
 	// rpcTimeout bounds quick calls made outside the poll loop.
 	rpcTimeout = 5 * time.Second
 )
@@ -78,7 +85,7 @@ type RuntimeOptions struct {
 //
 // Locking: mu is a leaf lock. It is never held while calling the tracker,
 // the watcher, the monitor or supervisord, because the tracker calls back
-// into the Runtime (configOf, expectedExit) under its own lock.
+// into the Runtime (configOf, expectedExit, autorestart) under its own lock.
 type Runtime struct {
 	opts  RuntimeOptions
 	watch *watchStore
@@ -99,6 +106,8 @@ type Runtime struct {
 	changes  config.ChangeSet
 	last     monitor.Update
 	version  string
+	// failedPolls counts consecutive unreachable polls, for health.
+	failedPolls int
 
 	wg sync.WaitGroup
 }
@@ -148,7 +157,11 @@ func (r *Runtime) Start(ctx context.Context) error {
 	}
 	r.watcher = config.NewWatcher(d, r.opts.StateDir)
 	if r.store != nil {
-		r.tracker = issues.NewTracker(r.store, issues.DefaultRules, r.configOf, r.expectedExit, time.Now)
+		r.tracker = issues.NewTracker(r.store, issues.DefaultRules, issues.Programs{
+			ConfigOf:     r.configOf,
+			ExpectedExit: r.expectedExit,
+			Autorestart:  r.autorestart,
+		}, time.Now)
 	}
 	r.mon = monitor.New(r.client, r.opts.Interval)
 
@@ -215,6 +228,12 @@ func (r *Runtime) handle(u monitor.Update) {
 	if version != "" {
 		r.version = version
 	}
+	switch {
+	case u.Snapshot.Reachable:
+		r.failedPolls = 0
+	case !u.Snapshot.At.IsZero():
+		r.failedPolls++
+	}
 	r.last = u
 	r.mu.Unlock()
 
@@ -248,6 +267,12 @@ func (r *Runtime) expectedExit(process string) []int {
 	return r.inv.ExpectedExit(process)
 }
 
+func (r *Runtime) autorestart(process string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.inv.Autorestart(process)
+}
+
 // Overview builds the dashboard view from the latest handled update.
 func (r *Runtime) Overview() OverviewView {
 	r.mu.Lock()
@@ -260,6 +285,8 @@ func (r *Runtime) Overview() OverviewView {
 		version:    r.version,
 		configPath: r.d.ConfigPath,
 		err:        r.connErr,
+
+		failedPolls: r.failedPolls,
 	}
 	if in.configPath == "" {
 		in.configPath = r.opts.ConfigPath
@@ -280,32 +307,130 @@ func (r *Runtime) Overview() OverviewView {
 
 func (r *Runtime) emitOverview() { r.opts.Emit(EventOverview, r.Overview()) }
 
+// actionConn is what a user action needs.
+type actionConn struct {
+	ctx     context.Context
+	client  *supervisor.Client
+	mon     *monitor.Monitor
+	tracker *issues.Tracker // nil when the issue store could not open
+}
+
 // conn returns what an action needs, or why there is no connection.
-func (r *Runtime) conn() (context.Context, *supervisor.Client, *monitor.Monitor, error) {
+func (r *Runtime) conn() (actionConn, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	switch {
 	case r.connErr != nil:
-		return nil, nil, nil, r.connErr
+		return actionConn{}, r.connErr
 	case r.client == nil:
-		return nil, nil, nil, errors.New("not connected to supervisord yet: try again in a moment")
+		return actionConn{}, errors.New("not connected to supervisord yet: try again in a moment")
 	}
-	return r.ctx, r.client, r.mon, nil
+	return actionConn{r.ctx, r.client, r.mon, r.tracker}, nil
+}
+
+// actionGrace is how long after a user action ends the changes it caused
+// are still the user's: two polls, at least minActionGrace (or e's own
+// minimum, e.g. minRestartGrace).
+func (r *Runtime) actionGrace(e expectation) time.Duration {
+	interval := r.opts.Interval
+	if interval <= 0 {
+		interval = monitor.DefaultInterval
+	}
+	return max(2*interval, minActionGrace, e.minGrace)
 }
 
 // act runs a user action against supervisord, then pokes the monitor so
 // the frontend sees the result straight away (even when the action failed
-// part-way).
-func (r *Runtime) act(do func(ctx context.Context, c *supervisor.Client) error) error {
-	base, c, mon, err := r.conn()
+// part-way). What the action is expected to change is the user's doing
+// (no unexpected exit, crash loop or unreachable issue) from the start of
+// the action until actionGrace after it ends.
+func (r *Runtime) act(e expectation, do func(ctx context.Context, c *supervisor.Client) error) error {
+	ac, err := r.conn()
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(base, actionTimeout)
+	grace := r.actionGrace(e)
+	settle := e.register(ac.tracker, time.Now().Add(actionTimeout+grace))
+	ctx, cancel := context.WithTimeout(ac.ctx, actionTimeout)
 	defer cancel()
-	err = do(ctx, c)
-	mon.Poke()
+	err = do(ctx, ac.client)
+	switch {
+	case err != nil && e.daemon:
+		// supervisord refused or never got the call: an outage from now
+		// on is not the user's doing.
+		settle(time.Time{})
+	default:
+		settle(time.Now().Add(grace))
+	}
+	ac.mon.Poke()
 	return err
+}
+
+// expectation is what a user action is about to change: processes that
+// match, or the daemon itself (and with it every process). The zero value
+// changes no process state (e.g. clearing logs).
+type expectation struct {
+	match  func(process string) bool
+	daemon bool
+	// untilReachable holds a daemon expectation while supervisord is down.
+	untilReachable bool
+	// minGrace raises actionGrace for slow actions.
+	minGrace time.Duration
+}
+
+// expectProcess covers one process as supervisord names it: "group:name",
+// "group:*" (the whole group), or a bare "name" (a process whose group has
+// the same name).
+func expectProcess(name string) expectation {
+	group, proc, ok := strings.Cut(name, ":")
+	switch {
+	case !ok:
+		full := name + ":" + name
+		return expectation{match: func(p string) bool { return p == full }}
+	case proc == "*":
+		return expectGroups(group)
+	}
+	return expectation{match: func(p string) bool { return p == name }}
+}
+
+// expectGroups covers every process in the groups.
+func expectGroups(groups ...string) expectation {
+	return expectation{match: func(p string) bool {
+		g, _, _ := strings.Cut(p, ":")
+		return slices.Contains(groups, g)
+	}}
+}
+
+// expectAll covers every process.
+func expectAll() expectation {
+	return expectation{match: func(string) bool { return true }}
+}
+
+// expectDaemonRestart covers a supervisord restart until actionGrace (at
+// least minRestartGrace) after the call: a restart that has not come back
+// by then is an outage.
+func expectDaemonRestart() expectation {
+	return expectation{daemon: true, minGrace: minRestartGrace}
+}
+
+// expectDaemonShutdown covers a supervisord shutdown for as long as it
+// stays down: the user chose that outage.
+func expectDaemonShutdown() expectation {
+	return expectation{daemon: true, untilReachable: true}
+}
+
+// register hands e to the tracker until until and returns a func that
+// moves the deadline.
+func (e expectation) register(t *issues.Tracker, until time.Time) func(time.Time) {
+	switch {
+	case t == nil:
+		return func(time.Time) {}
+	case e.daemon:
+		return t.ExpectDaemon(until, e.untilReachable)
+	case e.match != nil:
+		return t.Expect(e.match, until)
+	}
+	return func(time.Time) {}
 }
 
 // groupsInFile lists the process groups defined in an include file.

@@ -23,9 +23,11 @@ type Update struct {
 	Events   []Event
 }
 
+// DefaultInterval is the poll interval when none is given.
+const DefaultInterval = 2 * time.Second
+
 const (
-	defaultInterval = 2 * time.Second
-	minCallTimeout  = time.Second
+	minCallTimeout = time.Second
 	// maxPendingEvents bounds the events carried over for a subscriber that
 	// is not reading, so a stuck subscriber cannot grow memory forever.
 	maxPendingEvents = 256
@@ -50,7 +52,7 @@ type Monitor struct {
 // Nothing is polled until Run is called.
 func New(src Source, interval time.Duration) *Monitor {
 	if interval <= 0 {
-		interval = defaultInterval
+		interval = DefaultInterval
 	}
 	return &Monitor{
 		src:      src,

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -19,14 +19,18 @@ const (
 )
 
 // Filter selects issues. Status is "open", "resolved" (anything closed) or
-// "all" (also the empty string). Before keeps issues opened before that time
-// (a paging cursor); zero means no limit. Limit 0 means no limit. Query is a
-// case-insensitive substring of the process, kind or message.
+// "all" (also the empty string). Before and BeforeID are a paging cursor,
+// the last issue of the previous page: only issues strictly after it in
+// newest-first order are kept (opened earlier, or opened in the same
+// millisecond with a smaller ID). A zero Before means no cursor; an empty
+// BeforeID keeps only issues opened earlier. Limit 0 means no limit. Query
+// is a case-insensitive substring of the process, kind or message.
 type Filter struct {
-	Status string
-	Before time.Time
-	Limit  int
-	Query  string
+	Status   string
+	Before   time.Time
+	BeforeID string
+	Limit    int
+	Query    string
 }
 
 // Store keeps issues and history as append-only JSONL files in one directory.
@@ -56,7 +60,15 @@ func OpenStore(dir string, retention time.Duration) (*Store, error) {
 
 func (s *Store) path(name string) string { return filepath.Join(s.dir, name) }
 
-// Issues returns the matching issues, newest opened first.
+// pastCursor reports whether is comes after the cursor (before, beforeID)
+// in newestFirst order. Times compare to the millisecond, like the sort.
+func pastCursor(is Issue, before time.Time, beforeID string) bool {
+	ms, cur := is.OpenedAt.UnixMilli(), before.UnixMilli()
+	return ms < cur || (ms == cur && beforeID != "" && is.ID < beforeID)
+}
+
+// Issues returns the matching issues, newest opened first (ties broken by
+// ID, descending).
 func (s *Store) Issues(f Filter) ([]Issue, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -77,7 +89,7 @@ func (s *Store) Issues(f Filter) ([]Issue, error) {
 				continue
 			}
 		}
-		if !f.Before.IsZero() && !is.OpenedAt.Before(f.Before) {
+		if !f.Before.IsZero() && !pastCursor(is, f.Before, f.BeforeID) {
 			continue
 		}
 		if q != "" && !strings.Contains(strings.ToLower(is.Process+" "+string(is.Kind)+" "+is.Message), q) {
@@ -133,7 +145,7 @@ func (s *Store) addTransitions(ts []Transition) error {
 	return nil
 }
 
-// readIssues folds the log to the last record per ID, newest opened first.
+// readIssues folds the log to the last record per ID, in newestFirst order.
 func (s *Store) readIssues() ([]Issue, error) {
 	recs, err := readJSONL[Issue](s.path(issuesFile))
 	if err != nil {
@@ -149,7 +161,7 @@ func (s *Store) readIssues() ([]Issue, error) {
 		idx[r.ID] = len(out)
 		out = append(out, r)
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].OpenedAt.After(out[j].OpenedAt) })
+	slices.SortStableFunc(out, newestFirst)
 	return out, nil
 }
 

@@ -20,17 +20,20 @@ func NewIssueService(rt *Runtime) *IssueService {
 	return &IssueService{rt: rt}
 }
 
-// List returns issues, newest first. status is "open", "resolved" or
-// "all"; beforeMs > 0 keeps issues opened before that time (for "Load
-// older"); limit 0 means no limit; query matches process, kind or message.
-func (s *IssueService) List(status string, beforeMs int64, limit int, query string) ([]IssueView, error) {
+// List returns issues, newest first (by OpenedMs, then ID). status is
+// "open", "resolved" or "all"; limit 0 means no limit; query matches
+// process, kind or message. For "Load older", pass the last issue shown
+// as the cursor (beforeMs = its OpenedMs, beforeID = its ID): only issues
+// after it are returned, so issues opened in the same millisecond are
+// neither skipped nor repeated. beforeMs <= 0 means no cursor.
+func (s *IssueService) List(status string, beforeMs int64, beforeID string, limit int, query string) ([]IssueView, error) {
 	store, _, err := s.rt.issueStore()
 	if err != nil {
 		return nil, err
 	}
 	f := issues.Filter{Status: status, Limit: limit, Query: query}
 	if beforeMs > 0 {
-		f.Before = time.UnixMilli(beforeMs)
+		f.Before, f.BeforeID = time.UnixMilli(beforeMs), beforeID
 	}
 	list, err := store.Issues(f)
 	if err != nil {

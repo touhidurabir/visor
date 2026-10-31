@@ -14,11 +14,13 @@ import (
 )
 
 // Program is one [program:x] section and the supervisord group it belongs to.
+// Autorestart is autorestart= lower-cased ("unexpected" when unset).
 type Program struct {
 	Name, Group string
 	Section     Section
 	NumProcs    int
 	ExitCodes   []int
+	Autorestart string
 }
 
 // ConfigFile is one include file. Err is a read or parse error; the file is
@@ -108,8 +110,9 @@ func LoadInventory(d Discovery) (Inventory, error) {
 			}
 			inv.Files[i].Programs = append(inv.Files[i].Programs, Program{
 				Name: name, Group: g, Section: s,
-				NumProcs:  intOr(s, "numprocs", 1),
-				ExitCodes: exitCodes(s),
+				NumProcs:    intOr(s, "numprocs", 1),
+				ExitCodes:   exitCodes(s),
+				Autorestart: autorestart(s),
 			})
 		}
 	}
@@ -147,6 +150,14 @@ func exitCodes(s Section) []int {
 	return out
 }
 
+func autorestart(s Section) string {
+	v, _ := s.Get("autorestart")
+	if v = strings.ToLower(strings.TrimSpace(v)); v != "" {
+		return v
+	}
+	return "unexpected"
+}
+
 // FileForGroup returns the file defining the group: its [group:x] section if
 // there is one, otherwise the file of a program in that group.
 func (inv Inventory) FileForGroup(group string) (string, bool) {
@@ -170,6 +181,16 @@ func (inv Inventory) ExpectedExit(fullName string) []int {
 		return p.ExitCodes
 	}
 	return []int{0}
+}
+
+// Autorestart returns the autorestart= of the program behind fullName,
+// lower-cased; "unexpected" (supervisord's default) if it is unset or the
+// program cannot be found.
+func (inv Inventory) Autorestart(fullName string) string {
+	if _, p, ok := inv.Lookup(fullName); ok && p.Autorestart != "" {
+		return p.Autorestart
+	}
+	return "unexpected"
 }
 
 // Lookup finds the program behind a process full name ("group:process")

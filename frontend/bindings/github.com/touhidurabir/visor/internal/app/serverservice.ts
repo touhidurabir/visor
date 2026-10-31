@@ -98,7 +98,8 @@ export function SetWatch(path: string, on: boolean): $CancellablePromise<void> {
 }
 
 /**
- * ShutdownDaemon stops supervisord and every process it runs.
+ * ShutdownDaemon stops supervisord and every process it runs. The outage
+ * that follows is the user's choice, so it opens no unreachable issue.
  */
 export function ShutdownDaemon(): $CancellablePromise<void> {
     return $Call.ByID(4236533784);

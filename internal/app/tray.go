@@ -183,6 +183,7 @@ func (s *Shell) ShowMain(route string) {
 	if d != nil {
 		d.ShowAppIcon()
 	}
+	main.UnMinimise() // Show alone leaves a minimised window in the Dock
 	main.Show().Focus()
 	if route != "" {
 		main.ExecJS("window.location.hash = " + strconv.Quote(route))

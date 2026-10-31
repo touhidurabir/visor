@@ -58,7 +58,9 @@ func NewWatcher(d Discovery, stateDir string) *Watcher {
 // Check classifies each include file. A file without a snapshot is
 // snapshotted as loaded when it is no newer than the pidfile (supervisord's
 // start); otherwise it is Added (it appeared after an earlier Check) or
-// Uncertain.
+// Uncertain. A snapshot of a file gone from disk is Removed, until
+// supervisord restarts (the pidfile is newer than the snapshot), which
+// drops it.
 func (w *Watcher) Check() (ChangeSet, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -105,10 +107,19 @@ func (w *Watcher) Check() (ChangeSet, error) {
 		}
 		cs.Uncertain = append(cs.Uncertain, p)
 	}
-	for p := range w.loaded {
-		if !present[p] {
-			cs.Removed = append(cs.Removed, p)
+	pm, pidOK := w.mtime(w.d.PidFile)
+	for p, snap := range w.loaded {
+		if present[p] {
+			continue
 		}
+		// supervisord restarted since the snapshot, after the file was
+		// gone: it no longer runs it.
+		if pidOK && pm.After(snap.At) {
+			delete(w.loaded, p)
+			dirty = true
+			continue
+		}
+		cs.Removed = append(cs.Removed, p)
 	}
 	for p := range w.added {
 		if !present[p] {

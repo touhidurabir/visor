@@ -18,7 +18,8 @@ export interface ConfigView {
 
 /**
  * IssueView is one issue. Status is "open", "resolved_auto",
- * "resolved_user" or "dismissed"; ClosedMs is 0 while open.
+ * "resolved_user" or "dismissed"; ClosedMs is 0 while open. Note says why
+ * Visor closed it, e.g. "program removed" ("" otherwise).
  */
 export interface IssueView {
     "ID": string;
@@ -30,6 +31,7 @@ export interface IssueView {
     "ClosedMs": number;
     "Status": string;
     "Notified": boolean;
+    "Note": string;
 }
 
 /**

@@ -403,3 +403,52 @@ func TestInventoryLookup(t *testing.T) {
 		}
 	}
 }
+
+func TestInventoryAutorestart(t *testing.T) {
+	dir := t.TempDir()
+	writeConf(t, dir, "a.conf", "[program:always]\ncommand=true\nautorestart = TRUE\n\n"+
+		"[program:never]\ncommand=true\nautorestart=false\n\n[program:plain]\ncommand=true\n")
+	inv, err := LoadInventory(disc(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for full, want := range map[string]string{
+		"always:always": "true",
+		"never:never":   "false",
+		"plain:plain":   "unexpected", // supervisord's default
+		"gone:gone":     "unexpected", // unknown process
+	} {
+		if got := inv.Autorestart(full); got != want {
+			t.Errorf("Autorestart(%q) = %q, want %q", full, got, want)
+		}
+	}
+}
+
+func TestWatcherDropsRemovedFilesAfterDaemonRestart(t *testing.T) {
+	dir, state, d := newWatchFixture(t)
+	now := time.Now()
+	chtimes(t, d.PidFile, now.Add(-time.Hour))
+	f := writeConf(t, dir, "a.conf", "v1")
+	chtimes(t, f, now.Add(-2*time.Hour))
+	w := NewWatcher(d, state)
+	if cs, _ := w.Check(); len(cs.Changed)+len(cs.Uncertain) != 0 {
+		t.Fatalf("cs = %+v", cs)
+	}
+	if err := os.Remove(f); err != nil {
+		t.Fatal(err)
+	}
+	if cs, _ := w.Check(); !reflect.DeepEqual(cs.Removed, []string{f}) {
+		t.Fatalf("want Removed, got %+v", cs)
+	}
+	// supervisord restarts outside Visor: it no longer runs the file.
+	chtimes(t, d.PidFile, now.Add(time.Hour))
+	if cs, _ := w.Check(); len(cs.Removed) != 0 {
+		t.Fatalf("after restart: %+v", cs)
+	}
+	if _, ok := w.Loaded(f); ok {
+		t.Fatal("snapshot of a removed file kept")
+	}
+	if _, ok := NewWatcher(d, state).Loaded(f); ok {
+		t.Fatal("snapshot of a removed file persisted")
+	}
+}

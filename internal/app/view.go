@@ -93,7 +93,8 @@ type ProcessView struct {
 }
 
 // IssueView is one issue. Status is "open", "resolved_auto",
-// "resolved_user" or "dismissed"; ClosedMs is 0 while open.
+// "resolved_user" or "dismissed"; ClosedMs is 0 while open. Note says why
+// Visor closed it, e.g. "program removed" ("" otherwise).
 type IssueView struct {
 	ID       string
 	Kind     string
@@ -104,6 +105,7 @@ type IssueView struct {
 	ClosedMs int64
 	Status   string
 	Notified bool
+	Note     string
 }
 
 // TransitionView is one process state change.
@@ -149,6 +151,7 @@ func toIssueView(i issues.Issue) IssueView {
 		ClosedMs: ms(i.ClosedAt),
 		Status:   string(i.Status),
 		Notified: i.Notified,
+		Note:     i.Note,
 	}
 }
 
@@ -175,6 +178,8 @@ type overviewInput struct {
 	configPath string
 	uptime     time.Duration
 	err        error // no usable connection at all
+	// failedPolls counts consecutive unreachable polls up to snap.
+	failedPolls int
 }
 
 // buildOverview turns the latest snapshot, inventory and issues into the
@@ -198,6 +203,11 @@ func buildOverview(in overviewInput) OverviewView {
 	case !in.snap.Reachable && in.snap.Err != nil:
 		ov.Server.Error = "cannot reach supervisord: " + in.snap.Err.Error()
 	}
+	// Unreachable is an error from the poll that opens the unreachable
+	// issue; one failed poll alone is a warning.
+	if in.err == nil && !in.snap.Reachable && !in.snap.At.IsZero() && in.failedPolls < issues.DefaultRules.UnreachablePolls {
+		ov.Server.Health = monitor.HealthWarning.String()
+	}
 	if in.snap.Reachable && in.uptime > 0 {
 		ov.Server.UptimeMs = in.uptime.Milliseconds()
 	}
@@ -207,8 +217,14 @@ func buildOverview(in overviewInput) OverviewView {
 		if is.Process != "" {
 			openByProc[is.Process] = append(openByProc[is.Process], is)
 		}
-		if is.Kind == issues.KindCrashLoop && ov.Server.Health != monitor.HealthUnknown.String() {
+		// A crash loop is an error. An open unexpected exit warns: the
+		// process may be running again, but it crashed.
+		switch {
+		case ov.Server.Health == monitor.HealthUnknown.String():
+		case is.Kind == issues.KindCrashLoop:
 			ov.Server.Health = monitor.HealthError.String()
+		case is.Kind == issues.KindUnexpectedExit && ov.Server.Health == monitor.HealthOK.String():
+			ov.Server.Health = monitor.HealthWarning.String()
 		}
 	}
 
@@ -318,8 +334,8 @@ func expectedExit(inv config.Inventory, fullName string, status int) bool {
 }
 
 // sinceAndDetail labels how long a process has been in its condition and
-// why. A failing process counts from its oldest open issue, else from when
-// it last stopped.
+// why. A failing process counts from its latest open fatal or unexpected
+// exit issue (the current failure), else from when it last stopped.
 func sinceAndDetail(p supervisor.ProcessInfo, expected bool, open []issues.Issue, now time.Time) (since, detail string) {
 	daemonNow := p.Now
 	if daemonNow.IsZero() {
@@ -331,15 +347,15 @@ func sinceAndDetail(p supervisor.ProcessInfo, expected bool, open []issues.Issue
 			since = sinceLabel("up", daemonNow.Sub(p.Start))
 		}
 	case classFailing:
-		switch {
-		case len(open) > 0:
-			oldest := open[0].OpenedAt
-			for _, is := range open[1:] {
-				if is.OpenedAt.Before(oldest) {
-					oldest = is.OpenedAt
-				}
+		var latest time.Time
+		for _, is := range open {
+			if (is.Kind == issues.KindFatal || is.Kind == issues.KindUnexpectedExit) && is.OpenedAt.After(latest) {
+				latest = is.OpenedAt
 			}
-			since = sinceLabel("failing", now.Sub(oldest))
+		}
+		switch {
+		case !latest.IsZero():
+			since = sinceLabel("failing", now.Sub(latest))
 		case !p.Stop.IsZero():
 			since = sinceLabel("failing", daemonNow.Sub(p.Stop))
 		case !p.Start.IsZero():

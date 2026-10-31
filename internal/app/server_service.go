@@ -52,35 +52,35 @@ func (s *ServerService) SetWatch(path string, on bool) error {
 
 // Start starts a process ("group:name") and waits until it is running.
 func (s *ServerService) Start(name string) error {
-	return s.rt.act(func(ctx context.Context, c *supervisor.Client) error {
+	return s.rt.act(expectProcess(name), func(ctx context.Context, c *supervisor.Client) error {
 		return wrap("start "+name, c.StartProcess(ctx, name, true))
 	})
 }
 
 // Stop stops a process and waits until it has stopped.
 func (s *ServerService) Stop(name string) error {
-	return s.rt.act(func(ctx context.Context, c *supervisor.Client) error {
+	return s.rt.act(expectProcess(name), func(ctx context.Context, c *supervisor.Client) error {
 		return wrap("stop "+name, c.StopProcess(ctx, name, true))
 	})
 }
 
 // Restart stops a process if it is running, then starts it.
 func (s *ServerService) Restart(name string) error {
-	return s.rt.act(func(ctx context.Context, c *supervisor.Client) error {
+	return s.rt.act(expectProcess(name), func(ctx context.Context, c *supervisor.Client) error {
 		return wrap("restart "+name, c.RestartProcess(ctx, name))
 	})
 }
 
 // StartGroup starts every process in a group.
 func (s *ServerService) StartGroup(g string) error {
-	return s.rt.act(func(ctx context.Context, c *supervisor.Client) error {
+	return s.rt.act(expectGroups(g), func(ctx context.Context, c *supervisor.Client) error {
 		return startGroup(ctx, c, g)
 	})
 }
 
 // StopGroup stops every process in a group.
 func (s *ServerService) StopGroup(g string) error {
-	return s.rt.act(func(ctx context.Context, c *supervisor.Client) error {
+	return s.rt.act(expectGroups(g), func(ctx context.Context, c *supervisor.Client) error {
 		return stopGroup(ctx, c, g)
 	})
 }
@@ -88,7 +88,7 @@ func (s *ServerService) StopGroup(g string) error {
 // RestartGroup stops every process in a group, then starts them all.
 // supervisord has no restart call for groups.
 func (s *ServerService) RestartGroup(g string) error {
-	return s.rt.act(func(ctx context.Context, c *supervisor.Client) error {
+	return s.rt.act(expectGroups(g), func(ctx context.Context, c *supervisor.Client) error {
 		if err := stopGroup(ctx, c, g); err != nil {
 			return err
 		}
@@ -116,7 +116,7 @@ func (s *ServerService) fileAction(path string, stop, start bool) error {
 	if err != nil {
 		return err
 	}
-	return s.rt.act(func(ctx context.Context, c *supervisor.Client) error {
+	return s.rt.act(expectGroups(groups...), func(ctx context.Context, c *supervisor.Client) error {
 		var errs []error
 		if stop {
 			for _, g := range groups {
@@ -137,17 +137,17 @@ func (s *ServerService) fileAction(path string, stop, start bool) error {
 
 // StartAll starts every process.
 func (s *ServerService) StartAll() error {
-	return s.rt.act(startAll)
+	return s.rt.act(expectAll(), startAll)
 }
 
 // StopAll stops every process.
 func (s *ServerService) StopAll() error {
-	return s.rt.act(stopAll)
+	return s.rt.act(expectAll(), stopAll)
 }
 
 // RestartAll stops every process, then starts them all.
 func (s *ServerService) RestartAll() error {
-	return s.rt.act(func(ctx context.Context, c *supervisor.Client) error {
+	return s.rt.act(expectAll(), func(ctx context.Context, c *supervisor.Client) error {
 		if err := stopAll(ctx, c); err != nil {
 			return err
 		}
@@ -157,14 +157,14 @@ func (s *ServerService) RestartAll() error {
 
 // Signal sends a signal ("HUP", "USR1", or a number) to a process.
 func (s *ServerService) Signal(name, sig string) error {
-	return s.rt.act(func(ctx context.Context, c *supervisor.Client) error {
+	return s.rt.act(expectProcess(name), func(ctx context.Context, c *supervisor.Client) error {
 		return wrap("send "+sig+" to "+name, c.SignalProcess(ctx, name, sig))
 	})
 }
 
 // ClearLogs empties a process's stdout and stderr logs.
 func (s *ServerService) ClearLogs(name string) error {
-	return s.rt.act(func(ctx context.Context, c *supervisor.Client) error {
+	return s.rt.act(expectation{}, func(ctx context.Context, c *supervisor.Client) error {
 		return wrap("clear the logs of "+name, c.ClearProcessLogs(ctx, name))
 	})
 }
@@ -174,7 +174,7 @@ func (s *ServerService) ClearLogs(name string) error {
 // applied.
 func (s *ServerService) CheckForChanges() (supervisor.ConfigDiff, error) {
 	var diff supervisor.ConfigDiff
-	err := s.rt.act(func(ctx context.Context, c *supervisor.Client) error {
+	err := s.rt.act(expectation{}, func(ctx context.Context, c *supervisor.Client) error {
 		var err error
 		diff, err = c.ReloadConfig(ctx)
 		return wrap("check for changes", err)
@@ -185,7 +185,7 @@ func (s *ServerService) CheckForChanges() (supervisor.ConfigDiff, error) {
 // RestartDaemon restarts supervisord, which re-reads every config file and
 // restarts every process.
 func (s *ServerService) RestartDaemon() error {
-	err := s.rt.act(func(ctx context.Context, c *supervisor.Client) error {
+	err := s.rt.act(expectDaemonRestart(), func(ctx context.Context, c *supervisor.Client) error {
 		return wrap("restart supervisord", c.Restart(ctx))
 	})
 	if err != nil {
@@ -197,9 +197,10 @@ func (s *ServerService) RestartDaemon() error {
 	return nil
 }
 
-// ShutdownDaemon stops supervisord and every process it runs.
+// ShutdownDaemon stops supervisord and every process it runs. The outage
+// that follows is the user's choice, so it opens no unreachable issue.
 func (s *ServerService) ShutdownDaemon() error {
-	return s.rt.act(func(ctx context.Context, c *supervisor.Client) error {
+	return s.rt.act(expectDaemonShutdown(), func(ctx context.Context, c *supervisor.Client) error {
 		return wrap("shut down supervisord", c.Shutdown(ctx))
 	})
 }
@@ -217,7 +218,7 @@ func (s *ServerService) MainLog(maxBytes int) (string, error) {
 	}
 	maxBytes = min(maxBytes, maxMainLogBytes)
 	var out string
-	err := s.rt.act(func(ctx context.Context, c *supervisor.Client) error {
+	err := s.rt.act(expectation{}, func(ctx context.Context, c *supervisor.Client) error {
 		var err error
 		out, err = c.ReadLog(ctx, -maxBytes, 0)
 		return wrap("read the supervisord log", err)

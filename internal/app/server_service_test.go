@@ -473,18 +473,24 @@ func TestIssueService(t *testing.T) {
 	is := NewIssueService(rt)
 	waitOverview(t, svc, 15*time.Second, "issue opened", func(ov OverviewView) bool { return ov.Stats.OpenIssues == 1 })
 
-	open, err := is.List("open", 0, 0, "")
+	open, err := is.List("open", 0, "", 0, "")
 	if err != nil || len(open) != 1 {
 		t.Fatalf("List(open) = %+v, %v", open, err)
 	}
 	if open[0].Config != filepath.Join(inst.Dir(), "conf.d", "failer.ini") || open[0].OpenedMs == 0 || open[0].Status != "open" {
 		t.Errorf("issue = %+v", open[0])
 	}
-	if got, _ := is.List("all", 0, 0, "no-such-text"); len(got) != 0 {
+	if got, _ := is.List("all", 0, "", 0, "no-such-text"); len(got) != 0 {
 		t.Errorf("query filtered nothing: %+v", got)
 	}
-	if got, _ := is.List("all", open[0].OpenedMs, 0, ""); len(got) != 0 {
+	if got, _ := is.List("all", open[0].OpenedMs, "", 0, ""); len(got) != 0 {
 		t.Errorf("before cursor kept the issue: %+v", got)
+	}
+	if got, _ := is.List("all", open[0].OpenedMs, open[0].ID, 0, ""); len(got) != 0 {
+		t.Errorf("a cursor at the issue itself kept it: %+v", got)
+	}
+	if got, _ := is.List("all", open[0].OpenedMs, open[0].ID+"~", 0, ""); len(got) != 1 {
+		t.Errorf("a cursor after the issue in the same millisecond dropped it: %+v", got)
 	}
 
 	n := len(rec.overviews())
@@ -497,7 +503,7 @@ func TestIssueService(t *testing.T) {
 	if ov := svc.Overview(); ov.Stats.OpenIssues != 0 || len(ov.Issues) != 0 {
 		t.Errorf("after Resolve: %+v / %+v", ov.Stats, ov.Issues)
 	}
-	if got, _ := is.List("resolved", 0, 0, ""); len(got) != 1 || got[0].Status != "resolved_user" || got[0].ClosedMs == 0 {
+	if got, _ := is.List("resolved", 0, "", 0, ""); len(got) != 1 || got[0].Status != "resolved_user" || got[0].ClosedMs == 0 {
 		t.Errorf("List(resolved) = %+v", got)
 	}
 	if err := is.Dismiss(open[0].ID); err == nil {
@@ -546,7 +552,7 @@ func TestOverviewWithoutUsableConfig(t *testing.T) {
 			if err := svc.StartAll(); err == nil {
 				t.Error("StartAll without a connection: want error")
 			}
-			if _, err := NewIssueService(rt).List("all", 0, 0, ""); err != nil {
+			if _, err := NewIssueService(rt).List("all", 0, "", 0, ""); err != nil {
 				t.Errorf("issue list should still work: %v", err)
 			}
 		})

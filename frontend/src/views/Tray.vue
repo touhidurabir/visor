@@ -79,7 +79,7 @@ async function restartAll() {
 }
 
 // Applying arrives with the config editor; for now this reports what
-// supervisord would add, change or remove.
+// supervisord would add, change or remove, and applies nothing.
 async function checkChanges() {
   checking.value = true
   try {
@@ -91,8 +91,8 @@ async function checkChanges() {
       kind: 'info',
       text:
         added + changed + removed === 0
-          ? 'No config changes to apply.'
-          : `Config changes found: ${added} added · ${changed} changed · ${removed} removed.`,
+          ? 'No config changes found.'
+          : `Config changes found: ${added} added · ${changed} changed · ${removed} removed. Nothing was applied yet.`,
     }
   } catch (e) {
     notice.value = { kind: 'error', text: `Couldn't check for config changes: ${errorMessage(e)}` }
@@ -185,7 +185,7 @@ function openVisor() {
           {{ restartingAll ? 'Restarting…' : 'Restart all' }}
         </button>
         <button type="button" class="pbtn" :disabled="checking || !overview || !!server?.Error" @click="checkChanges">
-          {{ checking ? 'Checking…' : 'Apply config changes' }}
+          {{ checking ? 'Checking…' : 'Check for changes' }}
         </button>
       </div>
       <button type="button" class="pbtn strong" @click="openVisor">Open Visor…</button>
