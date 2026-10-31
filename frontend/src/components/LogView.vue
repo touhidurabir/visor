@@ -54,7 +54,7 @@ const off = Events.On(VisorLog, (ev) => {
 function receive(c: LogChunkView) {
   if (c.Error) {
     followId = null // the Go side already stopped this follow
-    lost.value = c.Error
+    lost.value = describeError(c.Error)
     return
   }
   live.value = applyChunk(live.value, c)
@@ -147,7 +147,7 @@ async function save() {
 
 async function openInEditor() {
   try {
-    await ServerService.OpenInEditor(editorPath.value)
+    await ServerService.OpenLog(editorPath.value)
   } catch (e) {
     showToast(describeError(e), 'error')
   }
@@ -242,7 +242,7 @@ onBeforeUnmount(() => {
       :aria-label="`${stream} log of ${process}`"
       :aria-busy="loading"
       @scroll="onScroll"
-    ><template v-if="loading">Loading…</template><template v-else-if="!shown.length"><span class="faint">No output yet. New lines appear here as they are written.</span></template><template v-else><template v-for="(l, i) in shown" :key="i"><span v-if="l.note" class="note">— {{ l.text }} —</span><template v-else><span class="ln" aria-hidden="true">{{ l.n }}</span><template v-for="(s, j) in highlight(l.text, query)" :key="j"><mark v-if="s.match">{{ s.text }}</mark><template v-else>{{ s.text }}</template></template></template>
+    ><template v-if="loading">Loading…</template><template v-else-if="!shown.length"><span class="faint">No output yet. New lines appear here as they are written.</span></template><template v-else><template v-for="l in shown" :key="l.id"><span v-if="l.note" class="note">— {{ l.text }} —</span><template v-else><span class="ln" aria-hidden="true">{{ l.n }}</span><template v-for="(s, j) in highlight(l.text, query)" :key="j"><mark v-if="s.match">{{ s.text }}</mark><template v-else>{{ s.text }}</template></template></template>
 </template></template></pre>
     <div class="follow-note" aria-live="polite">
       <template v-if="paused">Paused. New lines are buffered and appear when you resume.{{ waiting > 0 ? ` ${waiting} new ${waiting === 1 ? 'line' : 'lines'} waiting.` : '' }}</template>

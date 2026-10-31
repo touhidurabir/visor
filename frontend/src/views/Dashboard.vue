@@ -124,18 +124,23 @@ function onServer(id: string) {
 }
 
 const bulkCalls = { start: ServerService.StartAll, stop: ServerService.StopAll, restart: ServerService.RestartAll }
-const pendingBulk = ref<{ what: keyof typeof bulkCalls; ask: BulkConfirm } | null>(null)
+// A bulk action waiting for confirmation: every process, or one config's.
+const pendingBulk = ref<{ call: () => Promise<unknown>; ask: BulkConfirm } | null>(null)
+
+/** askFirst runs call, after confirming when ask says to. */
+function askFirst(ask: BulkConfirm | null, call: () => Promise<unknown>) {
+  if (ask) pendingBulk.value = { call, ask }
+  else void run(call)
+}
 
 function bulk(what: keyof typeof bulkCalls) {
-  const ask = bulkConfirm(what, overview.value?.Stats.Processes ?? 0)
-  if (ask) pendingBulk.value = { what, ask }
-  else void run(bulkCalls[what])
+  askFirst(bulkConfirm(what, overview.value?.Stats.Processes ?? 0), bulkCalls[what])
 }
 
 function confirmBulk() {
   const p = pendingBulk.value
   pendingBulk.value = null
-  if (p) void run(bulkCalls[p.what])
+  if (p) void run(p.call)
 }
 
 function configLink(c: ConfigView, q: Record<string, string> = {}) {
@@ -172,10 +177,11 @@ function onConfig(c: ConfigView, id: string) {
   switch (id) {
     case 'start-all':
       return void run(c.Path ? () => ServerService.StartFile(c.Path) : each(ServerService.StartGroup))
+    // Like the config page's buttons, these ask first.
     case 'stop-all':
-      return void run(c.Path ? () => ServerService.StopFile(c.Path) : each(ServerService.StopGroup))
+      return askFirst(bulkConfirm('stop', c.Processes?.length ?? 0, c.FileName), c.Path ? () => ServerService.StopFile(c.Path) : each(ServerService.StopGroup))
     case 'restart-all':
-      return void run(c.Path ? () => ServerService.RestartFile(c.Path) : each(ServerService.RestartGroup))
+      return askFirst(bulkConfirm('restart', c.Processes?.length ?? 0, c.FileName), c.Path ? () => ServerService.RestartFile(c.Path) : each(ServerService.RestartGroup))
     case 'open-config':
       if (c.Path) void configLink(c, { tab: 'config' })
       return
@@ -196,7 +202,7 @@ async function openFirstLog(path: string) {
   const d = await ServerService.ConfigDetail(path)
   const log = (d.Logs ?? []).find((l) => l.Stdout)?.Stdout
   if (!log) throw new Error('No process in this file writes a log file.')
-  await ServerService.OpenInEditor(log)
+  await ServerService.OpenLog(log)
 }
 
 function onWatch(c: ConfigView, on: boolean) {

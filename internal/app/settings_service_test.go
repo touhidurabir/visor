@@ -286,15 +286,18 @@ func TestSettingsSaveClampsPersistsAndAppliesLive(t *testing.T) {
 	in := svc.Get().Settings
 	in.PollInterval = 100 * time.Millisecond // below the minimum
 	in.CrashLoop = settings.CrashLoopRules{Restarts: 3, Window: 4 * time.Minute}
-	in.RetentionDays = 1 // below the minimum
+	in.RetentionDays = 1 // ApplyRetention's job (R27)
 	in.Notify.Fatal = false
 	in.ConfigPath, in.Username = "/ignored.conf", "ignored" // SaveConnection's job
 	v, err := svc.Save(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v.Settings.PollInterval != time.Second || v.Settings.RetentionDays != 7 || v.Settings.Notify.Fatal {
-		t.Errorf("saved view = %+v, want clamped values and Fatal off", v.Settings)
+	if v.Settings.PollInterval != time.Second || v.Settings.RetentionDays != 90 || v.Settings.Notify.Fatal {
+		t.Errorf("saved view = %+v, want clamped values, retention unchanged and Fatal off", v.Settings)
+	}
+	if v, err = svc.ApplyRetention(1); err != nil || v.Settings.RetentionDays != 7 {
+		t.Errorf("ApplyRetention(1) = %+v, %v; want it clamped to 7", v.Settings, err)
 	}
 	if v.Settings.ConfigPath != conf || v.Settings.Username != "" {
 		t.Errorf("Save changed the connection: %+v", v.Settings)
@@ -303,7 +306,7 @@ func TestSettingsSaveClampsPersistsAndAppliesLive(t *testing.T) {
 		t.Errorf("load error still shown after a save: %q", v.LoadError)
 	}
 	got, err := settings.Load(stateDir)
-	if err != nil || got != v.Settings {
+	if err != nil || got != v.Settings || got.RetentionDays != 7 {
 		t.Errorf("settings.json = %+v, %v; want %+v", got, err, v.Settings)
 	}
 
@@ -325,13 +328,48 @@ func TestSettingsSaveClampsPersistsAndAppliesLive(t *testing.T) {
 	}
 }
 
-func TestSettingsRetentionCompactsStore(t *testing.T) {
+// oldIssueState is a state dir holding one issue closed 30 days ago.
+func oldIssueState(t *testing.T) string {
+	t.Helper()
 	stateDir := t.TempDir()
 	old := time.Now().Add(-30 * 24 * time.Hour).UTC().Format(time.RFC3339Nano)
 	rec := fmt.Sprintf(`{"id":"old","kind":"fatal","process":"g:w","message":"x","openedAt":%q,"closedAt":%q,"status":"resolved_auto"}`+"\n", old, old)
 	if err := os.WriteFile(filepath.Join(stateDir, "issues.jsonl"), []byte(rec), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	return stateDir
+}
+
+// R27: lowering retention through the settings auto-save deletes nothing,
+// and does not save the lower value either (the next launch would compact
+// with it).
+func TestSaveDoesNotLowerRetention(t *testing.T) {
+	stateDir := oldIssueState(t)
+	start := settings.Defaults()
+	start.ConfigPath = deadConf(t)
+	rt, _ := newRuntimeWith(t, RuntimeOptions{StateDir: stateDir, Settings: start})
+	issuesSvc := NewIssueService(rt)
+	svc := NewSettingsService(rt, stateDir, "", nil, nil)
+	in := svc.Get().Settings
+	in.RetentionDays = 14
+	v, err := svc.Save(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Settings.RetentionDays != 90 {
+		t.Errorf("Save changed retention to %d", v.Settings.RetentionDays)
+	}
+	if got, _ := settings.Load(stateDir); got.RetentionDays != 90 {
+		t.Errorf("saved retention = %d, want 90", got.RetentionDays)
+	}
+	if list, _ := issuesSvc.List("all", 0, "", 0, ""); len(list) != 1 {
+		t.Errorf("issues after Save = %+v, want the 30-day-old one kept", list)
+	}
+}
+
+// R27: the explicit path, after the person confirms, saves and deletes.
+func TestApplyRetentionCompactsStore(t *testing.T) {
+	stateDir := oldIssueState(t)
 	start := settings.Defaults()
 	start.ConfigPath = deadConf(t)
 	rt, _ := newRuntimeWith(t, RuntimeOptions{StateDir: stateDir, Settings: start})
@@ -340,10 +378,21 @@ func TestSettingsRetentionCompactsStore(t *testing.T) {
 		t.Fatalf("issues before = %+v, want the 30-day-old one (kept 90 days)", list)
 	}
 	svc := NewSettingsService(rt, stateDir, "", nil, nil)
-	in := svc.Get().Settings
-	in.RetentionDays = 14
-	if _, err := svc.Save(in); err != nil {
+	if v, err := svc.ApplyRetention(120); err != nil || v.Settings.RetentionDays != 120 {
+		t.Fatalf("raise: %+v, %v", v.Settings, err)
+	}
+	if list, _ := issuesSvc.List("all", 0, "", 0, ""); len(list) != 1 {
+		t.Errorf("raising deleted %+v", list)
+	}
+	v, err := svc.ApplyRetention(14)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if v.Settings.RetentionDays != 14 || v.Warning != "" {
+		t.Errorf("view = %+v", v)
+	}
+	if got, _ := settings.Load(stateDir); got.RetentionDays != 14 {
+		t.Errorf("saved retention = %d, want 14", got.RetentionDays)
 	}
 	if list, _ := issuesSvc.List("all", 0, "", 0, ""); len(list) != 0 {
 		t.Errorf("issues after 14-day retention = %+v, want none", list)
@@ -757,16 +806,60 @@ func TestSaveWarnsWhenRetentionCannotCompact(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := NewSettingsService(rt, stateDir, "", nil, nil)
-	in := svc.Get().Settings
-	in.RetentionDays = 30
-	v, err := svc.Save(in)
+	v, err := svc.ApplyRetention(30)
 	if err != nil {
-		t.Fatalf("Save = %v; the settings were saved, so want a warning", err)
+		t.Fatalf("ApplyRetention = %v; the settings were saved, so want a warning", err)
 	}
 	if v.Settings.RetentionDays != 30 || v.Warning == "" {
 		t.Errorf("view = %+v, want retention 30 and a warning", v)
 	}
 	if got, _ := settings.Load(stateDir); got.RetentionDays != 30 {
 		t.Errorf("saved retention = %d", got.RetentionDays)
+	}
+}
+
+// M4: switching to another supervisord closes the issues of processes it
+// does not run, once it first answers; issues of processes it does run
+// stay open.
+func TestSwitchingSupervisordClosesAbsentProcessIssues(t *testing.T) {
+	a := supervisortest.Start(t, supervisortest.Failer)
+	b := supervisortest.Start(t, supervisortest.Sleeper)
+	stateDir := t.TempDir()
+	start := settings.Defaults()
+	start.ConfigPath = confOf(a)
+	rt, rec := newRuntimeWith(t, RuntimeOptions{StateDir: stateDir, Settings: start, Interval: 100 * time.Millisecond})
+	server := NewServerService(rt)
+	waitOverview(t, server, 10*time.Second, "failer's unexpected exit", func(ov OverviewView) bool {
+		return len(openOfKind(ov, "unexpected_exit")) == 1
+	})
+	svc := NewSettingsService(rt, stateDir, "", nil, nil)
+	if _, err := svc.SaveConnection(ConnectionInput{ConfigPath: confOf(b)}); err != nil {
+		t.Fatal(err)
+	}
+	ov := waitOverview(t, server, 10*time.Second, "b's sleeper", procState("sleeper:sleeper", "RUNNING"))
+	if len(ov.Issues) != 0 {
+		t.Errorf("open issues after switching = %+v", ov.Issues)
+	}
+	all, err := NewIssueService(rt).List("all", 0, "", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 || all[0].Process != "failer:failer" || all[0].Status != "resolved_auto" || all[0].Note != "not in this supervisord" {
+		t.Errorf("issues = %+v, want failer's closed as not in this supervisord", all)
+	}
+	// A reconnect to the same supervisord closes nothing.
+	if _, err := svc.SaveConnection(ConnectionInput{ConfigPath: confOf(a)}); err != nil {
+		t.Fatal(err)
+	}
+	waitOverview(t, server, 10*time.Second, "failer's issue again", func(ov OverviewView) bool {
+		return len(openOfKind(ov, "unexpected_exit")) == 1
+	})
+	if _, err := server.Reconnect(); err != nil {
+		t.Fatal(err)
+	}
+	waitOverview(t, server, 10*time.Second, "reachable", func(ov OverviewView) bool { return ov.Server.Reachable })
+	settle(t, rec, 3)
+	if ov = server.Overview(); len(openOfKind(ov, "unexpected_exit")) != 1 {
+		t.Errorf("after a plain reconnect, open = %+v", ov.Issues)
 	}
 }

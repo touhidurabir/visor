@@ -39,6 +39,11 @@ func exists(path string) bool {
 
 // configDetail builds the config detail page for one include file.
 func (r *Runtime) configDetail(path string) (ConfigDetailView, error) {
+	// Without a connection the inventory is empty: say why, rather than
+	// that the file is unknown.
+	if _, err := r.conn(); err != nil {
+		return ConfigDetailView{}, err
+	}
 	ov := r.Overview()
 	r.mu.Lock()
 	inv, snap := r.inv, r.last.Snapshot.Processes

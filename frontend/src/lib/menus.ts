@@ -34,7 +34,13 @@ export function processMenu(p: ProcessView): MenuItem[] {
     item('restart', 'Restart', `supervisorctl restart ${name}`, p.State === 'STOPPING'),
     item('signal', 'Send signal…', `supervisorctl signal <sig> ${name}`, p.State !== 'RUNNING'),
     item('logs', 'View logs', `supervisorctl tail -f ${name}`),
-    item('clear', 'Clear logs', `supervisorctl clear ${name}`),
+    // supervisord clears the logs of a running process only; for any other
+    // it answers success and leaves the files alone.
+    item('clear', 'Clear logs', `supervisorctl clear ${name}`, p.State !== 'RUNNING', {
+      danger: true,
+      confirm: `supervisord empties both the stdout and the stderr log files of ${name}. This can’t be undone.`,
+      ...(p.State !== 'RUNNING' && { title: 'supervisord can clear the logs of a running process only' }),
+    }),
     item('copy-pid', 'Copy PID', '', !(p.PID > 0)),
   ]
 }

@@ -117,6 +117,18 @@ func TestFileActionWithoutConnectionReportsConnection(t *testing.T) {
 	}
 }
 
+// M10: the config page without a connection says why there is none, not
+// that the file is not one of supervisord's.
+func TestConfigDetailWithoutConnectionReportsConnection(t *testing.T) {
+	conf := filepath.Join(t.TempDir(), "missing.conf")
+	rt, _ := startRuntime(t, conf, t.TempDir(), 100*time.Millisecond)
+	svc := NewServerService(rt)
+	want := svc.Overview().Server.Error
+	if _, err := svc.ConfigDetail("/tmp/somewhere/x.ini"); err == nil || err.Error() != want {
+		t.Errorf("ConfigDetail = %v, want the connection error %q", err, want)
+	}
+}
+
 func TestLastErrorMessage(t *testing.T) {
 	cases := []struct {
 		name string
@@ -147,12 +159,12 @@ func TestLastErrorMessage(t *testing.T) {
 
 func TestCommandBinary(t *testing.T) {
 	for in, want := range map[string]string{
-		"php artisan queue:work":         "php",
-		"  /usr/bin/env  node app.js":    "/usr/bin/env",
-		`"/opt/my app/bin/run" --fast`:   "/opt/my app/bin/run",
-		`'/opt/x y/run'`:                 "/opt/x y/run",
-		"%(here)s/bin/worker --n=1":      "/etc/sv/bin/worker",
-		"":                               "",
+		"php artisan queue:work":       "php",
+		"  /usr/bin/env  node app.js":  "/usr/bin/env",
+		`"/opt/my app/bin/run" --fast`: "/opt/my app/bin/run",
+		`'/opt/x y/run'`:               "/opt/x y/run",
+		"%(here)s/bin/worker --n=1":    "/etc/sv/bin/worker",
+		"":                             "",
 	} {
 		if got := commandBinary(in, map[string]string{"here": "/etc/sv"}); got != want {
 			t.Errorf("commandBinary(%q) = %q, want %q", in, got, want)

@@ -10,6 +10,7 @@ const MESSAGES: Record<string, string> = {
   NO_FILE: 'supervisord can’t find the command. Check the command path in the config file.',
   NOT_EXECUTABLE: 'The command isn’t executable. Check its permissions.',
   UNREACHABLE: 'Can’t reach supervisord. Check that it is running, then try again.',
+  SHUTDOWN_STATE: 'supervisord is restarting. Retry in a moment.',
 }
 
 /** Go's errReconnecting: the call ran on a connection that was rebuilt. */

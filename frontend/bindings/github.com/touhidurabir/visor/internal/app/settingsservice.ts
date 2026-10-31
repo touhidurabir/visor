@@ -20,6 +20,18 @@ import * as settings$0 from "../settings/models.js";
 import * as $models from "./models.js";
 
 /**
+ * ApplyRetention saves how many days of closed issues and process history
+ * to keep (clamped) and puts it into use. A lower value deletes what is
+ * now older straight away, and that cannot be undone, so the page asks
+ * first; a higher one deletes nothing. Once the file is written the save
+ * has happened: a failure to clear older issues comes back as the view's
+ * Warning, not as an error.
+ */
+export function ApplyRetention(days: number): $CancellablePromise<$models.SettingsView> {
+    return $Call.ByID(1373322118, days);
+}
+
+/**
  * ChooseConfig shows the open-file dialog for picking supervisord.conf and
  * returns the chosen path, or "" when the person cancels. It does not save.
  */
@@ -36,11 +48,10 @@ export function Get(): $CancellablePromise<$models.SettingsView> {
 
 /**
  * Save saves everything but the connection (config path and username,
- * which SaveConnection changes) and puts it into use: the poll interval,
- * crash-loop thresholds and retention apply straight away. Out-of-range
- * values are clamped; the returned view shows what was saved. Once the
- * file is written the save has happened: a later problem (clearing older
- * issues) comes back as the view's Warning, not as an error.
+ * which SaveConnection changes) and the issue retention (ApplyRetention's,
+ * R27), and puts it into use: the poll interval and crash-loop thresholds
+ * apply straight away. Out-of-range values are clamped; the returned view
+ * shows what was saved.
  */
 export function Save($in: settings$0.Settings): $CancellablePromise<$models.SettingsView> {
     return $Call.ByID(2092722765, $in);

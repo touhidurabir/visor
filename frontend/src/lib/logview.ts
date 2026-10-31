@@ -6,6 +6,8 @@ import type { LogChunkView } from '../../bindings/github.com/touhidurabir/visor/
 export type Stream = 'stdout' | 'stderr'
 
 export interface LogLine {
+  /** Unique within a view and increasing, never reset (a stable render key). */
+  id: number
   /** Line number since the view started (or since the log was cleared); 0 for notes. */
   n: number
   text: string
@@ -17,6 +19,8 @@ export interface LogState {
   /** Text after the last newline, still being written. */
   partial: string
   next: number
+  /** The id the next line gets; unlike next, a cleared log doesn't reset it. */
+  seq: number
 }
 
 /** How many lines a log view keeps; older ones scroll away. */
@@ -26,7 +30,7 @@ export const TRUNCATED_NOTE = 'The log was cleared or rotated.'
 export const SKIPPED_NOTE = 'Some output was written faster than Visor reads it and is not shown.'
 
 export function emptyLog(): LogState {
-  return { lines: [], partial: '', next: 1 }
+  return { lines: [], partial: '', next: 1, seq: 1 }
 }
 
 /** applyChunk returns the state after one chunk; it never mutates s. */
@@ -34,28 +38,29 @@ export function applyChunk(s: LogState, c: Pick<LogChunkView, 'Text' | 'Truncate
   let lines = s.lines
   let partial = s.partial
   let next = s.next
+  let seq = s.seq
   if (c.Truncated) {
-    lines = [{ n: 0, text: TRUNCATED_NOTE, note: true }]
+    lines = [{ id: seq++, n: 0, text: TRUNCATED_NOTE, note: true }]
     partial = ''
     next = 1
   } else {
     lines = lines.slice()
   }
   if (c.Skipped) {
-    if (partial !== '') lines.push({ n: next++, text: partial })
+    if (partial !== '') lines.push({ id: seq++, n: next++, text: partial })
     partial = ''
-    lines.push({ n: 0, text: SKIPPED_NOTE, note: true })
+    lines.push({ id: seq++, n: 0, text: SKIPPED_NOTE, note: true })
   }
   const parts = (partial + c.Text).split('\n')
   partial = parts.pop() ?? ''
-  for (const p of parts) lines.push({ n: next++, text: p.endsWith('\r') ? p.slice(0, -1) : p })
+  for (const p of parts) lines.push({ id: seq++, n: next++, text: p.endsWith('\r') ? p.slice(0, -1) : p })
   if (lines.length > maxLines) lines = lines.slice(lines.length - maxLines)
-  return { lines, partial, next }
+  return { lines, partial, next, seq }
 }
 
-/** shownLines is every line to render, with the partial line last. */
+/** shownLines is every line to render, with the partial line last (it has the id it keeps once it ends). */
 export function shownLines(s: LogState): LogLine[] {
-  return s.partial === '' ? s.lines : [...s.lines, { n: s.next, text: s.partial }]
+  return s.partial === '' ? s.lines : [...s.lines, { id: s.seq, n: s.next, text: s.partial }]
 }
 
 export interface Segment {

@@ -858,25 +858,36 @@ func TestOpenIssuesOrderedLikeTheStore(t *testing.T) {
 	}
 }
 
-// newTrackerReason is newTrackerAuto whose ExitReason answers r, or no
-// reason when ok is false. calls counts the ExitReason calls.
+// newTrackerReason is newTrackerAuto whose exit lookup answers r, or no
+// reason when ok is false. calls counts the lookups.
 func newTrackerReason(t *testing.T, autorestart string, r ExitReason, ok bool) (tr *Tracker, c *clock, calls *int) {
+	t.Helper()
+	tr, c, calls, _ = newTrackerReads(t, autorestart, r, ok)
+	return tr, c, calls
+}
+
+// newTrackerReads is newTrackerReason that also counts reads of the log
+// (ExitReasons calls).
+func newTrackerReads(t *testing.T, autorestart string, r ExitReason, ok bool) (tr *Tracker, c *clock, calls, reads *int) {
 	t.Helper()
 	s, err := OpenStore(t.TempDir(), 90*24*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c = &clock{t: time.Now()}
-	calls = new(int)
+	calls, reads = new(int), new(int)
 	p := programs(nil, autorestart)
-	p.ExitReason = func(process string, pi supervisor.ProcessInfo) (ExitReason, bool) {
-		*calls++
-		if process != "g:w" || pi.Name != "w" {
-			t.Errorf("ExitReason(%q, %+v)", process, pi)
+	p.ExitReasons = func() ExitLookup {
+		*reads++
+		return func(process string, pi supervisor.ProcessInfo) (ExitReason, bool) {
+			*calls++
+			if !strings.HasPrefix(process, "g:") || "g:"+pi.Name != process {
+				t.Errorf("exit lookup(%q, %+v)", process, pi)
+			}
+			return r, ok
 		}
-		return r, ok
 	}
-	return NewTracker(s, DefaultRules, p, c.now), c, calls
+	return NewTracker(s, DefaultRules, p, c.now), c, calls, reads
 }
 
 // restartsNobodyAskedFor are the polls that show supervisord restarted a
@@ -1014,15 +1025,91 @@ func TestExitReasonOnlyAskedForUnaskedRestarts(t *testing.T) {
 		t.Fatalf("the user's restart opened %+v", opened)
 	}
 	if *calls != 0 {
-		t.Errorf("ExitReason called %d times for polls and a user restart", *calls)
+		t.Errorf("exit lookup called %d times for polls and a user restart", *calls)
 	}
-	// With an unexpected_exit already open, there is nothing to ask.
+	// With an unexpected_exit already open there is no issue to open, but
+	// the reason still decides whether the restart counts toward a crash
+	// loop (a stop someone asked for does not), so each restart asks.
 	c.advance(2 * time.Minute)
 	tr.Apply(restartEvent(c.now(), supervisor.StateRunning))
 	c.advance(5 * time.Second)
 	tr.Apply(restartEvent(c.now(), supervisor.StateRunning))
-	if *calls != 1 {
-		t.Errorf("ExitReason called %d times for two crashes with an issue open, want 1", *calls)
+	if *calls != 2 {
+		t.Errorf("exit lookup called %d times for two crashes with an issue open, want 2", *calls)
+	}
+}
+
+// R26: supervisord logs "stopped:" for a stop someone asked for, e.g.
+// supervisorctl restart, or stop and start from another client. Such a
+// restart opens nothing, does not count toward a crash loop, and is noted
+// in history.
+func TestDeliberateRestartOpensNothingAndCountsNoCrashLoop(t *testing.T) {
+	stopped := ExitReason{Desc: "terminated by SIGTERM", Status: -1, Deliberate: true}
+	for _, tc := range restartsNobodyAskedFor {
+		for _, auto := range autorestarts {
+			t.Run(tc.name+" autorestart="+auto, func(t *testing.T) {
+				tr, c, calls := newTrackerReason(t, auto, stopped, true)
+				var opened []Issue
+				for i := 0; i < 6; i++ {
+					o, _ := tr.Apply(tc.u(c.now()))
+					opened = append(opened, o...)
+					c.advance(2 * time.Second)
+				}
+				if len(opened) != 0 {
+					t.Fatalf("deliberate restarts opened %+v", opened)
+				}
+				if *calls != 6 {
+					t.Errorf("exit lookup called %d times, want 6", *calls)
+				}
+				h, _ := tr.store.History("g:w", 0)
+				if len(h) == 0 || h[0].Note != "Restarted (stopped on request)" {
+					t.Errorf("history = %+v, want the restart noted as stopped on request", h)
+				}
+			})
+		}
+	}
+}
+
+// A start from STOPPED is always someone's doing (supervisord never starts
+// a stopped process by itself), so it does not count toward a crash loop.
+func TestStartFromStoppedCountsNoCrashLoop(t *testing.T) {
+	tr, _, c := newTracker(t, nil)
+	for i := 0; i < 6; i++ {
+		tr.Apply(change(c.now(), supervisor.StateStopped, supervisor.StateStarting, info(0)))
+		c.advance(time.Second)
+		tr.Apply(restartEvent(c.now(), supervisor.StateStopped)) // started and stopped between polls
+		c.advance(time.Second)
+	}
+	if open := tr.Open(); len(open) != 0 {
+		t.Fatalf("starts from STOPPED opened %+v", open)
+	}
+}
+
+// After a daemon restart every process restarts in one update; the log is
+// read once for all of them.
+func TestOneLogReadPerApply(t *testing.T) {
+	for _, reason := range []ExitReason{
+		{Desc: "terminated by SIGTERM", Status: -1, Deliberate: true},
+		{Desc: "exit status 1", Status: 1},
+	} {
+		tr, c, calls, reads := newTrackerReads(t, "", reason, true)
+		at := c.now()
+		u := monitor.Update{Snapshot: monitor.Snapshot{At: at, Reachable: true}}
+		for _, name := range []string{"a", "b", "c", "d"} {
+			pi := supervisor.ProcessInfo{Name: name, Group: "g", State: supervisor.StateRunning, PID: len(name) + 100, Start: at}
+			u.Snapshot.Processes = append(u.Snapshot.Processes, pi)
+			u.Events = append(u.Events, monitor.Event{Kind: monitor.Restarted, At: at, Process: "g:" + name,
+				From: supervisor.StateRunning, To: supervisor.StateRunning, Info: pi})
+		}
+		tr.Apply(u)
+		if *reads != 1 || *calls != 4 {
+			t.Errorf("%+v: %d log reads and %d lookups for 4 restarts, want 1 and 4", reason, *reads, *calls)
+		}
+		// An update with no restart nobody asked for reads nothing.
+		tr.Apply(steady(c.now(), info(supervisor.StateRunning)))
+		if *reads != 1 {
+			t.Errorf("%d log reads after a quiet poll, want 1", *reads)
+		}
 	}
 }
 
@@ -1165,5 +1252,37 @@ func TestStoreCompactWithNewRetention(t *testing.T) {
 	}
 	if h, _ := s.History("", 0); len(h) != 1 {
 		t.Errorf("history after Compact = %+v, want 1", h)
+	}
+}
+
+// M4: after switching to another supervisord, issues of processes it does
+// not run can never close themselves, so they close as soon as its first
+// reachable snapshot shows they are absent.
+func TestCloseAbsent(t *testing.T) {
+	tr, s, c := newTracker(t, nil)
+	other := supervisor.ProcessInfo{Name: "x", Group: "old", State: supervisor.StateFatal}
+	tr.Apply(added(c.now(), other))
+	tr.Apply(added(c.now(), fatalInfo(c.now(), c.now())))
+	for i := 0; i < 2; i++ {
+		tr.Apply(down(c))
+		c.advance(time.Second)
+	}
+	if n := len(tr.Open()); n != 3 {
+		t.Fatalf("open = %+v, want old:x fatal, g:w fatal and unreachable", tr.Open())
+	}
+	c.advance(time.Minute)
+	closed := tr.CloseAbsent([]supervisor.ProcessInfo{info(supervisor.StateRunning)}, "not in this supervisord")
+	if len(closed) != 1 || closed[0].Process != "old:x" || closed[0].Status != StatusResolvedAuto || closed[0].Note != "not in this supervisord" {
+		t.Fatalf("closed = %+v", closed)
+	}
+	open := tr.Open()
+	if len(open) != 2 {
+		t.Errorf("open = %+v, want g:w and unreachable left", open)
+	}
+	stored, _ := s.Issues(Filter{})
+	for _, is := range stored {
+		if is.Process == "old:x" && (is.Status != StatusResolvedAuto || is.ClosedAt.IsZero()) {
+			t.Errorf("stored %+v", is)
+		}
 	}
 }

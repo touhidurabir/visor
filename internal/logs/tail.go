@@ -23,6 +23,10 @@ const (
 	pollLength       = 256 << 10
 )
 
+// NoBuffer, as NewTailer's maxBuffer, keeps no copy of the log: Buffer
+// returns "". For a follower that only passes chunks on.
+const NoBuffer = -1
+
 // ErrNoLog means the process has no log file for this stream (for example
 // stderr_logfile=NONE, or stderr redirected into stdout).
 var ErrNoLog = errors.New("this stream has no log file")
@@ -67,9 +71,10 @@ type Tailer struct {
 }
 
 // NewTailer tails process's stream. maxBuffer is how many of the newest
-// bytes Buffer keeps; zero or less means 1 MiB.
+// bytes Buffer keeps; zero means 1 MiB and NoBuffer (or any negative)
+// nothing.
 func NewTailer(c TailClient, process string, s Stream, maxBuffer int) *Tailer {
-	if maxBuffer <= 0 {
+	if maxBuffer == 0 {
 		maxBuffer = defaultMaxBuffer
 	}
 	return &Tailer{c: c, process: process, stream: s, max: maxBuffer}
@@ -183,7 +188,7 @@ func (t *Tailer) Buffer() string {
 }
 
 func (t *Tailer) append(text string) {
-	if text == "" {
+	if text == "" || t.max < 0 {
 		return
 	}
 	t.mu.Lock()

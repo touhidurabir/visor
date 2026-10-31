@@ -36,6 +36,37 @@ describe('applyChunk', () => {
   })
 })
 
+describe('line ids (M6)', () => {
+  const ids = (s: ReturnType<typeof emptyLog>) => shownLines(s).map((l) => l.id)
+  it('keep each line’s id when older lines scroll away', () => {
+    let s = applyChunk(emptyLog(), chunk('1\n2\n3\n'), 3)
+    const before = ids(s)
+    s = applyChunk(s, chunk('4\n'), 3)
+    expect(ids(s).slice(0, 2)).toEqual(before.slice(1))
+    expect(new Set(ids(s)).size).toBe(3)
+  })
+  it('never reuse an id, even after the log is cleared', () => {
+    let s = applyChunk(emptyLog(), chunk('a\nb\n'))
+    const seen = new Set(ids(s))
+    s = applyChunk(s, chunk('c\n', { Truncated: true }))
+    for (const id of ids(s)) expect(seen.has(id)).toBe(false)
+    expect(texts(s)).toEqual(['[The log was cleared or rotated.]', '1:c'])
+  })
+  it('give a partial line the id it keeps once it ends', () => {
+    let s = applyChunk(emptyLog(), chunk('one\ntw'))
+    const partial = ids(s)[1]
+    s = applyChunk(s, chunk('o\n'))
+    expect(ids(s)[1]).toBe(partial)
+  })
+  it('are increasing', () => {
+    let s = applyChunk(emptyLog(), chunk('a\nhal'))
+    s = applyChunk(s, chunk('later\n', { Skipped: true }))
+    const got = ids(s)
+    expect(got).toEqual([...got].sort((x, y) => x - y))
+    expect(new Set(got).size).toBe(got.length)
+  })
+})
+
 describe('highlight', () => {
   it('splits text around case-insensitive matches', () => {
     expect(highlight('Error: an error', 'error')).toEqual([

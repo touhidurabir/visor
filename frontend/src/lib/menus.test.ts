@@ -22,6 +22,17 @@ describe('processMenu', () => {
   it.each(['STOPPED', 'FATAL', 'EXITED'])('disables Stop when %s', (State) => {
     expect(find(processMenu(proc({ State, PID: 0 })), 'stop').disabled).toBe(true)
   })
+  it('confirms before clearing the logs, like the Logs tab', () => {
+    const clear = find(processMenu(proc({ FullName: 'g:web_00' })), 'clear')
+    expect(clear.danger).toBe(true)
+    expect(clear.confirm).toBe('supervisord empties both the stdout and the stderr log files of g:web_00. This can’t be undone.')
+    expect(clear.disabled).toBe(false)
+  })
+  it.each(['STOPPED', 'FATAL', 'EXITED', 'STARTING', 'BACKOFF'])('disables Clear logs when %s, saying why', (State) => {
+    const clear = find(processMenu(proc({ State })), 'clear')
+    expect(clear.disabled).toBe(true)
+    expect(clear.title).toBe('supervisord can clear the logs of a running process only')
+  })
   it('disables Copy PID without a PID', () => {
     expect(find(processMenu(proc({ PID: 0 })), 'copy-pid').disabled).toBe(true)
     expect(find(processMenu(proc({ PID: 7 })), 'copy-pid').disabled).toBe(false)

@@ -25,6 +25,7 @@ const (
 	noteByUser      = "by you"
 	noteRestarted   = "Restarted by supervisord"
 	noteRestartedBy = "Restarted by you"
+	noteOnRequest   = "Restarted (stopped on request)"
 )
 
 // Programs answers questions about the program behind a process
@@ -37,19 +38,31 @@ type Programs struct {
 	// Autorestart returns the program's autorestart= value as written
 	// ("true", "unexpected", "no", ...); "" means the default, unexpected.
 	Autorestart func(process string) string
-	// ExitReason returns why the process last exited (info is its state
-	// after the restart), as supervisord logged it, or false when that is
-	// not known. It is asked only when supervisord restarted a RUNNING
-	// process without the user asking, never once per poll. A nil func
-	// never knows.
-	ExitReason func(process string, info supervisor.ProcessInfo) (ExitReason, bool)
+	// ExitReasons reads supervisord's main log once and returns a lookup
+	// of why processes last exited, or nil when the log cannot be read.
+	// The tracker calls it at most once per Apply, on the first restart
+	// of a RUNNING process that the user did not ask Visor for, and only
+	// then: never once per poll. After a daemon restart every process
+	// restarts in the same update, and the log is still read once. A nil
+	// func never knows.
+	ExitReasons func() ExitLookup
 }
+
+// ExitLookup returns why a process last exited (info is its state after
+// the restart), as supervisord logged it, or false when that is not known.
+type ExitLookup func(process string, info supervisor.ProcessInfo) (ExitReason, bool)
 
 // ExitReason is why a process exited, from supervisord's main log.
 type ExitReason struct {
 	Desc     string // "exit status 1", "terminated by SIGSEGV (core dumped)"
 	Status   int    // exit code; -1 when terminated by a signal
 	Expected bool   // the code is in exitcodes= and it ran past startsecs=
+	// Deliberate means supervisord stopped the process because someone
+	// asked it to ("stopped:" in its log): supervisorctl restart, a stop
+	// and start from another client, a daemon restart or reload. Unlike an
+	// expected exit, the restart that follows is nobody's failure, so it
+	// does not count toward a crash loop either.
+	Deliberate bool
 }
 
 // Tracker applies monitor updates to the issue list and the history.
@@ -181,27 +194,37 @@ func (t *Tracker) Apply(u monitor.Update) (opened, closed []Issue) {
 
 	var trans []Transition
 	restarted := map[string]bool{} // crash-loop candidates, not caused by the user
+	reasons := t.lazyReasons()
 	for _, ev := range u.Events {
 		byUser := ev.Process != "" && t.byUser(ev.Process, now)
 		switch ev.Kind {
 		case monitor.StateChanged:
+			// RUNNING, then STARTING or BACKOFF: it exited and supervisord
+			// started it again between two polls.
+			crashed := ev.From == supervisor.StateRunning && (ev.To == supervisor.StateStarting || ev.To == supervisor.StateBackoff)
+			r, known := ExitReason{}, false
+			if crashed && !byUser {
+				r, known = reasons(ev)
+			}
+			deliberate := known && r.Deliberate
 			note := ev.Info.SpawnErr
 			switch {
 			case byUser && note == "":
 				note = noteByUser
 			case byUser:
 				note += " (" + noteByUser + ")"
+			case deliberate && note == "":
+				note = noteOnRequest
 			}
 			trans = append(trans, Transition{At: ev.At, Process: ev.Process, From: ev.From.String(), To: ev.To.String(), Note: note})
 			t.trackRunning(ev.Process, ev.To, now)
-			// RUNNING, then STARTING or BACKOFF: it exited and supervisord
-			// started it again between two polls.
-			crashed := ev.From == supervisor.StateRunning && (ev.To == supervisor.StateStarting || ev.To == supervisor.StateBackoff)
-			if !byUser && (ev.To == supervisor.StateStarting || crashed) {
+			// A start from STOPPED is always someone's: supervisord never
+			// starts a stopped process by itself.
+			if !byUser && !deliberate && ((ev.To == supervisor.StateStarting && ev.From != supervisor.StateStopped) || crashed) {
 				restarted[ev.Process] = true
 			}
-			if crashed && !byUser {
-				opened = append(opened, t.restartedBySupervisord(ev, now)...)
+			if crashed && !byUser && !deliberate {
+				opened = append(opened, t.restartedBySupervisord(ev, r, known, now)...)
 			}
 			opened = append(opened, t.entered(ev, now)...)
 		case monitor.Added:
@@ -216,21 +239,32 @@ func (t *Tracker) Apply(u monitor.Update) (opened, closed []Issue) {
 				return i.Process == ev.Process
 			}, StatusResolvedAuto, noteRemoved, now)...)
 		case monitor.Restarted:
+			crashed := !byUser && ev.From == supervisor.StateRunning && upOrStarting(ev.To)
+			r, known := ExitReason{}, false
+			if crashed {
+				r, known = reasons(ev)
+			}
+			deliberate := known && r.Deliberate
 			note := noteRestarted
-			if byUser {
+			switch {
+			case byUser:
 				note = noteRestartedBy
+			case deliberate:
+				note = noteOnRequest
 			}
 			trans = append(trans, Transition{At: ev.At, Process: ev.Process, From: ev.From.String(), To: ev.To.String(), Note: note})
 			delete(t.runningSince, ev.Process)
 			t.trackRunning(ev.Process, ev.To, now)
-			if !byUser {
+			// STOPPED to STOPPED is a start and a stop between two polls:
+			// someone's doing, like any start from STOPPED.
+			if !byUser && !deliberate && ev.From != supervisor.StateStopped {
 				restarted[ev.Process] = true
 			}
 			switch {
 			case ev.To == supervisor.StateFatal || ev.To == supervisor.StateExited:
 				opened = append(opened, t.entered(ev, now)...)
-			case !byUser && ev.From == supervisor.StateRunning && upOrStarting(ev.To):
-				opened = append(opened, t.restartedBySupervisord(ev, now)...)
+			case crashed && !deliberate:
+				opened = append(opened, t.restartedBySupervisord(ev, r, known, now)...)
 			}
 			// Startup retries (from STARTING or BACKOFF) and STOPPED (a
 			// start and stop between two polls) open nothing: FATAL and
@@ -288,6 +322,31 @@ func (t *Tracker) Apply(u monitor.Update) (opened, closed []Issue) {
 		return i.Kind == KindFatal && ok && now.Sub(since) >= t.rules.StableFor
 	}, StatusResolvedAuto, "", now)...)
 	return opened, closed
+}
+
+// CloseAbsent closes, as resolved automatically with note, the open
+// issues of processes not in present (a reachable snapshot), and forgets
+// what it counted for them. After Visor switches to another supervisord,
+// the old one's processes never show up as Removed, so their issues could
+// never close themselves. Issues without a process stay.
+func (t *Tracker) CloseAbsent(present []supervisor.ProcessInfo, note string) []Issue {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	here := make(map[string]bool, len(present))
+	for _, p := range present {
+		here[p.FullName()] = true
+	}
+	for proc := range t.restarts {
+		if !here[proc] {
+			delete(t.restarts, proc)
+		}
+	}
+	for proc := range t.runningSince {
+		if !here[proc] {
+			delete(t.runningSince, proc)
+		}
+	}
+	return t.closeWhere(func(i *Issue) bool { return i.Process != "" && !here[i.Process] }, StatusResolvedAuto, note, t.now())
 }
 
 // Open returns the open issues, newest first (the store's order).
@@ -372,21 +431,21 @@ func (t *Tracker) entered(ev monitor.Event, now time.Time) []Issue {
 	return nil
 }
 
-// restartedBySupervisord handles a RUNNING process that supervisord
-// restarted without the user asking. supervisord's main log says whether
-// the exit was expected: a planned exit (e.g. queue:work --max-time exits
-// 0) opens nothing, a crash opens an issue whatever autorestart= says.
-// When the log cannot tell, autorestart= decides: with unexpected,
-// supervisord restarts only on an exit code not in exitcodes, so the
-// restart proves an unexpected exit; with true a restart may be planned,
-// so it only counts toward a crash loop; with false there is no restart
-// to see.
-func (t *Tracker) restartedBySupervisord(ev monitor.Event, now time.Time) []Issue {
+// restartedBySupervisord handles a RUNNING process that restarted without
+// the user asking Visor, and not after a stop someone asked supervisord
+// for. r (when known) is supervisord's main log's word on the exit: a
+// planned exit (e.g. queue:work --max-time exits 0) opens nothing, a crash
+// opens an issue whatever autorestart= says. When the log cannot tell,
+// autorestart= decides: with unexpected, supervisord restarts only on an
+// exit code not in exitcodes, so the restart proves an unexpected exit;
+// with true a restart may be planned, so it only counts toward a crash
+// loop; with false there is no restart to see.
+func (t *Tracker) restartedBySupervisord(ev monitor.Event, r ExitReason, known bool, now time.Time) []Issue {
 	if t.hasOpen(ev.Process, KindUnexpectedExit) || t.closedByUserSince(ev.Process, KindUnexpectedExit, ev.Info) {
-		return nil // nothing to open, so nothing to ask supervisord
+		return nil
 	}
 	msg := restartedByDmn
-	if r, ok := t.exitReason(ev); ok {
+	if known {
 		if r.Expected {
 			return nil
 		}
@@ -401,11 +460,24 @@ func (t *Tracker) restartedBySupervisord(ev monitor.Event, now time.Time) []Issu
 	return t.openIssueAt(KindUnexpectedExit, ev.Process, msg, at, now)
 }
 
-func (t *Tracker) exitReason(ev monitor.Event) (ExitReason, bool) {
-	if t.progs.ExitReason == nil {
-		return ExitReason{}, false
+// lazyReasons returns a lookup of exit reasons for one Apply: the first
+// call reads supervisord's log (ExitReasons), later ones reuse what it
+// read.
+func (t *Tracker) lazyReasons() func(monitor.Event) (ExitReason, bool) {
+	var lookup ExitLookup
+	read := false
+	return func(ev monitor.Event) (ExitReason, bool) {
+		if !read {
+			read = true
+			if t.progs.ExitReasons != nil {
+				lookup = t.progs.ExitReasons()
+			}
+		}
+		if lookup == nil {
+			return ExitReason{}, false
+		}
+		return lookup(ev.Process, ev.Info)
 	}
-	return t.progs.ExitReason(ev.Process, ev.Info)
 }
 
 // restartMessage says how a process exited before supervisord restarted it.

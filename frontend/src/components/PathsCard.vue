@@ -1,21 +1,23 @@
 <script setup lang="ts">
 // "Paths in this config" (spec §5.3): working directories open in Finder,
-// command binaries are revealed in Finder, log files open in their default
-// app. Missing paths get a badge and no action.
+// command binaries are revealed in Finder, log files open in the default
+// text editor. Missing paths get a badge and no action.
 import type { PathView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 
 defineProps<{ paths: PathView[] }>()
-const emit = defineEmits<{ open: [path: string]; reveal: [path: string] }>()
+const emit = defineEmits<{ open: [path: string]; openLog: [path: string]; reveal: [path: string] }>()
 
-const ACTIONS: Record<string, { label: string; event: 'open' | 'reveal' }> = {
+const ACTIONS: Record<string, { label: string; event: 'open' | 'openLog' | 'reveal' }> = {
   dir: { label: 'Open in Finder', event: 'open' },
   bin: { label: 'Reveal in Finder', event: 'reveal' },
-  log: { label: 'Open in editor', event: 'open' },
+  log: { label: 'Open in editor', event: 'openLog' },
 }
 const action = (p: PathView) => ACTIONS[p.Kind] ?? ACTIONS.log
 
 function act(p: PathView) {
-  if (action(p).event === 'reveal') emit('reveal', p.Path)
+  const ev = action(p).event
+  if (ev === 'reveal') emit('reveal', p.Path)
+  else if (ev === 'openLog') emit('openLog', p.Path)
   else emit('open', p.Path)
 }
 </script>

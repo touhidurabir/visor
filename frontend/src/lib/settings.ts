@@ -47,6 +47,31 @@ export function clampNote(typed: number | null, saved: number, limit: Limit, uni
   return `Set to ${plural(saved)}.`
 }
 
+export type RetentionChange = { kind: 'same' | 'invalid' } | { kind: 'raise' | 'lower'; days: number }
+
+/**
+ * retentionChange says what applying the typed retention would do, in whole
+ * days clamped as Go clamps them, so a confirmation names the days that
+ * will apply. Lowering deletes history and needs confirming (R27).
+ */
+export function retentionChange(text: string | number, saved: number): RetentionChange {
+  const n = typedNumber(text)
+  if (n === null) return { kind: 'invalid' }
+  const { min, max } = LIMITS.retentionDays
+  const days = Math.min(max, Math.max(min, Math.round(n)))
+  if (days === saved) return { kind: 'same' }
+  return { kind: days < saved ? 'lower' : 'raise', days }
+}
+
+/** What to ask before lowering retention deletes older issues and history. */
+export function retentionConfirm(days: number): { title: string; message: string; confirmLabel: string } {
+  return {
+    title: `Delete issues and history older than ${days} days?`,
+    message: 'This can’t be undone.',
+    confirmLabel: 'Delete older issues',
+  }
+}
+
 /** The settings in use, loaded once and refreshed by every save. */
 export const currentSettings = ref<SettingsView | null>(null)
 

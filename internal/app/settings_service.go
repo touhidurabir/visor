@@ -112,22 +112,47 @@ func (s *SettingsService) withWarning(err error) SettingsView {
 }
 
 // Save saves everything but the connection (config path and username,
-// which SaveConnection changes) and puts it into use: the poll interval,
-// crash-loop thresholds and retention apply straight away. Out-of-range
-// values are clamped; the returned view shows what was saved. Once the
-// file is written the save has happened: a later problem (clearing older
-// issues) comes back as the view's Warning, not as an error.
+// which SaveConnection changes) and the issue retention (ApplyRetention's,
+// R27), and puts it into use: the poll interval and crash-loop thresholds
+// apply straight away. Out-of-range values are clamped; the returned view
+// shows what was saved.
 func (s *SettingsService) Save(in settings.Settings) (SettingsView, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cur := s.rt.Settings()
-	in.ConfigPath, in.Username = cur.ConfigPath, cur.Username
+	// A lower retention saved here would delete history at the next
+	// launch without the person confirming it.
+	in.ConfigPath, in.Username, in.RetentionDays = cur.ConfigPath, cur.Username, cur.RetentionDays
 	in = in.Clamp()
 	if err := settings.Save(s.stateDir, in); err != nil {
 		return s.view(), err
 	}
 	s.loadErr = nil
 	return s.withWarning(s.rt.ApplySettings(in, false)), nil
+}
+
+// ApplyRetention saves how many days of closed issues and process history
+// to keep (clamped) and puts it into use. A lower value deletes what is
+// now older straight away, and that cannot be undone, so the page asks
+// first; a higher one deletes nothing. Once the file is written the save
+// has happened: a failure to clear older issues comes back as the view's
+// Warning, not as an error.
+func (s *SettingsService) ApplyRetention(days int) (SettingsView, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := s.rt.Settings()
+	old := next.RetentionDays
+	next.RetentionDays = days
+	next = next.Clamp()
+	if err := settings.Save(s.stateDir, next); err != nil {
+		return s.view(), err
+	}
+	s.loadErr = nil
+	err := s.rt.ApplySettings(next, false)
+	if err == nil && next.RetentionDays < old {
+		err = s.rt.compactIssues(next)
+	}
+	return s.withWarning(err), nil
 }
 
 // SaveConnection checks and saves the config path and credentials, then

@@ -63,6 +63,14 @@ export function OpenInEditor(path: string): $CancellablePromise<void> {
 }
 
 /**
+ * OpenLog opens a log file in the default text editor (open -t), whatever
+ * its extension, so no other app can run it. Folders are refused.
+ */
+export function OpenLog(path: string): $CancellablePromise<void> {
+    return $Call.ByID(4025706144, path);
+}
+
+/**
  * Overview returns the current dashboard view. The same view is pushed as
  * the visor:overview event after every poll and action.
  */

@@ -249,7 +249,7 @@ func TestTailNewest(t *testing.T) {
 		{Stderr, 1 << 10, "boom\n"},            // the stream picks the RPC
 		{Stdout, 9, "three\n"},                 // "o\nthree\n" starts mid-line: drop to the next line
 		{Stdout, 6, "three\n"},                 // starts exactly on a line
-		{Stdout, 13, "two\nthree\n"},          // one byte short of the whole log
+		{Stdout, 13, "two\nthree\n"},           // one byte short of the whole log
 	} {
 		got, err := Tail(ctx, f, "p", c.s, c.n)
 		if err != nil || got != c.want {
@@ -267,5 +267,26 @@ func TestTailNewest(t *testing.T) {
 	f.out.err = supervisor.ErrNoFile
 	if _, err := Tail(ctx, f, "p", Stdout, 10); !errors.Is(err, ErrNoLog) {
 		t.Errorf("NO_FILE = %v, want ErrNoLog", err)
+	}
+}
+
+// M7: a follower that never calls Buffer keeps no copy of the log.
+func TestNoBufferKeepsNothing(t *testing.T) {
+	f := &fakeLog{}
+	f.write(strings.Repeat("x", 1000) + "\n")
+	tl := NewTailer(f, "p", Stdout, NoBuffer)
+	if c := poll(t, tl); len(c.Text) != 1001 {
+		t.Fatalf("first = %d bytes", len(c.Text))
+	}
+	f.write("more\n")
+	if c := poll(t, tl); c.Text != "more\n" {
+		t.Fatalf("second = %+v", c)
+	}
+	f.data = []byte("new\n") // cleared
+	if c := poll(t, tl); !c.Truncated || c.Text != "new\n" {
+		t.Fatalf("after clear = %+v", c)
+	}
+	if b := tl.Buffer(); b != "" || cap(tl.buf) != 0 {
+		t.Errorf("Buffer = %q, cap %d; want nothing kept", b, cap(tl.buf))
 	}
 }

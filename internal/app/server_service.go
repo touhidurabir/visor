@@ -164,6 +164,10 @@ func (s *ServerService) Reveal(path string) error { return platform.Reveal(path)
 // bundles and file types macOS would run are revealed in Finder instead.
 func (s *ServerService) OpenInEditor(path string) error { return platform.Open(path) }
 
+// OpenLog opens a log file in the default text editor (open -t), whatever
+// its extension, so no other app can run it. Folders are refused.
+func (s *ServerService) OpenLog(path string) error { return platform.OpenText(path) }
+
 // StartAll starts every process.
 func (s *ServerService) StartAll() error {
 	return s.rt.act(expectAll(), startAll)
@@ -250,10 +254,24 @@ func (s *ServerService) MainLog(maxBytes int) (string, error) {
 	err := s.rt.act(expectation{}, func(ctx context.Context, c *supervisor.Client) error {
 		var err error
 		out, err = c.ReadLog(ctx, -maxBytes, 0)
+		if errors.Is(err, supervisor.ErrNoFile) {
+			return noMainLogError{err}
+		}
 		return wrap("read the supervisord log", err)
 	})
 	return out, err
 }
+
+// noMainLogError is readLog's NO_FILE, which here means supervisord keeps
+// no log file of its own (not a missing command, as NO_FILE means when
+// starting a process). It still matches supervisor.ErrNoFile.
+type noMainLogError struct{ err error }
+
+func (e noMainLogError) Error() string {
+	return "supervisord writes no log file (logfile= is unset or syslog). Set [supervisord] logfile= to see it here."
+}
+
+func (e noMainLogError) Unwrap() error { return e.err }
 
 func startGroup(ctx context.Context, c *supervisor.Client, g string) error {
 	res, err := c.StartProcessGroup(ctx, g, true)

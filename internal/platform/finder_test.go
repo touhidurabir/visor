@@ -137,3 +137,53 @@ func TestOpenCmdForRevealsLaunchables(t *testing.T) {
 		t.Errorf("executable: %v", err)
 	}
 }
+
+func TestOpenTextCmdArgs(t *testing.T) {
+	cmd := OpenTextCmd("/tmp/some dir/app.log")
+	if want := []string{"open", "-t", "/tmp/some dir/app.log"}; !slices.Equal(cmd.Args, want) {
+		t.Errorf("args = %q, want %q", cmd.Args, want)
+	}
+}
+
+// M8: a log file always opens in the default text editor, whatever its
+// extension or mode, so no handler (Python Launcher for .py, Terminal for
+// .command) ever gets to run it.
+func TestOpenTextCmdForAlwaysUsesTheTextEditor(t *testing.T) {
+	dir := t.TempDir()
+	for _, c := range []struct {
+		name string
+		mode os.FileMode
+	}{
+		{"app.log", 0o644},
+		{"worker.py", 0o644},
+		{"run.command", 0o644},
+		{"x.jar", 0o644},
+		{"exec.log", 0o755},
+	} {
+		p := filepath.Join(dir, c.name)
+		if err := os.WriteFile(p, []byte("x"), c.mode); err != nil {
+			t.Fatal(err)
+		}
+		cmd, err := openTextCmdFor(p)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if want := []string{"open", "-t", p}; !slices.Equal(cmd.Args, want) {
+			t.Errorf("%s: args = %q, want %q", c.name, cmd.Args, want)
+		}
+	}
+	for _, c := range []struct {
+		name, path string
+		want       error
+	}{
+		{"relative", "logs/app.log", ErrNotAbsolute},
+		{"option-like", "-a", ErrNotAbsolute},
+		{"missing", filepath.Join(dir, "gone.log"), ErrMissing},
+		{"folder", dir, ErrNotFile},
+		{"device", "/dev/null", ErrNotFile},
+	} {
+		if _, err := openTextCmdFor(c.path); !errors.Is(err, c.want) {
+			t.Errorf("%s: %v, want %v", c.name, err, c.want)
+		}
+	}
+}

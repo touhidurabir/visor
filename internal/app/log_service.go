@@ -31,8 +31,6 @@ const (
 	// oldest. One per stream of a process is kept anyway (a new follow of
 	// the same stream replaces the old one).
 	maxFollows = 8
-	// followBuffer is how much of a followed log the tailer keeps.
-	followBuffer = 1 << 20
 	// saveBytes is how much of a log Save writes: its newest bytes.
 	saveBytes = 4 << 20
 	// maxPollFailures is how many polls in a row may fail before a follow
@@ -144,7 +142,9 @@ func (s *LogService) Follow(process, stream string) (string, error) {
 // start reads the first chunk of a log, registers the follow and starts
 // its poller. ctx bounds the follow's life (the Runtime's context).
 func (s *LogService) start(ctx context.Context, c logs.TailClient, process string, st logs.Stream) (string, error) {
-	t := logs.NewTailer(c, process, st, followBuffer)
+	// Chunks go straight to the frontend; Save re-reads with logs.Tail, so
+	// the tailer keeps no copy.
+	t := logs.NewTailer(c, process, st, logs.NoBuffer)
 	pctx, cancel := context.WithTimeout(ctx, rpcTimeout)
 	first, err := t.Poll(pctx)
 	cancel()

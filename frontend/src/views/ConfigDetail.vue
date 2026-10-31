@@ -181,6 +181,7 @@ async function finder(fn: () => Promise<unknown>) {
 }
 const reveal = (p: string) => void finder(() => ServerService.Reveal(p))
 const openPath = (p: string) => void finder(() => ServerService.OpenInEditor(p))
+const openLog = (p: string) => void finder(() => ServerService.OpenLog(p))
 const toggleWatch = () => {
   const c = config.value
   if (c) void run(() => ServerService.SetWatch(c.Path, !c.Watched)).then((ok) => {
@@ -294,10 +295,10 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
               :error="detail.LastError"
               :busy="busy"
               @restart="restart(detail.LastError.Process)"
-              @open-stderr="openPath(detail.LastError.StderrLog)"
+              @open-stderr="openLog(detail.LastError.StderrLog)"
               @open-config="openPath(config.Path)"
             />
-            <PathsCard v-if="detail" :paths="detail.Paths ?? []" @open="openPath" @reveal="reveal" />
+            <PathsCard v-if="detail" :paths="detail.Paths ?? []" @open="openPath" @open-log="openLog" @reveal="reveal" />
             <p v-else-if="!detailError" class="muted">Loading…</p>
           </div>
           <section class="card" aria-labelledby="describe-title">

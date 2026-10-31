@@ -56,6 +56,10 @@ const (
 	exitLineSlack = 2 * time.Second
 )
 
+// noteNotHere closes the issues of processes that the supervisord Visor
+// switched to does not run.
+const noteNotHere = "not in this supervisord"
+
 // StateDir is where Visor keeps its state: $VISOR_STATE_DIR if set,
 // otherwise ~/Library/Application Support/Visor.
 func StateDir() (string, error) {
@@ -110,7 +114,7 @@ const reconnectWait = 5 * time.Second
 // never held while waiting on a poll. mu is a leaf lock. It is never held
 // while calling the tracker, the watcher, the monitor or supervisord,
 // because the tracker calls back into the Runtime (configOf, expectedExit,
-// autorestart, exitReason) under its own lock.
+// autorestart, exitReasons) under its own lock.
 type Runtime struct {
 	opts  RuntimeOptions
 	watch *watchStore
@@ -139,6 +143,12 @@ type Runtime struct {
 	version  string
 	// failedPolls counts consecutive unreachable polls, for health.
 	failedPolls int
+	// lastConfig is the config the previous connection used; it outlives
+	// disconnect. pruneAbsent is set when a rebuild connects to a
+	// different config, until its first reachable snapshot closes the
+	// issues of processes this supervisord does not run (M4).
+	lastConfig  string
+	pruneAbsent bool
 
 	wg sync.WaitGroup
 }
@@ -235,15 +245,16 @@ func (r *Runtime) Settings() settings.Settings {
 
 // ApplySettings puts s (clamped) into use. A change to how Visor connects
 // (the config path or username), or reconnect, rebuilds the connection as
-// Reconnect does; the poll interval, crash-loop thresholds and retention
-// apply in place. Before Start, s is only kept for Start.
+// Reconnect does; the poll interval and crash-loop thresholds apply in
+// place. A new retention deletes nothing until the next launch opens the
+// store, or compactIssues runs. Before Start, s is only kept for Start.
 func (r *Runtime) ApplySettings(s settings.Settings, reconnect bool) error {
 	s = s.Clamp()
 	r.life.Lock()
 	r.mu.Lock()
 	old := r.prefs
 	r.prefs = s
-	mon, tracker, store := r.mon, r.tracker, r.store
+	mon, tracker := r.mon, r.tracker
 	r.mu.Unlock()
 	running := r.started && !r.stopped
 	connChanged := r.configPathOf(old) != r.configPathOf(s) || old.Username != s.Username
@@ -258,15 +269,25 @@ func (r *Runtime) ApplySettings(s settings.Settings, reconnect bool) error {
 		if tracker != nil {
 			tracker.SetRules(rulesOf(s))
 		}
-		if store != nil && old.RetentionDays != s.RetentionDays {
-			if err := store.Compact(s.Retention()); err != nil {
-				return fmt.Errorf("saved, but cannot clear issues older than %d days: %w", s.RetentionDays, err)
-			}
-		}
 		return nil
 	}
 	r.life.Unlock()
 	return r.Reconnect()
+}
+
+// compactIssues deletes closed issues and history older than s's
+// retention. Only an explicit, confirmed action calls it (R27).
+func (r *Runtime) compactIssues(s settings.Settings) error {
+	r.mu.Lock()
+	store := r.store
+	r.mu.Unlock()
+	if store == nil {
+		return nil
+	}
+	if err := store.Compact(s.Retention()); err != nil {
+		return fmt.Errorf("saved, but cannot clear issues older than %d days: %w", s.RetentionDays, err)
+	}
+	return nil
 }
 
 // configPathOf is the config Visor uses with s: VISOR_CONFIG wins.
@@ -333,7 +354,7 @@ func (r *Runtime) openStore() {
 			ConfigOf:     r.configOf,
 			ExpectedExit: r.expectedExit,
 			Autorestart:  r.autorestart,
-			ExitReason:   r.exitReason,
+			ExitReasons:  r.exitReasons,
 		}, time.Now)
 	}
 	r.mu.Lock()
@@ -379,6 +400,12 @@ func (r *Runtime) connect() {
 	}
 	client := supervisor.New(d.Transport, copts...)
 	inv, _ := config.LoadInventory(d)
+	r.mu.Lock()
+	if r.lastConfig != "" && r.lastConfig != d.ConfigPath {
+		r.pruneAbsent = true
+	}
+	r.lastConfig = d.ConfigPath
+	r.mu.Unlock()
 	watcher := config.NewWatcher(d, r.opts.StateDir)
 	if tracker != nil {
 		tracker.SetRules(rulesOf(prefs))
@@ -470,11 +497,18 @@ func (r *Runtime) handle(u monitor.Update) {
 		r.failedPolls++
 	}
 	r.last = u
+	prune := r.pruneAbsent && u.Snapshot.Reachable
+	if prune {
+		r.pruneAbsent = false
+	}
 	r.mu.Unlock()
 
 	var opened []issues.Issue
 	if tracker != nil {
 		opened, _ = tracker.Apply(u) // after the inventory refresh, so configOf sees new files
+		if prune {
+			tracker.CloseAbsent(u.Snapshot.Processes, noteNotHere)
+		}
 	}
 	r.emitOverview()
 	for _, is := range opened {
@@ -516,41 +550,79 @@ func (r *Runtime) autorestart(process string) string {
 	return r.inv.Autorestart(process)
 }
 
-// exitReason reads why process last exited from supervisord's main log.
-// The tracker calls it while applying the update in r.last.
-func (r *Runtime) exitReason(_ string, info supervisor.ProcessInfo) (issues.ExitReason, bool) {
+// exitReasons reads supervisord's main log for why processes last exited.
+// The tracker calls it at most once while applying the update in r.last.
+func (r *Runtime) exitReasons() issues.ExitLookup {
 	r.mu.Lock()
 	base, client, procs := r.ctx, r.client, r.last.Snapshot.Processes
 	r.mu.Unlock()
 	if client == nil {
-		return issues.ExitReason{}, false
+		return nil
 	}
 	ctx, cancel := context.WithTimeout(base, exitReasonTimeout)
 	defer cancel()
-	lines, err := client.RecentExits(ctx, exitLogTail)
+	plog, err := client.RecentProcessLog(ctx, exitLogTail)
 	if err != nil {
-		return issues.ExitReason{}, false
+		return nil
 	}
-	return exitReasonFrom(lines, info, procs)
+	return func(_ string, info supervisor.ProcessInfo) (issues.ExitReason, bool) {
+		return exitReasonFrom(plog, info, procs)
+	}
 }
 
-// exitReasonFrom picks info's last exit from the main log's exit lines:
-// the latest line for its name within exitLineSlack of its stop time. Exit
-// lines name no group, so a name that procs has in two groups is never
-// matched.
-func exitReasonFrom(lines []supervisor.ExitLine, info supervisor.ProcessInfo, procs []supervisor.ProcessInfo) (issues.ExitReason, bool) {
-	if info.Stop.IsZero() {
-		return issues.ExitReason{}, false
-	}
+// exitReasonFrom picks the main log line that ended info's previous run.
+// Exit lines name no group, so a name that procs has in two groups is
+// never matched.
+//
+// With a stop time, it is the latest exit or stop line for its name within
+// exitLineSlack of it. Without one, supervisord has never stopped this
+// process: the daemon restarted (a reload) or its group was re-added (an
+// update). Then it is the last exit or stop line for the name before the
+// "spawned:" line of info's pid, provided no other spawn of the name came
+// between them (which would mean the old daemon died without stopping it).
+//
+// A "stopped:" line means someone asked supervisord to stop the process,
+// so the restart is Deliberate.
+func exitReasonFrom(plog supervisor.ProcessLog, info supervisor.ProcessInfo, procs []supervisor.ProcessInfo) (issues.ExitReason, bool) {
 	for _, p := range procs {
 		if p.Name == info.Name && p.Group != info.Group {
 			return issues.ExitReason{}, false
 		}
 	}
-	for _, l := range slices.Backward(lines) {
-		if d := l.At.Sub(info.Stop); l.Name == info.Name && d.Abs() <= exitLineSlack {
-			return issues.ExitReason{Desc: l.Desc, Status: l.Status, Expected: l.Expected}, true
+	reason := func(l supervisor.ExitLine) (issues.ExitReason, bool) {
+		return issues.ExitReason{Desc: l.Desc, Status: l.Status, Expected: l.Expected, Deliberate: l.Stopped}, true
+	}
+	if !info.Stop.IsZero() {
+		for _, l := range slices.Backward(plog.Exits) {
+			if d := l.At.Sub(info.Stop); l.Name == info.Name && d.Abs() <= exitLineSlack {
+				return reason(l)
+			}
 		}
+		return issues.ExitReason{}, false
+	}
+	if info.PID <= 0 {
+		return issues.ExitReason{}, false
+	}
+	var spawned time.Time
+	for _, s := range slices.Backward(plog.Spawns) {
+		if s.Name == info.Name && s.PID == info.PID {
+			spawned = s.At
+			break
+		}
+	}
+	if spawned.IsZero() {
+		return issues.ExitReason{}, false
+	}
+	for _, l := range slices.Backward(plog.Exits) {
+		if l.Name != info.Name || l.At.After(spawned) {
+			continue
+		}
+		for _, s := range plog.Spawns {
+			if s.Name == info.Name && s.PID != info.PID && s.At.After(l.At) && !s.At.After(spawned) {
+				return issues.ExitReason{}, false // another run began after it
+			}
+		}
+		return reason(l)
 	}
 	return issues.ExitReason{}, false
 }

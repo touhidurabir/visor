@@ -1,6 +1,7 @@
 // Package platform holds the few macOS integrations Visor needs outside
 // supervisord: showing files in Finder and opening them with their default
-// app. It runs /usr/bin/open and nothing else.
+// app (logs: the default text editor). It runs /usr/bin/open and nothing
+// else.
 package platform
 
 import (
@@ -22,6 +23,8 @@ var (
 	// ErrExecutable: opening an executable file with its default app would
 	// run it, so Open refuses; Reveal still works.
 	ErrExecutable = errors.New("is a program, so Visor will not open it; use Reveal in Finder instead")
+	// ErrNotFile: OpenText opens files only, not folders or devices.
+	ErrNotFile = errors.New("is not a file, so it cannot open in a text editor")
 )
 
 // RevealCmd shows path selected in a Finder window: open -R <path>.
@@ -30,6 +33,9 @@ func RevealCmd(path string) *exec.Cmd { return exec.Command("open", "-R", path) 
 // OpenCmd opens path with its default app (a folder opens in Finder):
 // open <path>.
 func OpenCmd(path string) *exec.Cmd { return exec.Command("open", path) }
+
+// OpenTextCmd opens path in the default text editor: open -t <path>.
+func OpenTextCmd(path string) *exec.Cmd { return exec.Command("open", "-t", path) }
 
 // Reveal shows path in Finder.
 func Reveal(path string) error {
@@ -49,6 +55,27 @@ func Open(path string) error {
 		return err
 	}
 	return run(cmd)
+}
+
+// OpenText opens a file (a log) in the default text editor, whatever its
+// extension or mode, so no other handler can run it. It refuses folders
+// and devices.
+func OpenText(path string) error {
+	cmd, err := openTextCmdFor(path)
+	if err != nil {
+		return err
+	}
+	return run(cmd)
+}
+
+func openTextCmdFor(path string) (*exec.Cmd, error) {
+	if err := check(path, false); err != nil {
+		return nil, err
+	}
+	if fi, err := os.Stat(path); err != nil || !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s %w", path, ErrNotFile)
+	}
+	return OpenTextCmd(path), nil
 }
 
 // openCmdFor is the command Open runs for path: open <path>, or

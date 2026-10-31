@@ -4,6 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -585,5 +589,59 @@ func TestServiceLifecycle(t *testing.T) {
 	}
 	if err := svc.ServiceShutdown(); err != nil { // idempotent
 		t.Fatal(err)
+	}
+}
+
+// faultServer is a minimal supervisord on a unix socket: getState says
+// RUNNING, getAllProcessInfo lists nothing, and method answers with the
+// fault code:name. It returns a config pointing at it.
+func faultServer(t *testing.T, method string, code int, name string) string {
+	t.Helper()
+	dir := shortDir(t)
+	sock := filepath.Join(dir, "s.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/xml")
+		if strings.Contains(string(body), "<methodName>"+method+"</methodName>") {
+			_, _ = fmt.Fprintf(w, `<?xml version='1.0'?><methodResponse><fault><value><struct>`+
+				`<member><name>faultCode</name><value><int>%d</int></value></member>`+
+				`<member><name>faultString</name><value><string>%s</string></value></member>`+
+				`</struct></value></fault></methodResponse>`, code, name)
+			return
+		}
+		value := `<array><data></data></array>`
+		if strings.Contains(string(body), "supervisor.getState") {
+			value = `<struct><member><name>statecode</name><value><int>1</int></value></member>` +
+				`<member><name>statename</name><value><string>RUNNING</string></value></member></struct>`
+		}
+		_, _ = fmt.Fprintf(w, `<?xml version='1.0'?><methodResponse><params><param><value>%s</value></param></params></methodResponse>`, value)
+	})}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+	conf := filepath.Join(dir, "supervisord.conf")
+	if err := os.WriteFile(conf, []byte("[unix_http_server]\nfile="+sock+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return conf
+}
+
+// M1: with logfile=syslog, or none, readLog faults NO_FILE. The message
+// says so, not that a command is missing.
+func TestMainLogWithoutLogFile(t *testing.T) {
+	conf := faultServer(t, "supervisor.readLog", 20, "NO_FILE: syslog")
+	rt, _ := startRuntime(t, conf, t.TempDir(), 50*time.Millisecond)
+	svc := NewServerService(rt)
+	waitOverview(t, svc, 5*time.Second, "reachable", func(ov OverviewView) bool { return ov.Server.Reachable })
+	_, err := svc.MainLog(0)
+	want := "supervisord writes no log file (logfile= is unset or syslog). Set [supervisord] logfile= to see it here."
+	if err == nil || err.Error() != want {
+		t.Errorf("MainLog = %v, want %q", err, want)
+	}
+	if !errors.Is(err, supervisor.ErrNoFile) {
+		t.Errorf("MainLog error %v does not wrap ErrNoFile", err)
 	}
 }

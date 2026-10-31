@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../bindings/github.com/touhidurabir/visor/internal/app', () => ({ SettingsService: { Get: vi.fn() } }))
 
-import { LIMITS, clampNote, minutesToNs, nsToMinutes, nsToSeconds, secondsToNs, typedNumber } from './settings'
+import { LIMITS, clampNote, minutesToNs, nsToMinutes, nsToSeconds, retentionChange, retentionConfirm, secondsToNs, typedNumber } from './settings'
 
 describe('unit conversions', () => {
   it('turns nanoseconds into seconds and back', () => {
@@ -50,5 +50,33 @@ describe('clampNote', () => {
   })
   it('reports other changes plainly', () => {
     expect(clampNote(2.25, 2.2, LIMITS.pollSeconds, 'second')).toBe('Set to 2.2 seconds.')
+  })
+})
+
+describe('retentionChange (R27)', () => {
+  it('is the same when the typed days match the saved ones', () => {
+    expect(retentionChange('90', 90)).toEqual({ kind: 'same' })
+    expect(retentionChange(' 90 ', 90)).toEqual({ kind: 'same' })
+  })
+  it('raises or lowers to whole days', () => {
+    expect(retentionChange('120', 90)).toEqual({ kind: 'raise', days: 120 })
+    expect(retentionChange('30', 90)).toEqual({ kind: 'lower', days: 30 })
+    expect(retentionChange(29.6, 90)).toEqual({ kind: 'lower', days: 30 })
+  })
+  it('clamps like Go does, so the confirmation names the days that apply', () => {
+    expect(retentionChange('1', 90)).toEqual({ kind: 'lower', days: 7 })
+    expect(retentionChange('99999', 90)).toEqual({ kind: 'raise', days: 3650 })
+    expect(retentionChange('3', 7)).toEqual({ kind: 'same' })
+  })
+  it('is invalid for empty or junk text', () => {
+    expect(retentionChange('', 90)).toEqual({ kind: 'invalid' })
+    expect(retentionChange('abc', 90)).toEqual({ kind: 'invalid' })
+  })
+  it('asks before deleting, naming the days', () => {
+    expect(retentionConfirm(30)).toEqual({
+      title: 'Delete issues and history older than 30 days?',
+      message: 'This can’t be undone.',
+      confirmLabel: 'Delete older issues',
+    })
   })
 })

@@ -1,12 +1,14 @@
 <script setup lang="ts">
 // Settings (spec §5.8). The connection is saved explicitly with "Save and
-// reconnect", because it rebuilds the connection. Everything else saves as
-// it changes and applies straight away; Go clamps out-of-range values and
-// the page shows what it kept.
+// reconnect", because it rebuilds the connection, and retention with
+// "Apply", because lowering it deletes history (R27: it asks first).
+// Everything else saves as it changes and applies straight away; Go clamps
+// out-of-range values and the page shows what it kept.
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ServerService, SettingsService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { ConnectionInput, SettingsView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { Settings } from '../../bindings/github.com/touhidurabir/visor/internal/settings'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import { describeError } from '../lib/faults'
 import { useOverview } from '../lib/overview'
 import { createSaveQueue } from '../lib/save-queue'
@@ -19,6 +21,8 @@ import {
   minutesToNs,
   nsToMinutes,
   nsToSeconds,
+  retentionChange,
+  retentionConfirm,
   secondsToNs,
   typedNumber,
 } from '../lib/settings'
@@ -164,7 +168,7 @@ async function reconnect() {
   connError.value = ''
   try {
     const ov = await ServerService.Reconnect()
-    adopt(await loadSettings())
+    adopt(await loadSettings(), true) // anything typed meanwhile stays a draft
     showToast(ov.Server.Reachable ? 'Reconnected to supervisord' : 'Reconnected, but supervisord is not answering', ov.Server.Reachable ? 'info' : 'error')
   } catch (e) {
     connError.value = describeError(e)
@@ -183,11 +187,11 @@ const queue = createSaveQueue<Settings, SettingsView>({
     saving.value = false
     const cur = view.value!
     if (v) {
-      // Save never changes the connection; keep what the page shows for
-      // it, which a connection save may have changed meanwhile.
+      // Save never changes the connection or retention; keep what the page
+      // shows for them, which their own saves may have changed meanwhile.
       const merged: SettingsView = {
         ...cur,
-        Settings: { ...v.Settings, configPath: cur.Settings.configPath, username: cur.Settings.username },
+        Settings: { ...v.Settings, configPath: cur.Settings.configPath, username: cur.Settings.username, retentionDays: cur.Settings.retentionDays },
         LoadError: v.LoadError,
         Warning: v.Warning,
       }
@@ -230,7 +234,49 @@ function saveField(key: FieldKey, apply: (next: Settings, n: number) => void) {
 const savePoll = () => saveField('poll', (next, n) => (next.pollInterval = secondsToNs(n)))
 const saveRestarts = () => saveField('restarts', (next, n) => (next.crashLoop.restarts = Math.round(n)))
 const saveWindow = () => saveField('window', (next, n) => (next.crashLoop.window = minutesToNs(n)))
-const saveRetention = () => saveField('retention', (next, n) => (next.retentionDays = Math.round(n)))
+
+// --- Retention: a draft, applied explicitly (R27) -----------------------
+
+const retention = computed(() => (s.value ? retentionChange(fields.retention, s.value.retentionDays) : { kind: 'same' as const }))
+const retentionBusy = ref(false)
+const confirmRetention = ref<ReturnType<typeof retentionConfirm> & { days: number } | null>(null)
+
+/** applyRetention saves a higher retention at once; a lower one asks first. */
+function applyRetention() {
+  const r = retention.value
+  if (r.kind === 'lower') confirmRetention.value = { ...retentionConfirm(r.days), days: r.days }
+  else if (r.kind === 'raise') void sendRetention(r.days)
+}
+
+function cancelRetention() {
+  editing.delete('retention')
+  notes.retention = ''
+  if (view.value) showSaved(view.value.Settings)
+}
+
+async function sendRetention(days: number) {
+  confirmRetention.value = null
+  if (retentionBusy.value || !view.value) return
+  retentionBusy.value = true
+  const typedDays = typedNumber(fields.retention)
+  try {
+    const v = await SettingsService.ApplyRetention(days)
+    const cur = view.value!
+    // Like a settings save: keep what the page shows for the connection.
+    const merged: SettingsView = { ...cur, Settings: { ...cur.Settings, retentionDays: v.Settings.retentionDays }, Warning: v.Warning }
+    view.value = merged
+    currentSettings.value = merged
+    warning.value = v.Warning
+    editing.delete('retention')
+    showSaved(merged.Settings)
+    notes.retention = clampNote(typedDays, v.Settings.retentionDays, LIMITS.retentionDays, 'day')
+    saveError.value = ''
+  } catch (e) {
+    saveError.value = describeError(e)
+  } finally {
+    retentionBusy.value = false
+  }
+}
 
 function setNotify(key: NotifyKey, on: boolean) {
   notify[key] = on
@@ -250,7 +296,7 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
     <header>
       <div>
         <h1 id="settings-title">Settings</h1>
-        <p class="intro">How Visor connects to supervisord, how often it checks, and what it tells you about. Changes save as you make them.</p>
+        <p class="intro">How Visor connects to supervisord, how often it checks, and what it tells you about. Most changes save as you make them.</p>
       </div>
       <span class="saved" aria-live="polite">{{ saving ? 'Saving…' : view ? 'All changes saved' : '' }}</span>
     </header>
@@ -353,11 +399,19 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
         <p v-else-if="serverError" class="server-error" role="status">{{ describeError(serverError) }}</p>
 
         <div class="foot">
+          <button
+            type="button"
+            class="btn"
+            :disabled="connBusy || connDirty"
+            :title="connDirty ? 'Save and reconnect to use your changes' : undefined"
+            @click="reconnect"
+          >
+            {{ connBusy && !connDirty ? 'Reconnecting…' : 'Reconnect' }}
+          </button>
           <template v-if="connDirty">
             <button type="button" class="btn" :disabled="connBusy" @click="cancelConnection">Cancel</button>
             <button type="button" class="btn primary" :disabled="connBusy" @click="saveConnection">{{ connBusy ? 'Reconnecting…' : 'Save and reconnect' }}</button>
           </template>
-          <button v-else type="button" class="btn" :disabled="connBusy" @click="reconnect">{{ connBusy ? 'Reconnecting…' : 'Reconnect' }}</button>
         </div>
       </div>
 
@@ -423,12 +477,16 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
         <div class="row">
           <div class="what">
             <label class="name" for="keep">Keep resolved issues and process history for</label>
-            <p class="hint">At least 7 days. Open issues are always kept; a shorter time clears older entries straight away.</p>
+            <p class="hint">At least 7 days. Open issues are always kept. A shorter time deletes older entries once you confirm.</p>
             <p v-if="notes.retention" class="note" role="status">{{ notes.retention }}</p>
           </div>
           <div class="ctl">
-            <input id="keep" v-model="fields.retention" class="num" @input="editing.add('retention')" type="number" inputmode="numeric" :min="LIMITS.retentionDays.min" :max="LIMITS.retentionDays.max" step="1" @change="saveRetention" />
+            <input id="keep" v-model="fields.retention" class="num" @input="editing.add('retention')" type="number" inputmode="numeric" :min="LIMITS.retentionDays.min" :max="LIMITS.retentionDays.max" step="1" @keydown.enter="applyRetention" @keydown.esc="cancelRetention" />
             <span class="unit">days</span>
+            <template v-if="retention.kind === 'raise' || retention.kind === 'lower'">
+              <button type="button" class="btn" :disabled="retentionBusy" @click="cancelRetention">Cancel</button>
+              <button type="button" class="btn primary" :disabled="retentionBusy" @click="applyRetention">{{ retentionBusy ? 'Applying…' : 'Apply' }}</button>
+            </template>
           </div>
         </div>
       </div>
@@ -453,6 +511,15 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
         </div>
       </div>
     </template>
+
+    <ConfirmDialog
+      v-if="confirmRetention"
+      :title="confirmRetention.title"
+      :message="confirmRetention.message"
+      :confirm-label="confirmRetention.confirmLabel"
+      @confirm="sendRetention(confirmRetention.days)"
+      @cancel="confirmRetention = null"
+    />
   </section>
 </template>
 

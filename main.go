@@ -43,6 +43,9 @@ func main() {
 		Emit:       shell.Emit(app.WailsEmit),
 	})
 	dockService := dock.New()
+	// LogLevel stays at Wails' default (Info). Do not raise it to Debug:
+	// Wails then logs every binding call with its arguments, which would
+	// put SaveConnection's supervisord password in the log.
 	wails := application.New(application.Options{
 		Name:        "Visor",
 		Description: "A macOS menu-bar app for managing supervisord",
