@@ -12,6 +12,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/', name: 'dashboard', component: Dashboard },
   { path: '/config/:path(.*)', name: 'config', component: ConfigDetail, meta: { title: 'Config' } },
   { path: '/issues', name: 'issues', component: Issues, meta: { title: 'Issues' } },
+  { path: '/issues/log', name: 'issues-log', component: Issues, meta: { title: 'Issues' } },
   { path: '/new', name: 'new', component: Placeholder, meta: { title: 'Add new' } },
   { path: '/new/form', name: 'new-form', component: Placeholder, meta: { title: 'Add new' } },
   { path: '/settings', name: 'settings', component: Settings, meta: { title: 'Settings' } },

@@ -54,15 +54,6 @@ export interface ConnectionInput {
 }
 
 /**
- * IssueCounts is how many issues are open and how many are closed (resolved
- * or dismissed), for the filter labels on the Issues page.
- */
-export interface IssueCounts {
-    "Open": number;
-    "Resolved": number;
-}
-
-/**
  * IssueQuery selects issues for List. Status is "open", "resolved" or
  * "all" (or empty); Kind is an issue kind or empty for any. FromMs and ToMs
  * bound OpenedMs to [FromMs, ToMs) (0 = unbounded). BeforeMs and BeforeID

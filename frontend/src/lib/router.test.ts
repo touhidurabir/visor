@@ -6,7 +6,7 @@ import { createAppRouter } from './router'
 const resolve = (path: string) => createAppRouter(createMemoryHistory()).resolve(path)
 
 describe('routes', () => {
-  it.each(['/', '/issues', '/new', '/new/form', '/settings', '/doctor'])('%s resolves inside the shell', (path) => {
+  it.each(['/', '/issues', '/issues/log', '/new', '/new/form', '/settings', '/doctor'])('%s resolves inside the shell', (path) => {
     const r = resolve(path)
     expect(r.matched).toHaveLength(1)
     expect(r.meta.bare).toBeUndefined()

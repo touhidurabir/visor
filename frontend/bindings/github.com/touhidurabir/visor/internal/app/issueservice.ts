@@ -15,13 +15,6 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 /**
- * Counts returns the issue totals, ignoring any filter or search.
- */
-export function Counts(): $CancellablePromise<$models.IssueCounts> {
-    return $Call.ByID(4233040106);
-}
-
-/**
  * Delete removes the closed issues among ids for good and returns how many
  * it removed; open issues and unknown ids are skipped. The history stays.
  */

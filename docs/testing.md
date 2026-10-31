@@ -49,6 +49,7 @@ What it covers (`e2e/tests`):
 - `process-actions.spec.ts`: start and stop from a process menu; Stop all asks first and Cancel changes nothing.
 - `config-detail.spec.ts`: Overview flags a missing command, Logs follows the chosen process, History renders.
 - `issues.spec.ts`: the FATAL issue appears, filters and counts, resolving, search.
+- `issues-manage.spec.ts`: the stats strip and tabs, kind and date filters, bulk resolve, and deleting one or many resolved issues (each with Cancel leaving things unchanged); works on `flaky`'s issues only.
 - `settings.spec.ts`: config fixed by `VISOR_CONFIG`, polling interval and a notification toggle persist across a reload.
 - `navigation.spec.ts`: sidebar links, unknown routes, no console errors.
 

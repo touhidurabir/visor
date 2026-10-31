@@ -46,6 +46,6 @@ test.describe('issues', () => {
     await expect(rows.filter({ hasText: 'mailer-digest' }).first()).toBeVisible()
     await expect(rows.filter({ hasNotText: 'mailer-digest' })).toHaveCount(0)
     await search.fill('no-such-process-xyz')
-    await expect(page.getByText('No issues match your search.')).toBeVisible()
+    await expect(page.getByText('No issues match your filters.')).toBeVisible()
   })
 })
