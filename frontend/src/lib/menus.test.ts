@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { comingSoon, configMenu, processMenu, serverMenu, type MenuItem } from './menus'
+import { bulkConfirm, comingSoon, configMenu, processMenu, serverMenu, type MenuItem } from './menus'
 import type { ConfigView, ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 
 const proc = (o: Partial<ProcessView>) =>
@@ -68,5 +68,22 @@ describe('comingSoon', () => {
     const items = comingSoon(serverMenu(), ['apply-all'])
     expect(find(items, 'apply-all')).toMatchObject({ disabled: true, title: 'Coming in this release' })
     expect(find(items, 'check').disabled).toBe(false)
+  })
+})
+
+describe('bulkConfirm', () => {
+  it('starting everything needs no confirmation', () => {
+    expect(bulkConfirm('start', 12)).toBeNull()
+  })
+  it('stopping everything asks first and names the count', () => {
+    const c = bulkConfirm('stop', 12)!
+    expect(c.title).toBe('Stop all processes?')
+    expect(c.message).toContain('12 processes')
+    expect(c.confirmLabel).toBe('Stop all')
+  })
+  it('restarting everything asks first', () => {
+    const c = bulkConfirm('restart', 1)!
+    expect(c.message).toContain('1 process ')
+    expect(c.confirmLabel).toBe('Restart all')
   })
 })

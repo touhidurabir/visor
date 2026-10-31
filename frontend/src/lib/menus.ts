@@ -86,6 +86,20 @@ export function serverMenu(): MenuItem[] {
   ]
 }
 
+export interface BulkConfirm { title: string; message: string; confirmLabel: string }
+
+/** What the dashboard asks before Stop all / Restart all; null when no confirmation is needed. */
+export function bulkConfirm(what: 'start' | 'stop' | 'restart', processes: number): BulkConfirm | null {
+  const n = `${processes} ${processes === 1 ? 'process' : 'processes'}`
+  switch (what) {
+    case 'stop':
+      return { title: 'Stop all processes?', message: `This stops all ${n} supervisord runs. They stay stopped until you start them again.`, confirmLabel: 'Stop all' }
+    case 'restart':
+      return { title: 'Restart all processes?', message: `This stops and starts all ${n} supervisord runs. Work in progress is interrupted.`, confirmLabel: 'Restart all' }
+  }
+  return null
+}
+
 /** Disables items whose feature has not shipped yet, with an explaining tooltip. */
 export function comingSoon(items: MenuItem[], ids: string[]): MenuItem[] {
   return items.map((i) => (ids.includes(i.id) ? { ...i, disabled: true, title: 'Coming in this release' } : i))

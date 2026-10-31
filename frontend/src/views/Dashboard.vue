@@ -10,13 +10,14 @@ import ChangedBanner from '../components/ChangedBanner.vue'
 import ConfigTable from '../components/ConfigTable.vue'
 import IssueList from '../components/IssueList.vue'
 import ActionMenu from '../components/ActionMenu.vue'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import MainLogDialog from '../components/MainLogDialog.vue'
 import SignalDialog from '../components/SignalDialog.vue'
 import StatTile from '../components/StatTile.vue'
 import { describeError } from '../lib/faults'
 import { filterConfigs } from '../lib/filter'
 import { formatDuration } from '../lib/format'
-import { comingSoon, serverMenu } from '../lib/menus'
+import { bulkConfirm, comingSoon, serverMenu, type BulkConfirm } from '../lib/menus'
 import { useOverview } from '../lib/overview'
 import { configRoute } from '../lib/links'
 import { showToast } from '../lib/toast'
@@ -122,9 +123,19 @@ function onServer(id: string) {
   }
 }
 
-function bulk(what: 'start' | 'stop' | 'restart') {
-  const calls = { start: ServerService.StartAll, stop: ServerService.StopAll, restart: ServerService.RestartAll }
-  void run(calls[what])
+const bulkCalls = { start: ServerService.StartAll, stop: ServerService.StopAll, restart: ServerService.RestartAll }
+const pendingBulk = ref<{ what: keyof typeof bulkCalls; ask: BulkConfirm } | null>(null)
+
+function bulk(what: keyof typeof bulkCalls) {
+  const ask = bulkConfirm(what, overview.value?.Stats.Processes ?? 0)
+  if (ask) pendingBulk.value = { what, ask }
+  else void run(bulkCalls[what])
+}
+
+function confirmBulk() {
+  const p = pendingBulk.value
+  pendingBulk.value = null
+  if (p) void run(bulkCalls[p.what])
 }
 
 function configLink(c: ConfigView, q: Record<string, string> = {}) {
@@ -290,6 +301,14 @@ const dismissIssue = (i: IssueView) => afterIssue(() => IssueService.Dismiss(i.I
 
     <SignalDialog v-if="signalFor" :process="signalFor.FullName" @send="sendSignal" @cancel="signalFor = null" />
     <MainLogDialog v-if="showLog" @close="showLog = false" />
+    <ConfirmDialog
+      v-if="pendingBulk"
+      :title="pendingBulk.ask.title"
+      :message="pendingBulk.ask.message"
+      :confirm-label="pendingBulk.ask.confirmLabel"
+      @confirm="confirmBulk"
+      @cancel="pendingBulk = null"
+    />
   </div>
 </template>
 
