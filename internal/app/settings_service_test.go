@@ -540,8 +540,8 @@ func TestDismissRacingReconnectStaysDismissed(t *testing.T) {
 	inst := supervisortest.Start(t, supervisortest.Failer)
 	rt, rec := startRuntime(t, confOf(inst), t.TempDir(), 50*time.Millisecond)
 	svc := NewServerService(rt)
-	ov := waitOverview(t, svc, 10*time.Second, "an open issue", func(ov OverviewView) bool { return len(ov.Issues) == 1 })
-	id := ov.Issues[0].ID
+	waitOverview(t, svc, 10*time.Second, "an open issue", func(ov OverviewView) bool { return ov.Stats.OpenIssues == 1 })
+	id := openIssues(svc)[0].ID
 	// A Dismiss that picked up the tracker just before a rebuild finishes
 	// after it.
 	_, tracker, err := rt.issueStore()
@@ -556,7 +556,7 @@ func TestDismissRacingReconnectStaysDismissed(t *testing.T) {
 	}
 	n := len(rec.issuesOpened())
 	time.Sleep(300 * time.Millisecond) // the same failure is seen again on every poll
-	if open := svc.Overview().Issues; len(open) != 0 {
+	if open := openIssues(svc); len(open) != 0 {
 		t.Errorf("open issues after dismissing = %+v, want none", open)
 	}
 	if got := rec.issuesOpened(); len(got) != n {
@@ -829,16 +829,16 @@ func TestSwitchingSupervisordClosesAbsentProcessIssues(t *testing.T) {
 	start.ConfigPath = confOf(a)
 	rt, rec := newRuntimeWith(t, RuntimeOptions{StateDir: stateDir, Settings: start, Interval: 100 * time.Millisecond})
 	server := NewServerService(rt)
-	waitOverview(t, server, 10*time.Second, "failer's unexpected exit", func(ov OverviewView) bool {
-		return len(openOfKind(ov, "unexpected_exit")) == 1
+	waitOverview(t, server, 10*time.Second, "failer's unexpected exit", func(OverviewView) bool {
+		return len(openOfKind(server, "unexpected_exit")) == 1
 	})
 	svc := NewSettingsService(rt, stateDir, "", nil, nil)
 	if _, err := svc.SaveConnection(ConnectionInput{ConfigPath: confOf(b)}); err != nil {
 		t.Fatal(err)
 	}
-	ov := waitOverview(t, server, 10*time.Second, "b's sleeper", procState("sleeper:sleeper", "RUNNING"))
-	if len(ov.Issues) != 0 {
-		t.Errorf("open issues after switching = %+v", ov.Issues)
+	waitOverview(t, server, 10*time.Second, "b's sleeper", procState("sleeper:sleeper", "RUNNING"))
+	if open := openIssues(server); len(open) != 0 {
+		t.Errorf("open issues after switching = %+v", open)
 	}
 	all, err := NewIssueService(rt).List(IssueQuery{Status: "all"})
 	if err != nil {
@@ -851,15 +851,15 @@ func TestSwitchingSupervisordClosesAbsentProcessIssues(t *testing.T) {
 	if _, err := svc.SaveConnection(ConnectionInput{ConfigPath: confOf(a)}); err != nil {
 		t.Fatal(err)
 	}
-	waitOverview(t, server, 10*time.Second, "failer's issue again", func(ov OverviewView) bool {
-		return len(openOfKind(ov, "unexpected_exit")) == 1
+	waitOverview(t, server, 10*time.Second, "failer's issue again", func(OverviewView) bool {
+		return len(openOfKind(server, "unexpected_exit")) == 1
 	})
 	if _, err := server.Reconnect(); err != nil {
 		t.Fatal(err)
 	}
 	waitOverview(t, server, 10*time.Second, "reachable", func(ov OverviewView) bool { return ov.Server.Reachable })
 	settle(t, rec, 3)
-	if ov = server.Overview(); len(openOfKind(ov, "unexpected_exit")) != 1 {
-		t.Errorf("after a plain reconnect, open = %+v", ov.Issues)
+	if open := openOfKind(server, "unexpected_exit"); len(open) != 1 {
+		t.Errorf("after a plain reconnect, open = %+v", open)
 	}
 }

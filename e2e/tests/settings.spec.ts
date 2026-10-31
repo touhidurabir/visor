@@ -8,6 +8,26 @@ test.describe('settings', () => {
     await expect(page.getByRole('button', { name: 'Choose…' })).toBeDisabled()
   })
 
+  test('the cards fill a wide window in two columns and stack in a narrow one', async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 900 })
+    await page.goto('/#/settings')
+    const card = (name: string) => page.getByRole('group', { name })
+    await expect(card('Connection')).toBeVisible()
+    const conn = (await card('Connection').boundingBox())!
+    expect(conn.width).toBeGreaterThan(1000)
+    const poll = (await card('Polling').boundingBox())!
+    const history = (await card('Issue history').boundingBox())!
+    expect(poll.x).toBeLessThan(history.x)
+
+    await page.setViewportSize({ width: 900, height: 900 })
+    await expect(async () => {
+      const p = (await card('Polling').boundingBox())!
+      const n = (await card('Issue history').boundingBox())!
+      expect(n.y).toBeGreaterThan(p.y)
+      expect(n.x).toBe(p.x)
+    }).toPass()
+  })
+
   test('the polling interval persists across a reload', async ({ page }) => {
     await page.goto('/#/settings')
     const poll = page.getByLabel('Check supervisord every')

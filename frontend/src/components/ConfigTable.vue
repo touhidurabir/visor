@@ -21,6 +21,9 @@ const emit = defineEmits<{
 const collapsed = reactive<Record<string, boolean>>({})
 const key = (c: ConfigView) => c.Path || c.FileName
 
+/** How many of the file's processes share p's group, for the short supervisorctl name. */
+const groupSize = (c: ConfigView, p: ProcessView) => (c.Processes ?? []).filter((q) => q.Group === p.Group).length
+
 function procName(p: ProcessView) {
   return p.Group === p.Name ? p.Name : p.FullName
 }
@@ -84,7 +87,7 @@ function procName(p: ProcessView) {
             <span class="detail" :title="p.Detail">{{ p.Detail }}</span>
             <span />
             <ActionMenu
-              :items="processMenu(p)"
+              :items="processMenu(p, groupSize(c, p))"
               :label="`Actions for ${p.FullName}`"
               heading="This process"
               @select="(id) => emit('process', p, c, id)"

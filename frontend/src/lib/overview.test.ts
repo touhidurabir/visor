@@ -31,7 +31,6 @@ function view(health: string, running: number): OverviewView {
     Server: { Name: 'Local', Version: '', UptimeMs: 0, ConfigPath: '', Reachable: true, Error: '', Health: health },
     Stats: { Configs: 0, Processes: running, Running: running, Failing: 0, Stopped: 0, OpenIssues: 0 },
     Configs: [],
-    Issues: [],
   }
 }
 

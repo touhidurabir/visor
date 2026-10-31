@@ -26,8 +26,17 @@ const item = (id: string, label: string, cmd: string, disabled = false, extra: P
 const STARTABLE = ['STOPPED', 'EXITED', 'FATAL']
 const STOPPABLE = ['RUNNING', 'STARTING', 'BACKOFF']
 
-export function processMenu(p: ProcessView): MenuItem[] {
-  const name = p.FullName
+/**
+ * The shortest name supervisorctl accepts for a process: the bare name when
+ * it is the only process of a group of the same name, else group:name.
+ */
+export function ctlName(p: ProcessView, groupSize: number): string {
+  return p.Group === p.Name && groupSize === 1 ? p.Name : p.FullName
+}
+
+/** groupSize is how many processes share p's group (see ctlName). */
+export function processMenu(p: ProcessView, groupSize: number): MenuItem[] {
+  const name = ctlName(p, groupSize)
   return [
     item('start', 'Start', `supervisorctl start ${name}`, !STARTABLE.includes(p.State)),
     item('stop', 'Stop', `supervisorctl stop ${name}`, !STOPPABLE.includes(p.State)),

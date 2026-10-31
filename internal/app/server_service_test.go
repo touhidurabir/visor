@@ -187,10 +187,11 @@ func TestOverviewStats(t *testing.T) {
 	if !strings.HasPrefix(p.Since, "failing ") || !strings.Contains(p.Detail, "exited 3") {
 		t.Errorf("failer = since %q detail %q", p.Since, p.Detail)
 	}
-	if len(ov.Issues) != 1 || ov.Issues[0].Process != "failer:failer" || ov.Issues[0].Kind != "unexpected_exit" {
-		t.Fatalf("issues = %+v", ov.Issues)
+	open := openIssues(svc)
+	if len(open) != 1 || open[0].Process != "failer:failer" || open[0].Kind != "unexpected_exit" {
+		t.Fatalf("issues = %+v", open)
 	}
-	if got := rec.issuesOpened(); len(got) != 1 || got[0].ID != ov.Issues[0].ID {
+	if got := rec.issuesOpened(); len(got) != 1 || got[0].ID != open[0].ID {
 		t.Errorf("issue-opened events = %+v", got)
 	}
 	if len(rec.overviews()) == 0 {
@@ -507,8 +508,8 @@ func TestIssueService(t *testing.T) {
 	if ovs := rec.overviews(); len(ovs) == n {
 		t.Error("Resolve emitted no overview")
 	}
-	if ov := svc.Overview(); ov.Stats.OpenIssues != 0 || len(ov.Issues) != 0 {
-		t.Errorf("after Resolve: %+v / %+v", ov.Stats, ov.Issues)
+	if ov := svc.Overview(); ov.Stats.OpenIssues != 0 || len(openIssues(svc)) != 0 {
+		t.Errorf("after Resolve: %+v / %+v", ov.Stats, openIssues(svc))
 	}
 	if got, _ := is.List(IssueQuery{Status: "resolved"}); len(got) != 1 || got[0].Status != "resolved_user" || got[0].ClosedMs == 0 {
 		t.Errorf("List(resolved) = %+v", got)

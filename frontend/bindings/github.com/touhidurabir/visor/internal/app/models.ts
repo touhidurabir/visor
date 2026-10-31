@@ -189,11 +189,6 @@ export interface OverviewView {
     "Server": ServerView;
     "Stats": StatsView;
     "Configs": ConfigView[] | null;
-
-    /**
-     * open, newest first, at most 10
-     */
-    "Issues": IssueView[] | null;
 }
 
 /**

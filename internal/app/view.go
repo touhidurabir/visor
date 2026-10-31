@@ -19,16 +19,12 @@ import (
 // (e.g. its file was deleted but supervisord still runs it).
 const NoConfigFile = "(no config file)"
 
-// maxOverviewIssues is how many open issues the overview carries.
-const maxOverviewIssues = 10
-
 // OverviewView is everything the dashboard shows for one server. It is
 // sent as the visor:overview event after every poll and every action.
 type OverviewView struct {
 	Server  ServerView
 	Stats   StatsView
 	Configs []ConfigView
-	Issues  []IssueView // open, newest first, at most 10
 }
 
 // ServerView describes the supervisord connection. Health is "ok",
@@ -240,7 +236,6 @@ func buildOverview(in overviewInput) OverviewView {
 			Health:     monitor.HealthOf(in.snap, in.inv.ExpectedExit).String(),
 		},
 		Configs: []ConfigView{},
-		Issues:  []IssueView{},
 	}
 	switch {
 	case in.err != nil:
@@ -331,9 +326,6 @@ func buildOverview(in overviewInput) OverviewView {
 	}
 	ov.Stats.Configs = len(in.inv.Files)
 	ov.Stats.OpenIssues = len(in.open)
-	for _, is := range in.open[:min(len(in.open), maxOverviewIssues)] {
-		ov.Issues = append(ov.Issues, toIssueView(is))
-	}
 	return ov
 }
 
