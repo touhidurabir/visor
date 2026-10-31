@@ -1,0 +1,470 @@
+package issues
+
+import (
+	"cmp"
+	"errors"
+	"fmt"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/touhidurabir/visor/internal/monitor"
+	"github.com/touhidurabir/visor/internal/supervisor"
+)
+
+// ErrNotOpen is returned when resolving or dismissing an unknown or already
+// closed issue.
+var ErrNotOpen = errors.New("issue is not open")
+
+const (
+	fatalFallback   = "Exited too quickly (process log may have details)"
+	restartedByDmn  = "Exited and was restarted by supervisord"
+	noteRemoved     = "program removed"
+	noteByUser      = "by you"
+	noteRestarted   = "Restarted by supervisord"
+	noteRestartedBy = "Restarted by you"
+)
+
+// Programs answers questions about the program behind a process
+// ("group:name"). A nil func means supervisord's default.
+type Programs struct {
+	// ConfigOf returns the config file that defines the process.
+	ConfigOf func(process string) string
+	// ExpectedExit returns the program's exitcodes= (default [0]).
+	ExpectedExit func(process string) []int
+	// Autorestart returns the program's autorestart= value as written
+	// ("true", "unexpected", "no", ...); "" means the default, unexpected.
+	Autorestart func(process string) string
+}
+
+// Tracker applies monitor updates to the issue list and the history.
+type Tracker struct {
+	store *Store
+	rules Rules
+	progs Programs
+	now   func() time.Time
+
+	mu           sync.Mutex
+	open         map[string]*Issue      // by ID
+	runningSince map[string]time.Time   // process -> when it was first seen RUNNING
+	restarts     map[string][]time.Time // process -> restart times inside the window
+	userClosed   map[closedKey]time.Time
+	expects      []*expectation
+	failedPolls  int
+	seq          int
+}
+
+// closedKey is a (process, kind) whose last issue the user closed.
+type closedKey struct {
+	process string
+	kind    Kind
+}
+
+// expectation marks changes the user asked for. match is nil for the
+// daemon itself, which covers supervisord going away and every process.
+type expectation struct {
+	match          func(process string) bool
+	until          time.Time
+	untilReachable bool // daemon: hold past until while supervisord is down
+	sawDown        bool // daemon: supervisord was unreachable while this held
+}
+
+func (e *expectation) live(now time.Time) bool {
+	return !now.After(e.until) || (e.untilReachable && e.sawDown)
+}
+
+// NewTracker loads the issues that are still open in s, and when the user
+// last closed an issue for each process and kind.
+func NewTracker(s *Store, r Rules, p Programs, now func() time.Time) *Tracker {
+	t := &Tracker{
+		store: s, rules: r, progs: p, now: now,
+		open:         map[string]*Issue{},
+		runningSince: map[string]time.Time{},
+		restarts:     map[string][]time.Time{},
+		userClosed:   map[closedKey]time.Time{},
+	}
+	if list, err := s.Issues(Filter{}); err == nil {
+		for _, is := range list {
+			switch is.Status {
+			case StatusOpen:
+				t.open[is.ID] = &is
+			case StatusResolvedUser, StatusDismissed:
+				t.noteUserClosed(is)
+			}
+		}
+	}
+	return t
+}
+
+// Expect treats changes to processes that match as the user's doing until
+// until: they are written to history as "by you", do not count toward a
+// crash loop, and a restart opens no unexpected exit. An observed EXITED
+// with an unexpected code, and FATAL, still open issues: the user starting
+// a broken program is a failure. The returned func moves the deadline
+// (call it when the action ends).
+func (t *Tracker) Expect(match func(process string) bool, until time.Time) func(until time.Time) {
+	return t.addExpectation(&expectation{match: match, until: until})
+}
+
+// ExpectDaemon treats supervisord going away, and every process change, as
+// the user's doing until until (a restart or shutdown they asked for). With
+// untilReachable (a shutdown), it also holds past until for as long as
+// supervisord stays unreachable, so the outage the user chose never opens
+// an unreachable issue; a restart that never comes back does, once until
+// passes. The returned func moves the deadline; a zero deadline ends the
+// expectation outright (the action failed).
+func (t *Tracker) ExpectDaemon(until time.Time, untilReachable bool) func(until time.Time) {
+	return t.addExpectation(&expectation{until: until, untilReachable: untilReachable})
+}
+
+func (t *Tracker) addExpectation(e *expectation) func(time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.expects = append(t.expects, e)
+	return func(until time.Time) {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		e.until = until
+		if until.IsZero() {
+			e.sawDown = false
+		}
+	}
+}
+
+// byUser reports whether a live expectation covers proc ("" is the daemon).
+func (t *Tracker) byUser(proc string, now time.Time) bool {
+	for _, e := range t.expects {
+		if e.live(now) && (e.match == nil || (proc != "" && e.match(proc))) {
+			return true
+		}
+	}
+	return false
+}
+
+// Apply records the update's transitions, opens and closes issues, and
+// returns what changed. Store write failures do not stop tracking.
+func (t *Tracker) Apply(u monitor.Update) (opened, closed []Issue) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := t.now()
+	t.expects = slices.DeleteFunc(t.expects, func(e *expectation) bool { return !e.live(now) })
+
+	var trans []Transition
+	restarted := map[string]bool{} // crash-loop candidates, not caused by the user
+	for _, ev := range u.Events {
+		byUser := ev.Process != "" && t.byUser(ev.Process, now)
+		switch ev.Kind {
+		case monitor.StateChanged:
+			note := ev.Info.SpawnErr
+			switch {
+			case byUser && note == "":
+				note = noteByUser
+			case byUser:
+				note += " (" + noteByUser + ")"
+			}
+			trans = append(trans, Transition{At: ev.At, Process: ev.Process, From: ev.From.String(), To: ev.To.String(), Note: note})
+			t.trackRunning(ev.Process, ev.To, now)
+			// RUNNING, then STARTING or BACKOFF: it exited and supervisord
+			// started it again between two polls.
+			crashed := ev.From == supervisor.StateRunning && (ev.To == supervisor.StateStarting || ev.To == supervisor.StateBackoff)
+			if !byUser && (ev.To == supervisor.StateStarting || crashed) {
+				restarted[ev.Process] = true
+			}
+			if crashed && !byUser {
+				opened = append(opened, t.restartedBySupervisord(ev, now)...)
+			}
+			opened = append(opened, t.entered(ev, now)...)
+		case monitor.Added:
+			t.trackRunning(ev.Process, ev.To, now)
+			opened = append(opened, t.entered(ev, now)...)
+		case monitor.Removed:
+			delete(t.runningSince, ev.Process)
+			delete(t.restarts, ev.Process)
+			// Its fatal, unexpected exit and crash loop issues (the only
+			// kinds with a process) can no longer resolve themselves.
+			closed = append(closed, t.closeWhere(func(i *Issue) bool {
+				return i.Process == ev.Process
+			}, StatusResolvedAuto, noteRemoved, now)...)
+		case monitor.Restarted:
+			note := noteRestarted
+			if byUser {
+				note = noteRestartedBy
+			}
+			trans = append(trans, Transition{At: ev.At, Process: ev.Process, From: ev.From.String(), To: ev.To.String(), Note: note})
+			delete(t.runningSince, ev.Process)
+			t.trackRunning(ev.Process, ev.To, now)
+			if !byUser {
+				restarted[ev.Process] = true
+			}
+			switch {
+			case ev.To == supervisor.StateFatal || ev.To == supervisor.StateExited:
+				opened = append(opened, t.entered(ev, now)...)
+			case !byUser && upOrStarting(ev.From) && upOrStarting(ev.To):
+				opened = append(opened, t.restartedBySupervisord(ev, now)...)
+			}
+			// BACKOFF retries and STOPPED (a start and stop between two
+			// polls) open nothing.
+		case monitor.Reconnected:
+			closed = append(closed, t.closeWhere(func(i *Issue) bool { return i.Kind == KindUnreachable }, StatusResolvedAuto, "", now)...)
+		}
+	}
+	if err := t.store.addTransitions(trans); err != nil {
+		_ = err // history is best effort; issues still track
+	}
+
+	// Crash loops: at most one restart per process per update.
+	for proc := range restarted {
+		times := append(t.restarts[proc], now)
+		cutoff := now.Add(-t.rules.CrashLoopWindow)
+		times = slices.DeleteFunc(times, func(x time.Time) bool { return x.Before(cutoff) })
+		t.restarts[proc] = times
+		if len(times) >= t.rules.CrashLoopRestarts && !t.hasOpen(proc, KindCrashLoop) {
+			msg := fmt.Sprintf("Restarted %d times in %d minutes", len(times), int(t.rules.CrashLoopWindow.Minutes()))
+			opened = append(opened, t.openIssue(KindCrashLoop, proc, msg, now)...)
+			t.restarts[proc] = nil
+		}
+	}
+
+	// Reachability.
+	if u.Snapshot.Reachable {
+		t.failedPolls = 0
+		// First contact after starting unreachable emits no Reconnected.
+		closed = append(closed, t.closeWhere(func(i *Issue) bool { return i.Kind == KindUnreachable }, StatusResolvedAuto, "", now)...)
+	} else if !u.Snapshot.At.IsZero() {
+		t.failedPolls++
+		if t.failedPolls >= t.rules.UnreachablePolls && !t.byUser("", now) {
+			msg := "supervisord is not responding"
+			if u.Snapshot.Err != nil {
+				msg += ": " + u.Snapshot.Err.Error()
+			}
+			opened = append(opened, t.openIssue(KindUnreachable, "", msg, now)...)
+		}
+	}
+	if !u.Snapshot.At.IsZero() {
+		for _, e := range t.expects {
+			if e.match == nil && e.live(now) {
+				e.sawDown = !u.Snapshot.Reachable
+			}
+		}
+	}
+
+	// Reconcile RUNNING tracking with the snapshot, then close stable fatals.
+	for _, p := range u.Snapshot.Processes {
+		t.trackRunning(p.FullName(), p.State, now)
+	}
+	closed = append(closed, t.closeWhere(func(i *Issue) bool {
+		since, ok := t.runningSince[i.Process]
+		return i.Kind == KindFatal && ok && now.Sub(since) >= t.rules.StableFor
+	}, StatusResolvedAuto, "", now)...)
+	return opened, closed
+}
+
+// Open returns the open issues, newest first (the store's order).
+func (t *Tracker) Open() []Issue {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	out := make([]Issue, 0, len(t.open))
+	for _, i := range t.open {
+		out = append(out, *i)
+	}
+	slices.SortFunc(out, newestFirst)
+	return out
+}
+
+// Resolve closes an open issue as resolved by the user.
+func (t *Tracker) Resolve(id string) error { return t.closeByID(id, StatusResolvedUser) }
+
+// Dismiss closes an open issue without resolving it.
+func (t *Tracker) Dismiss(id string) error { return t.closeByID(id, StatusDismissed) }
+
+func (t *Tracker) closeByID(id string, st Status) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if _, ok := t.open[id]; !ok {
+		return fmt.Errorf("%w: %s", ErrNotOpen, id)
+	}
+	for _, is := range t.closeWhere(func(i *Issue) bool { return i.ID == id }, st, "", t.now()) {
+		t.noteUserClosed(is)
+	}
+	return nil
+}
+
+func (t *Tracker) noteUserClosed(is Issue) {
+	k := closedKey{is.Process, is.Kind}
+	if is.ClosedAt.After(t.userClosed[k]) {
+		t.userClosed[k] = is.ClosedAt
+	}
+}
+
+// closedByUserSince reports whether the user closed a (proc, kind) issue
+// after this failure began, i.e. they already decided about it. A failure
+// with no known time is never treated as decided.
+func (t *Tracker) closedByUserSince(proc string, k Kind, info supervisor.ProcessInfo) bool {
+	began := failedAt(info)
+	if began.IsZero() {
+		return false
+	}
+	return t.userClosed[closedKey{proc, k}].After(began)
+}
+
+// failedAt is when a failure began: the later of the last start and the
+// last stop. supervisord keeps the stop time across a respawn, so a new
+// start after an old stop (e.g. a spawn error) still counts as new.
+func failedAt(info supervisor.ProcessInfo) time.Time {
+	if info.Stop.After(info.Start) {
+		return info.Stop
+	}
+	return info.Start
+}
+
+// entered opens issues for a process that just entered (or appeared in) a
+// state, whoever caused it.
+func (t *Tracker) entered(ev monitor.Event, now time.Time) []Issue {
+	switch ev.To {
+	case supervisor.StateFatal:
+		if t.closedByUserSince(ev.Process, KindFatal, ev.Info) {
+			return nil
+		}
+		msg := ev.Info.SpawnErr
+		if msg == "" {
+			msg = fatalFallback
+		}
+		return t.openIssue(KindFatal, ev.Process, msg, now)
+	case supervisor.StateExited:
+		if t.expected(ev.Process, ev.Info.ExitStatus) || t.closedByUserSince(ev.Process, KindUnexpectedExit, ev.Info) {
+			return nil
+		}
+		return t.openIssue(KindUnexpectedExit, ev.Process, exitMessage(ev.Info.ExitStatus), now)
+	}
+	return nil
+}
+
+// restartedBySupervisord handles a restart the user did not ask for. With
+// autorestart=unexpected, supervisord restarts only on an exit code not in
+// exitcodes, so the restart proves an unexpected exit. With
+// autorestart=true a restart may be deliberate (e.g. queue:work
+// --max-jobs exits 0), so it only counts toward a crash loop. With
+// autorestart=false there is no restart to see.
+func (t *Tracker) restartedBySupervisord(ev monitor.Event, now time.Time) []Issue {
+	if t.autorestart(ev.Process) != "unexpected" || t.closedByUserSince(ev.Process, KindUnexpectedExit, ev.Info) {
+		return nil
+	}
+	at := now
+	if s := ev.Info.Stop; !s.IsZero() && !s.After(now) {
+		at = s // when it exited, not when Visor noticed
+	}
+	return t.openIssueAt(KindUnexpectedExit, ev.Process, restartedByDmn, at, now)
+}
+
+func upOrStarting(st supervisor.ProcessState) bool {
+	return st == supervisor.StateRunning || st == supervisor.StateStarting
+}
+
+// autorestart normalises the program's autorestart= the way supervisord
+// reads it: "true", "false" or "unexpected".
+func (t *Tracker) autorestart(proc string) string {
+	v := ""
+	if t.progs.Autorestart != nil {
+		v = strings.ToLower(strings.TrimSpace(t.progs.Autorestart(proc)))
+	}
+	switch v {
+	case "true", "yes", "on", "1":
+		return "true"
+	case "false", "no", "off", "0":
+		return "false"
+	}
+	return "unexpected"
+}
+
+func (t *Tracker) trackRunning(proc string, st supervisor.ProcessState, now time.Time) {
+	if st != supervisor.StateRunning {
+		delete(t.runningSince, proc)
+		return
+	}
+	if _, ok := t.runningSince[proc]; !ok {
+		t.runningSince[proc] = now
+	}
+}
+
+func (t *Tracker) expected(proc string, status int) bool {
+	var codes []int
+	if t.progs.ExpectedExit != nil {
+		codes = t.progs.ExpectedExit(proc)
+	}
+	if len(codes) == 0 {
+		codes = []int{0}
+	}
+	return slices.Contains(codes, status)
+}
+
+func exitMessage(status int) string { return fmt.Sprintf("Exited with status %d", status) }
+
+// newID is unique within a tracker even when several issues open at one
+// instant: time in base36, kind, a counter and the process.
+func (t *Tracker) newID(k Kind, proc string, now time.Time) string {
+	t.seq++
+	return fmt.Sprintf("%s-%s-%d-%s", strconv.FormatInt(now.UnixNano(), 36), k, t.seq, proc)
+}
+
+func (t *Tracker) hasOpen(proc string, k Kind) bool {
+	for _, i := range t.open {
+		if i.Process == proc && i.Kind == k {
+			return true
+		}
+	}
+	return false
+}
+
+// openIssue opens an issue unless one is already open for (proc, kind).
+func (t *Tracker) openIssue(k Kind, proc, msg string, now time.Time) []Issue {
+	return t.openIssueAt(k, proc, msg, now, now)
+}
+
+// openIssueAt opens an issue that began at at.
+func (t *Tracker) openIssueAt(k Kind, proc, msg string, at, now time.Time) []Issue {
+	if t.hasOpen(proc, k) {
+		return nil
+	}
+	is := Issue{
+		ID:       t.newID(k, proc, now),
+		Kind:     k,
+		Process:  proc,
+		Message:  msg,
+		OpenedAt: at,
+		Status:   StatusOpen,
+	}
+	if proc != "" && t.progs.ConfigOf != nil {
+		is.Config = t.progs.ConfigOf(proc)
+	}
+	_ = t.store.putIssue(is)
+	t.open[is.ID] = &is
+	return []Issue{is}
+}
+
+func (t *Tracker) closeWhere(match func(*Issue) bool, st Status, note string, now time.Time) []Issue {
+	var out []Issue
+	for id, i := range t.open {
+		if !match(i) {
+			continue
+		}
+		i.Status, i.ClosedAt, i.Note = st, now, note
+		_ = t.store.putIssue(*i)
+		if i.Kind == KindCrashLoop {
+			t.restarts[i.Process] = nil
+		}
+		out = append(out, *i)
+		delete(t.open, id)
+	}
+	return out
+}
+
+// newestFirst orders issues by when they opened, to the millisecond (a
+// paging cursor's precision), then by ID, both descending.
+func newestFirst(a, b Issue) int {
+	if c := cmp.Compare(b.OpenedAt.UnixMilli(), a.OpenedAt.UnixMilli()); c != 0 {
+		return c
+	}
+	return cmp.Compare(b.ID, a.ID)
+}
