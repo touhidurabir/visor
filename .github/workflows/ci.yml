@@ -81,9 +81,11 @@ jobs:
 
       - name: Install supervisor
         # supervisor 4.2.5 imports pkg_resources, which setuptools 82 removed.
+        # pipx puts the latest setuptools in the venv and `pipx inject` won't
+        # replace it, so pin it with pip inside the venv.
         run: |
           pipx install supervisor==4.2.5
-          pipx inject supervisor setuptools==81.0.0
+          pipx runpip supervisor install setuptools==81.0.0
           supervisord --version
 
       - name: Build the frontend
