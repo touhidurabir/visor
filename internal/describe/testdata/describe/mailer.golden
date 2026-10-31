@@ -1,0 +1,7 @@
+[program:mailer-worker]
+Runs php artisan queue:work --sleep=3 --tries=3 in /srv/mailer as user www. Starts 2 copies (mailer-worker_00 and _01) when supervisord starts, restarts each copy whenever it exits, and gives each 60 seconds to stop. Output and errors both go to /srv/mailer/storage/logs/worker.log.
+
+[program:mailer-digest]
+Runs php artisan digest:send --daemon in /srv/mailer as you. Starts with supervisord, restarts it whenever it exits, and gives it 10 seconds to stop. Output goes to /srv/mailer/storage/logs/digest.log. Errors go to an auto-named file in supervisord's log folder.
+! mailer-digest: startsecs=1 with autorestart on, so a crash loop burns through its 3 retries in seconds.
+! mailer-digest has no stderr_logfile, so errors go to an auto-named file in supervisord's log folder.
