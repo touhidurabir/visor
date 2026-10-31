@@ -21,6 +21,8 @@ wails3 package  # build bin/visor.app
 go test ./...   # Go tests (integration tests start their own temp supervisord)
 ```
 
+Tests, including the Playwright UI tests (`wails3 task test:e2e`) and the manual native checklist: [docs/testing.md](docs/testing.md).
+
 Use `wails3 task dev` for development. It starts a sandbox supervisord under
 `/tmp/visor-sandbox` (`scripts/sandbox.sh`) and points Visor at it. Bare
 `wails3 dev` connects to your real supervisord, so the buttons stop and
