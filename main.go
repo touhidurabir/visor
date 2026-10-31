@@ -39,6 +39,8 @@ func main() {
 			// ServerService starts and stops rt with the app.
 			application.NewService(app.NewServerService(rt)),
 			application.NewService(app.NewIssueService(rt)),
+			// Log events go to the frontend only; the shell has no use for them.
+			application.NewService(app.NewLogService(rt, app.WailsEmit)),
 			application.NewService(app.NewShellService(shell)),
 			application.NewService(dockService),
 		},

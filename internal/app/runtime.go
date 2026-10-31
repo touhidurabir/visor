@@ -271,6 +271,14 @@ func (r *Runtime) configOf(process string) string {
 	return ""
 }
 
+// program returns the [program:x] behind a process full name.
+func (r *Runtime) program(process string) (config.Program, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, p, ok := r.inv.Lookup(process)
+	return p, ok
+}
+
 func (r *Runtime) expectedExit(process string) []int {
 	r.mu.Lock()
 	defer r.mu.Unlock()

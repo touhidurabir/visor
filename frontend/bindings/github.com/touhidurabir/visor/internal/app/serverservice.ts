@@ -37,11 +37,28 @@ export function ClearLogs(name: string): $CancellablePromise<void> {
 }
 
 /**
+ * ConfigDetail returns the config detail page for one include file: its
+ * live processes, the paths it refers to, where each process logs, and its
+ * most recent failure.
+ */
+export function ConfigDetail(path: string): $CancellablePromise<$models.ConfigDetailView> {
+    return $Call.ByID(2359427357, path);
+}
+
+/**
  * MainLog returns the last maxBytes of supervisord's own log (64 KiB if
  * maxBytes <= 0, at most 1 MiB).
  */
 export function MainLog(maxBytes: number): $CancellablePromise<string> {
     return $Call.ByID(850905403, maxBytes);
+}
+
+/**
+ * OpenInEditor opens a file with its default app, or a folder in Finder.
+ * It refuses executable files, which would run.
+ */
+export function OpenInEditor(path: string): $CancellablePromise<void> {
+    return $Call.ByID(2624086760, path);
 }
 
 /**
@@ -87,6 +104,13 @@ export function RestartFile(path: string): $CancellablePromise<void> {
  */
 export function RestartGroup(g: string): $CancellablePromise<void> {
     return $Call.ByID(792332780, g);
+}
+
+/**
+ * Reveal shows a file or folder in Finder.
+ */
+export function Reveal(path: string): $CancellablePromise<void> {
+    return $Call.ByID(2942324023, path);
 }
 
 /**

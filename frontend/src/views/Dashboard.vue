@@ -3,7 +3,7 @@
 // stats, the configs and processes table, and open issues. All data comes
 // from the live overview; this view only wires menu ids to service calls.
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, type RouteLocationRaw } from 'vue-router'
 import { IssueService, ServerService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { ConfigView, IssueView, ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import ChangedBanner from '../components/ChangedBanner.vue'
@@ -18,6 +18,7 @@ import { filterConfigs } from '../lib/filter'
 import { formatDuration } from '../lib/format'
 import { comingSoon, serverMenu } from '../lib/menus'
 import { useOverview } from '../lib/overview'
+import { configRoute } from '../lib/links'
 import { showToast } from '../lib/toast'
 
 const router = useRouter()
@@ -127,7 +128,7 @@ function bulk(what: 'start' | 'stop' | 'restart') {
 }
 
 function configLink(c: ConfigView, q: Record<string, string> = {}) {
-  return router.push({ path: `/config/${c.Path}`, query: q })
+  return router.push(configRoute(c.Path, q))
 }
 
 function onProcess(p: ProcessView, c: ConfigView, id: string) {
@@ -170,7 +171,21 @@ function onConfig(c: ConfigView, id: string) {
     case 'describe':
       if (c.Path) void configLink(c, { tab: 'overview' })
       return
+    case 'reveal':
+      if (c.Path) void run(() => ServerService.Reveal(c.Path))
+      return
+    case 'open-log':
+      if (c.Path) void run(() => openFirstLog(c.Path))
+      return
   }
+}
+
+/** Opens the stdout log of the file's first process that has one. */
+async function openFirstLog(path: string) {
+  const d = await ServerService.ConfigDetail(path)
+  const log = (d.Logs ?? []).find((l) => l.Stdout)?.Stdout
+  if (!log) throw new Error('No process in this file writes a log file.')
+  await ServerService.OpenInEditor(log)
 }
 
 function onWatch(c: ConfigView, on: boolean) {
@@ -183,10 +198,10 @@ function sendSignal(sig: string) {
   if (p) void run(() => ServerService.Signal(p.FullName, sig)).then(ifOk(() => showToast(`Sent ${sig} to ${p.FullName}.`)))
 }
 
-function logsTo(i: IssueView): string | null {
+function logsTo(i: IssueView): RouteLocationRaw | null {
   const c = configs.value.find((cfg) => (cfg.Processes ?? []).some((p) => p.FullName === i.Process))
   if (!c?.Path || !i.Process) return null
-  return `/config/${c.Path}?tab=logs&process=${encodeURIComponent(i.Process)}`
+  return configRoute(c.Path, { tab: 'logs', process: i.Process })
 }
 
 const afterIssue = (fn: () => Promise<unknown>) => void run(fn).then(ifOk(() => reload()))

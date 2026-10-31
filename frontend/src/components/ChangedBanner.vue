@@ -4,13 +4,14 @@
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { ConfigView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { configRoute } from '../lib/links'
 
 const props = defineProps<{ configs: ConfigView[] }>()
 
 const changed = computed(() => props.configs.filter((c) => c.Changed))
 const uncertain = computed(() => props.configs.filter((c) => c.Uncertain && !c.Changed))
 const first = computed(() => changed.value[0] ?? uncertain.value[0])
-const diffTo = computed(() => (first.value ? `/config/${first.value.Path}?tab=config` : '/'))
+const diffTo = computed(() => (first.value ? configRoute(first.value.Path, { tab: 'config' }) : '/'))
 const headline = computed(() => {
   if (changed.value.length === 1) return `${changed.value[0].FileName} changed on disk`
   if (changed.value.length > 1) return `${changed.value.length} config files changed on disk`

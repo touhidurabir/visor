@@ -9,6 +9,7 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"github.com/touhidurabir/visor/internal/platform"
 	"github.com/touhidurabir/visor/internal/supervisor"
 )
 
@@ -112,6 +113,10 @@ func (s *ServerService) RestartFile(path string) error {
 }
 
 func (s *ServerService) fileAction(path string, stop, start bool) error {
+	// Without a connection, say so rather than that the file is unknown.
+	if _, err := s.rt.conn(); err != nil {
+		return err
+	}
 	groups, err := s.rt.groupsInFile(path)
 	if err != nil {
 		return err
@@ -134,6 +139,20 @@ func (s *ServerService) fileAction(path string, stop, start bool) error {
 		return errors.Join(errs...)
 	})
 }
+
+// ConfigDetail returns the config detail page for one include file: its
+// live processes, the paths it refers to, where each process logs, and its
+// most recent failure.
+func (s *ServerService) ConfigDetail(path string) (ConfigDetailView, error) {
+	return s.rt.configDetail(path)
+}
+
+// Reveal shows a file or folder in Finder.
+func (s *ServerService) Reveal(path string) error { return platform.Reveal(path) }
+
+// OpenInEditor opens a file with its default app, or a folder in Finder.
+// It refuses executable files, which would run.
+func (s *ServerService) OpenInEditor(path string) error { return platform.Open(path) }
 
 // StartAll starts every process.
 func (s *ServerService) StartAll() error {

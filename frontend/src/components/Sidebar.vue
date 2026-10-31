@@ -1,9 +1,12 @@
 <script setup lang="ts">
 // Servers (Local with its health and failing count, Dashboard, Issues, Add
 // new), Remote (later), and Doctor / Settings at the bottom.
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 
 defineProps<{ name: string; health: string; failing: number; openIssues: number }>()
+
+// A config's detail page belongs under Dashboard, as in the wireframe.
+const route = useRoute()
 </script>
 
 <template>
@@ -23,7 +26,7 @@ defineProps<{ name: string; health: string; failing: number; openIssues: number 
       <span v-if="failing > 0" class="failing">{{ failing }} failing</span>
     </div>
     <div class="sub">
-      <RouterLink to="/" class="nav">Dashboard</RouterLink>
+      <RouterLink to="/" :class="['nav', { current: route.name === 'config' }]">Dashboard</RouterLink>
       <RouterLink to="/issues" class="nav">
         Issues
         <span v-if="openIssues > 0" class="count"
@@ -81,7 +84,7 @@ defineProps<{ name: string; health: string; failing: number; openIssues: number 
   text-decoration: none;
 }
 .nav:hover:not(:disabled) { background: var(--bg-hover); }
-.nav.router-link-exact-active { background: var(--bg-active); font-weight: 600; }
+.nav.router-link-exact-active, .nav.current { background: var(--bg-active); font-weight: 600; }
 .nav.disabled { color: var(--text-faint); }
 .later { margin-left: auto; font-size: 11px; }
 .count {

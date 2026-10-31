@@ -80,6 +80,7 @@ stopasgroup=true
 killasgroup=true
 numprocs=2
 process_name=%(program_name)s_%(process_num)02d
+redirect_stderr=true
 
 [program:mailer-digest]
 command=sh -c 'echo boom >&2; exit 1'

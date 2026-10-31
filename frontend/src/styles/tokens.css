@@ -35,6 +35,20 @@
   --stopped-bg: #efeff2;
   --stopped-dot: #8e8e96;
 
+  --selected-bg: #eaf1fc;
+  --watch-on-border: #a9c5ee;
+  --watch-on-fg: #0a4fa8;
+  --seg-bg: #e4e4e8;
+  --seg-on: #ffffff;
+  --error-card-border: #f3b4ae;
+  --error-card-bg: #fff8f7;
+  /* Log panes stay dark in both themes, like a terminal. */
+  --log-bg: #1d1d1f;
+  --log-fg: #e8e8ec;
+  --log-muted: #8e8e96;
+  --log-mark-bg: #f5c26b;
+  --log-mark-fg: #1d1d1f;
+
   --menu-bg: #ffffff;
   --menu-shadow: 0 10px 30px rgba(0, 0, 0, 0.14);
   --menu-cmd-hover: #dce8fa;
@@ -80,6 +94,19 @@
     --stopped-fg: #c7c7ce;
     --stopped-bg: #323237;
     --stopped-dot: #8e8e96;
+
+    --selected-bg: #16263d;
+    --watch-on-border: #2f5a94;
+    --watch-on-fg: #9cc3f7;
+    --seg-bg: #323237;
+    --seg-on: #55555c;
+    --error-card-border: #6b2a24;
+    --error-card-bg: #2a1513;
+    --log-bg: #111113;
+    --log-fg: #e8e8ec;
+    --log-muted: #8e8e96;
+    --log-mark-bg: #f5c26b;
+    --log-mark-fg: #1d1d1f;
 
     --menu-bg: #2c2c30;
     --menu-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);

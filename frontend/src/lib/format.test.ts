@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { duration, formatDuration, shortSince, sinceLabel } from './format'
+import { duration, formatDuration, historyNote, historyTime, shortSince, sinceLabel } from './format'
 import type { ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 
 const s = 1000
@@ -66,5 +66,28 @@ describe('sinceLabel', () => {
   })
   it('no timestamps: falls back to the label from the Go side', () => {
     expect(sinceLabel({ ...base, State: 'STOPPED', Status: 'stopped', Since: 'stopped 3d' }, now)).toBe('stopped 3d')
+  })
+})
+
+describe('historyTime', () => {
+  // Local time, like the clock people read.
+  const now = new Date(2026, 9, 30, 10, 0).getTime() // Fri 30 Oct 2026
+  it.each([
+    [new Date(2026, 9, 30, 7, 48), 'Today 07:48'],
+    [new Date(2026, 9, 29, 23, 5), 'Yesterday 23:05'],
+    [new Date(2026, 9, 26, 14, 2), 'Mon 14:02'],
+    [new Date(2026, 9, 3, 9, 30), 'Oct 3 09:30'],
+    [new Date(2025, 11, 31, 18, 0), 'Dec 31 2025 18:00'],
+  ])('%s → %s', (at, want) => {
+    expect(historyTime(at.getTime(), now)).toBe(want)
+  })
+})
+
+describe('historyNote', () => {
+  it('uses the recorded note, else the state it came from', () => {
+    expect(historyNote({ AtMs: 1, Process: 'a:a', From: 'RUNNING', To: 'RUNNING', Note: 'Restarted by you' })).toBe('Restarted by you')
+    expect(historyNote({ AtMs: 1, Process: 'a:a', From: 'STOPPED', To: 'STARTING', Note: 'by you' })).toBe('By you')
+    expect(historyNote({ AtMs: 1, Process: 'a:a', From: 'STARTING', To: 'RUNNING', Note: '' })).toBe('From STARTING')
+    expect(historyNote({ AtMs: 1, Process: 'a:a', From: '', To: 'RUNNING', Note: '' })).toBe('First seen')
   })
 })

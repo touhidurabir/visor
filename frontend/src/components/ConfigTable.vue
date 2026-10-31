@@ -7,6 +7,7 @@ import { RouterLink } from 'vue-router'
 import type { ConfigView, ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { sinceLabel } from '../lib/format'
 import { comingSoon, configMenu, processMenu } from '../lib/menus'
+import { configRoute } from '../lib/links'
 import ActionMenu from './ActionMenu.vue'
 import StateBadge from './StateBadge.vue'
 
@@ -45,7 +46,7 @@ function procName(p: ProcessView) {
               <svg :class="{ open: !collapsed[key(c)] }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
             </button>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="file" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><path d="M14 3v6h6" /></svg>
-            <RouterLink v-if="c.Path" class="file-link" :to="`/config/${c.Path}`">{{ c.FileName }}</RouterLink>
+            <RouterLink v-if="c.Path" class="file-link" :to="configRoute(c.Path)">{{ c.FileName }}</RouterLink>
             <span v-else class="file-link">{{ c.FileName }}</span>
             <span v-if="c.Changed" class="chip">changed</span>
           </div>
@@ -64,7 +65,7 @@ function procName(p: ProcessView) {
           </div>
           <div v-else />
           <ActionMenu
-            :items="comingSoon(configMenu(c), ['reveal', 'open-log', 'apply', 'remove'])"
+            :items="comingSoon(configMenu(c), c.Path ? ['apply', 'remove'] : ['open-config', 'describe', 'reveal', 'open-log', 'apply', 'remove'])"
             :label="`Actions for ${c.FileName}`"
             heading="Whole config file"
             @select="(id) => emit('config', c, id)"
@@ -74,7 +75,7 @@ function procName(p: ProcessView) {
           <div v-for="p in c.Processes ?? []" :key="p.FullName" class="row proc">
             <component
               :is="c.Path ? RouterLink : 'span'"
-              :to="{ path: `/config/${c.Path}`, query: { process: p.FullName } }"
+              :to="configRoute(c.Path, { process: p.FullName })"
               class="pname" :title="p.FullName"
             >{{ procName(p) }}</component>
             <span><StateBadge :state="p.State" :status="p.Status" /></span>

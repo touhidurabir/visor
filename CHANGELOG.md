@@ -25,6 +25,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Server dashboard: header with version, uptime and config path, search (⌘F) over process and file names, Check for changes (⌘R), six stat tiles, a banner when config files changed on disk, collapsible config rows with a persistent Watch toggle, process and file action menus (start, stop, restart, send signal, copy PID, clear logs), Start/Stop/Restart all, a supervisord log viewer, restart and shut down supervisord with confirmation, and up to 10 open issues with Logs, Restart or Mark resolved, and Dismiss. Action errors show as plain-English toasts. Reveal in Finder, Open log in editor, Apply changes and Remove from supervisor are disabled until they ship.
 
+- Config detail page (`#/config/<path>`): header with the file's failing and changed badges, Watch, Start/Stop/Restart all and Reveal in Finder; process chips; and Overview, Logs, Config and History tabs, kept in the URL so dashboard links land on the right tab and process. Overview shows the most recent failure (what supervisord says, how many start attempts, the last 20 lines of stderr, with Restart, Open stderr log and Open in editor) and every path the config names (working directories, command binaries resolved on PATH, and each process's log files including supervisord's auto-named ones) with a "missing" badge. Logs follows stdout or stderr live (new `LogService`: one poller per followed log, `visor:log` events every second), with Pause/Resume, search highlighting, Clear (confirmed; supervisord only clears a running process's logs), Save… (native save dialog, newest 4 MiB) and Open in editor; a stream with no log file (`*_logfile=NONE`, or stderr with `redirect_stderr=true`) says so instead of showing an empty log. History lists the process's state changes with times and reasons. "What this config does" and the config editor are placeholders until they ship.
+- `internal/platform`: Reveal in Finder (`open -R`) and open with the default app (`open`), for absolute paths only; it refuses to open executable files, which would run them.
+- The dashboard's config menu now has Reveal in Finder and Open log in editor.
+
 ### Changed
 - Config menu hints name the file's real groups (`start mail:*`), not the file name.
 - The popover's config button is now "Check for changes", and its notice says nothing was applied yet.
@@ -36,6 +40,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - A retry while a program is still starting no longer opens an unexpected exit; FATAL and the crash loop cover programs that can't start.
 
 ### Fixed
+- Start, stop or restart all in a file without a connection to supervisord now says why there is no connection, instead of that the file is unknown.
+- Links to a config's page keep its absolute path exactly (it is encoded in the URL).
 - A crash that supervisord restarts between two polls now opens an unexpected exit (how Visor tells a crash from a planned exit is under Changed). Every restart is written to the process history.
 - Your own start, stop, restart, signal and daemon actions no longer count toward crash loops or open unexpected exits for the restarts they cause, so they no longer turn the tray red; history marks those changes "by you". A program you start that exits with an unexpected code still opens an issue. After you shut supervisord down, no unreachable issue opens until it is back; after you restart it, one opens if it is not back within 30 seconds.
 - A dismissed or resolved issue no longer reopens on the next launch when supervisord still shows the same failure; a new failure still opens one.

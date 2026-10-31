@@ -1,11 +1,11 @@
 <script setup lang="ts">
 // Up to 10 open issues, newest first, each with Logs, a contextual action
 // (Restart for a process that is down, Mark resolved otherwise) and Dismiss.
-import { RouterLink } from 'vue-router'
+import { RouterLink, type RouteLocationRaw } from 'vue-router'
 import type { IssueView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { duration } from '../lib/format'
 
-defineProps<{ issues: IssueView[]; nowMs: number; logsTo: (i: IssueView) => string | null }>()
+defineProps<{ issues: IssueView[]; nowMs: number; logsTo: (i: IssueView) => RouteLocationRaw | null }>()
 const emit = defineEmits<{ restart: [i: IssueView]; resolve: [i: IssueView]; dismiss: [i: IssueView] }>()
 
 const KINDS: Record<string, { label: string; cls: string }> = {
