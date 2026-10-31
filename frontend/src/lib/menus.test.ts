@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { configMenu, processMenu, serverMenu, type MenuItem } from './menus'
+import { comingSoon, configMenu, processMenu, serverMenu, type MenuItem } from './menus'
 import type { ConfigView, ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 
 const proc = (o: Partial<ProcessView>) =>
@@ -34,6 +34,20 @@ describe('configMenu', () => {
     expect(find(configMenu(cfg(false)), 'apply').disabled).toBe(true)
     expect(find(configMenu(cfg(true)), 'apply').disabled).toBe(false)
   })
+  it('derives group targets from the processes, not the file name', () => {
+    const c = {
+      FileName: 'mailer.conf',
+      Changed: true,
+      Processes: [proc({ Group: 'mail' }), proc({ Group: 'mail' }), proc({ Group: 'digest' })],
+    } as ConfigView
+    const items = configMenu(c)
+    expect(find(items, 'start-all').cmd).toBe('supervisorctl start mail:* digest:*')
+    expect(find(items, 'apply').cmd).toBe('supervisorctl update mail digest')
+    expect(find(items, 'remove').cmd).toBe('supervisorctl remove mail digest')
+  })
+  it('shows <group> when the file has no processes', () => {
+    expect(find(configMenu(cfg(false)), 'stop-all').cmd).toBe('supervisorctl stop <group>:*')
+  })
   it('confirms before removing from supervisor', () => {
     const rm = find(configMenu(cfg(false)), 'remove')
     expect(rm.danger).toBe(true)
@@ -46,5 +60,13 @@ describe('serverMenu', () => {
     const items = serverMenu()
     expect(items).toHaveLength(6)
     expect(items.filter((i) => i.confirm).map((i) => i.id)).toEqual(['restart', 'shutdown'])
+  })
+})
+
+describe('comingSoon', () => {
+  it('disables only the named items and explains why', () => {
+    const items = comingSoon(serverMenu(), ['apply-all'])
+    expect(find(items, 'apply-all')).toMatchObject({ disabled: true, title: 'Coming in this release' })
+    expect(find(items, 'check').disabled).toBe(false)
   })
 })

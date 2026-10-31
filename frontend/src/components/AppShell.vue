@@ -4,6 +4,7 @@
 import { computed } from 'vue'
 import { useOverview } from '../lib/overview'
 import Sidebar from './Sidebar.vue'
+import ToastHost from './ToastHost.vue'
 
 const { overview } = useOverview()
 const name = computed(() => overview.value?.Server.Name ?? 'Local')
@@ -16,6 +17,7 @@ const openIssues = computed(() => overview.value?.Stats.OpenIssues ?? 0)
   <div class="shell">
     <Sidebar :name="name" :health="health" :failing="failing" :open-issues="openIssues" />
     <main class="content"><slot /></main>
+    <ToastHost />
   </div>
 </template>
 

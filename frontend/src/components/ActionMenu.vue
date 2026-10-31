@@ -129,6 +129,7 @@ function cancelled() {
         role="menuitem"
         :class="['mi', { danger: item.danger }]"
         :disabled="item.disabled"
+        :title="item.title"
         @click="choose(item)"
       >
         <span>{{ item.label }}</span>
