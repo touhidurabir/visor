@@ -25,6 +25,8 @@ const frozen = shallowRef(emptyLog())
 const loading = ref(true)
 const noLog = ref<string | null>(null)
 const error = ref<string | null>(null)
+/** Set when the Go side gave up after repeated poll failures. */
+const lost = ref<string | null>(null)
 const confirmClear = ref(false)
 const saving = ref(false)
 const pre = ref<HTMLElement>()
@@ -50,6 +52,11 @@ const off = Events.On(VisorLog, (ev) => {
 })
 
 function receive(c: LogChunkView) {
+  if (c.Error) {
+    followId = null // the Go side already stopped this follow
+    lost.value = c.Error
+    return
+  }
   live.value = applyChunk(live.value, c)
   if (!paused.value) void scrollToEnd()
 }
@@ -79,6 +86,8 @@ async function follow() {
   early = []
   noLog.value = null
   error.value = null
+  lost.value = null
+  paused.value = false // a new stream starts live; a frozen view of the old one would be empty
   loading.value = true
   stick = true
   try {
@@ -182,7 +191,7 @@ onBeforeUnmount(() => {
           {{ s }}
         </button>
       </div>
-      <button type="button" class="btn" :disabled="!!noLog || !!error" @click="togglePause">{{ paused ? 'Resume' : 'Pause' }}</button>
+      <button type="button" class="btn" :disabled="!!noLog || !!error || !!lost" @click="togglePause">{{ paused ? 'Resume' : 'Pause' }}</button>
       <label for="logq" class="sr-only">Search log</label>
       <input id="logq" ref="search" v-model="query" type="search" placeholder="Search log" autocomplete="off" />
       <span v-if="query" class="count" aria-live="polite">{{ matches === 0 ? 'No matches' : matches === 1 ? '1 match' : `${matches} matches` }}</span>
@@ -208,6 +217,13 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
+    <div v-if="lost && !noLog && !error" class="lost" role="alert">
+      <div>
+        <strong>Lost the log stream.</strong>
+        {{ lost }}
+      </div>
+      <button type="button" class="btn" @click="follow">Retry</button>
+    </div>
     <div v-if="noLog" class="empty-pane">
       <strong>{{ noLog }}</strong>
       <p v-if="stream === 'stderr' && noLog.startsWith('stderr')">Switch to stdout to see what it writes to stderr.</p>
@@ -230,7 +246,7 @@ onBeforeUnmount(() => {
 </template></template></pre>
     <div class="follow-note" aria-live="polite">
       <template v-if="paused">Paused. New lines are buffered and appear when you resume.{{ waiting > 0 ? ` ${waiting} new ${waiting === 1 ? 'line' : 'lines'} waiting.` : '' }}</template>
-      <template v-else-if="!noLog && !error">Following live. New lines appear as they are written.</template>
+      <template v-else-if="!noLog && !error && !lost">Following live. New lines appear as they are written.</template>
     </div>
 
     <ConfirmDialog
@@ -279,6 +295,7 @@ input[type='search'] { min-height: 32px; flex: 1 1 180px; max-width: 260px; box-
 mark { background: var(--log-mark-bg); color: var(--log-mark-fg); border-radius: 2px; }
 .empty-pane { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 120px; padding: 16px; border: 1px dashed var(--line-strong); border-radius: var(--radius-md); }
 .empty-pane p { margin: 0; color: var(--text-muted); }
+.lost { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border: 1px solid var(--failing-dot); border-radius: var(--radius-md); background: var(--failing-bg); color: var(--failing-fg); user-select: text; }
 .follow-note { color: var(--text-muted); min-height: 1.4em; }
 .sr-only { position: absolute; left: -9999px; }
 </style>

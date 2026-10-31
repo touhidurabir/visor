@@ -222,3 +222,50 @@ func (s *splitClient) TailProcessStderrLog(context.Context, string, int, int) (s
 	s.err.n++
 	return supervisor.TailResult{}, nil
 }
+
+// streamFake serves different stdout and stderr logs.
+type streamFake struct{ out, err fakeLog }
+
+func (s *streamFake) TailProcessStdoutLog(_ context.Context, _ string, offset, length int) (supervisor.TailResult, error) {
+	return s.out.tail(offset, length)
+}
+
+func (s *streamFake) TailProcessStderrLog(_ context.Context, _ string, offset, length int) (supervisor.TailResult, error) {
+	return s.err.tail(offset, length)
+}
+
+func TestTailNewest(t *testing.T) {
+	f := &streamFake{}
+	f.out.write("one\ntwo\nthree\n")
+	f.err.write("boom\n")
+	ctx := context.Background()
+
+	for _, c := range []struct {
+		s    Stream
+		n    int
+		want string
+	}{
+		{Stdout, 1 << 10, "one\ntwo\nthree\n"}, // the whole log
+		{Stderr, 1 << 10, "boom\n"},            // the stream picks the RPC
+		{Stdout, 9, "three\n"},                 // "o\nthree\n" starts mid-line: drop to the next line
+		{Stdout, 6, "three\n"},                 // starts exactly on a line
+		{Stdout, 13, "two\nthree\n"},          // one byte short of the whole log
+	} {
+		got, err := Tail(ctx, f, "p", c.s, c.n)
+		if err != nil || got != c.want {
+			t.Errorf("Tail(%s, %d) = %q, %v; want %q", c.s, c.n, got, err, c.want)
+		}
+	}
+
+	// One long line with no newline in reach: keep its end rather than nothing.
+	g := &streamFake{}
+	g.out.write("abcdefghij")
+	if got, _ := Tail(ctx, g, "p", Stdout, 4); got != "ghij" {
+		t.Errorf("long line = %q, want its newest bytes", got)
+	}
+
+	f.out.err = supervisor.ErrNoFile
+	if _, err := Tail(ctx, f, "p", Stdout, 10); !errors.Is(err, ErrNoLog) {
+		t.Errorf("NO_FILE = %v, want ErrNoLog", err)
+	}
+}

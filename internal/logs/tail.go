@@ -10,6 +10,7 @@ package logs
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"unicode/utf8"
 
@@ -75,17 +76,41 @@ func NewTailer(c TailClient, process string, s Stream, maxBuffer int) *Tailer {
 }
 
 func (t *Tailer) fetch(ctx context.Context, offset, length int) (supervisor.TailResult, error) {
+	return fetch(ctx, t.c, t.process, t.stream, offset, length)
+}
+
+// fetch calls the tail RPC for stream s, mapping NO_FILE to ErrNoLog.
+func fetch(ctx context.Context, c TailClient, process string, s Stream, offset, length int) (supervisor.TailResult, error) {
 	var r supervisor.TailResult
 	var err error
-	if t.stream == Stderr {
-		r, err = t.c.TailProcessStderrLog(ctx, t.process, offset, length)
+	if s == Stderr {
+		r, err = c.TailProcessStderrLog(ctx, process, offset, length)
 	} else {
-		r, err = t.c.TailProcessStdoutLog(ctx, t.process, offset, length)
+		r, err = c.TailProcessStdoutLog(ctx, process, offset, length)
 	}
 	if errors.Is(err, supervisor.ErrNoFile) {
 		return r, ErrNoLog
 	}
 	return r, err
+}
+
+// Tail returns the newest bytes of a log, at most n, starting at a whole
+// line: a partial first line is dropped, unless the newest n bytes hold
+// no line start at all (one long line), which keeps them. One RPC.
+func Tail(ctx context.Context, c TailClient, process string, s Stream, n int) (string, error) {
+	// One byte more than asked shows whether the text starts on a line.
+	r, err := fetch(ctx, c, process, s, 0, n+1)
+	if err != nil {
+		return "", err
+	}
+	text := r.Bytes
+	if r.Offset <= len(text) && len(text) <= n { // the whole log
+		return text, nil
+	}
+	if i := strings.IndexByte(text, '\n'); i >= 0 && i+1 < len(text) {
+		return text[i+1:], nil
+	}
+	return trimLeadingPartialRune(text[1:]), nil
 }
 
 // Poll returns the output written since the previous Poll. The first call

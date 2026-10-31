@@ -21,4 +21,3 @@ export const routes: RouteRecordRaw[] = [
 export function createAppRouter(history = createWebHashHistory()) {
   return createRouter({ history, routes })
 }
-

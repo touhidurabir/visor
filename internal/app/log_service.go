@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,7 +15,6 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/touhidurabir/visor/internal/logs"
-	"github.com/touhidurabir/visor/internal/supervisor"
 )
 
 // EventLog carries a LogChunkView: new output of one followed log.
@@ -35,17 +35,23 @@ const (
 	followBuffer = 1 << 20
 	// saveBytes is how much of a log Save writes: its newest bytes.
 	saveBytes = 4 << 20
+	// maxPollFailures is how many polls in a row may fail before a follow
+	// gives up and says so.
+	maxPollFailures = 5
 )
 
 // LogChunkView is new output from one follow (ID from Follow). The first
 // chunk is the last 64 KiB of the log. Truncated means the log was cleared
 // or rotated and Text starts the new log; Skipped means some output was
-// written too fast to read and is missing before Text.
+// written too fast to read and is missing before Text. Error is set on a
+// follow's last event when it stopped because polls kept failing; the
+// frontend can Follow again.
 type LogChunkView struct {
 	ID        string
 	Text      string
 	Truncated bool
 	Skipped   bool
+	Error     string
 }
 
 // LogService follows process logs for the frontend: one goroutine per
@@ -129,12 +135,18 @@ func (s *LogService) Follow(process, stream string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	t := logs.NewTailer(ac.client, process, st, followBuffer)
-	ctx, cancel := context.WithTimeout(ac.ctx, rpcTimeout)
-	first, err := t.Poll(ctx)
+	return s.start(ac.ctx, ac.client, process, st)
+}
+
+// start reads the first chunk of a log, registers the follow and starts
+// its poller. ctx bounds the follow's life (the Runtime's context).
+func (s *LogService) start(ctx context.Context, c logs.TailClient, process string, st logs.Stream) (string, error) {
+	t := logs.NewTailer(c, process, st, followBuffer)
+	pctx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	first, err := t.Poll(pctx)
 	cancel()
 	if err != nil {
-		return "", wrap("follow the "+stream+" log of "+process, err)
+		return "", wrap("follow the "+string(st)+" log of "+process, err)
 	}
 
 	s.mu.Lock()
@@ -158,7 +170,7 @@ func (s *LogService) Follow(process, stream string) (string, error) {
 		keep = keep[1:]
 	}
 	var fctx context.Context
-	fctx, f.cancel = context.WithCancel(ac.ctx)
+	fctx, f.cancel = context.WithCancel(ctx)
 	s.follows = append(keep, f)
 	s.wg.Add(1)
 	s.mu.Unlock()
@@ -201,14 +213,21 @@ func (s *LogService) run(ctx context.Context, f *follow, t *logs.Tailer, first l
 	defer s.wg.Done()
 	defer close(f.done)
 	defer f.cancel()
-	send := func(c logs.Chunk) {
-		if (c.Text != "" || c.Truncated) && ctx.Err() == nil {
-			s.emit(EventLog, LogChunkView{ID: f.id, Text: c.Text, Truncated: c.Truncated, Skipped: c.Skipped})
+	send := func(c LogChunkView) {
+		if ctx.Err() == nil {
+			c.ID = f.id
+			s.emit(EventLog, c)
 		}
 	}
-	send(first)
+	sendChunk := func(c logs.Chunk) {
+		if c.Text != "" || c.Truncated {
+			send(LogChunkView{Text: c.Text, Truncated: c.Truncated, Skipped: c.Skipped})
+		}
+	}
+	sendChunk(first)
 	tick := time.NewTicker(s.interval)
 	defer tick.Stop()
+	failures := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -218,9 +237,28 @@ func (s *LogService) run(ctx context.Context, f *follow, t *logs.Tailer, first l
 		pctx, cancel := context.WithTimeout(ctx, rpcTimeout)
 		c, err := t.Poll(pctx)
 		cancel()
-		if err == nil { // an unreachable supervisord is retried next tick
-			send(c)
+		if err == nil {
+			failures = 0
+			sendChunk(c)
+			continue
 		}
+		// A blip (supervisord restarting) is retried; a log that stays
+		// unreadable ends the follow, and the frontend offers Retry.
+		if failures++; failures < maxPollFailures {
+			continue
+		}
+		s.forget(f)
+		send(LogChunkView{Error: wrap("follow the "+string(f.stream)+" log of "+f.process, err).Error()})
+		return
+	}
+}
+
+// forget drops f from the running follows (it is stopping by itself).
+func (s *LogService) forget(f *follow) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i := slices.Index(s.follows, f); i >= 0 {
+		s.follows = slices.Delete(s.follows, i, i+1)
 	}
 }
 
@@ -262,21 +300,9 @@ func (s *LogService) Save(process, stream string) (string, error) {
 
 // saveLog writes the newest saveBytes of a process's log to path.
 func saveLog(ctx context.Context, c logs.TailClient, process string, s logs.Stream, path string) error {
-	var res supervisor.TailResult
-	var err error
-	if s == logs.Stderr {
-		res, err = c.TailProcessStderrLog(ctx, process, 0, saveBytes)
-	} else {
-		res, err = c.TailProcessStdoutLog(ctx, process, 0, saveBytes)
-	}
+	text, err := logs.Tail(ctx, c, process, s, saveBytes)
 	if err != nil {
 		return wrap("read the "+string(s)+" log of "+process, err)
-	}
-	text := res.Bytes
-	if res.Offset > len(text) { // starts mid-line: begin at the next line
-		if _, rest, ok := strings.Cut(text, "\n"); ok {
-			text = rest
-		}
 	}
 	return writeLogFile(path, text)
 }

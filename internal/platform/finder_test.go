@@ -56,3 +56,84 @@ func TestCheckRejectsBadPaths(t *testing.T) {
 		t.Errorf("open folder: %v", err)
 	}
 }
+
+// openCmdFor never runs anything that launches: bundles and files macOS
+// runs without an execute bit are revealed in Finder instead.
+func TestOpenCmdForRevealsLaunchables(t *testing.T) {
+	dir := t.TempDir()
+	mk := func(name string, isDir bool) string {
+		p := filepath.Join(dir, name)
+		var err error
+		if isDir {
+			err = os.MkdirAll(p, 0o755)
+		} else {
+			err = os.WriteFile(p, []byte("x"), 0o644)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	hidden := mk("Plain Folder", true) // a bundle without an extension
+	if err := os.MkdirAll(filepath.Join(hidden, "Contents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hidden, "Contents", "Info.plist"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name   string
+		path   string
+		reveal bool
+	}{
+		{"log file", mk("app.log", false), false},
+		{"config file", mk("mailer.ini", false), false},
+		{"plain folder", mk("logs", true), false},
+		{"app bundle", mk("Foo.app", true), true},
+		{"upper-case bundle", mk("Bar.APP", true), true},
+		{"bundle", mk("x.bundle", true), true},
+		{"framework", mk("x.framework", true), true},
+		{"plugin", mk("x.plugin", true), true},
+		{"prefPane", mk("x.prefPane", true), true},
+		{"dir with Contents/Info.plist", hidden, true},
+		{"workflow dir", mk("x.workflow", true), true},
+		{"command", mk("run.command", false), true},
+		{"tool", mk("run.tool", false), true},
+		{"terminal", mk("x.terminal", false), true},
+		{"jar", mk("x.jar", false), true},
+		{"webloc", mk("x.webloc", false), true},
+		{"inetloc", mk("x.inetloc", false), true},
+		{"fileloc", mk("x.fileloc", false), true},
+		{"workflow file", mk("y.workflow", false), true},
+		{"script", mk("x.scpt", false), true},
+		{"pkg", mk("x.pkg", false), true},
+		{"mpkg", mk("x.mpkg", false), true},
+		{"dmg", mk("x.dmg", false), true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cmd, err := openCmdFor(c.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []string{"open", c.path}
+			if c.reveal {
+				want = []string{"open", "-R", c.path}
+			}
+			if !slices.Equal(cmd.Args, want) {
+				t.Errorf("args = %q, want %q", cmd.Args, want)
+			}
+		})
+	}
+	// The existing checks still come first.
+	if _, err := openCmdFor("relative.log"); !errors.Is(err, ErrNotAbsolute) {
+		t.Errorf("relative: %v", err)
+	}
+	exe := filepath.Join(dir, "run.sh")
+	if err := os.WriteFile(exe, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := openCmdFor(exe); !errors.Is(err, ErrExecutable) {
+		t.Errorf("executable: %v", err)
+	}
+}

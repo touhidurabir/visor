@@ -154,8 +154,16 @@ async function run(fn: () => Promise<unknown>, done?: string): Promise<boolean> 
 const startAll = () => run(() => ServerService.StartFile(path.value))
 const stopAll = () => run(() => ServerService.StopFile(path.value))
 const restartAll = () => run(() => ServerService.RestartFile(path.value))
-const reveal = (p: string) => void run(() => ServerService.Reveal(p))
-const openPath = (p: string) => void run(() => ServerService.OpenInEditor(p))
+/** Finder and editor actions change nothing in supervisord: no busy state, no reload. */
+async function finder(fn: () => Promise<unknown>) {
+  try {
+    await fn()
+  } catch (e) {
+    showToast(describeError(e), 'error')
+  }
+}
+const reveal = (p: string) => void finder(() => ServerService.Reveal(p))
+const openPath = (p: string) => void finder(() => ServerService.OpenInEditor(p))
 const toggleWatch = () => {
   const c = config.value
   if (c) void run(() => ServerService.SetWatch(c.Path, !c.Watched)).then((ok) => {
@@ -257,7 +265,10 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
       </div>
 
       <div :id="`panel-${tab}`" role="tabpanel" :aria-labelledby="`tab-${tab}`">
-        <p v-if="detailError" class="alert" role="alert">Couldn’t read this config’s details. {{ detailError }}</p>
+        <div v-if="detailError" class="alert detail-error" role="alert">
+          <span>Couldn’t read this config’s details. {{ detailError }}</span>
+          <button type="button" class="btn" @click="loadDetail">Retry</button>
+        </div>
 
         <div v-if="tab === 'overview'" class="grid">
           <div class="col">
@@ -283,7 +294,7 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
 
         <template v-else-if="tab === 'logs'">
           <LogView
-            v-if="selected && detail"
+            v-if="selected && (detail || detailError)"
             :key="selected.FullName"
             :process="selected.FullName"
             :stdout-log="selectedLogs?.Stdout ?? ''"
@@ -360,5 +371,6 @@ h1 { margin: 0; font-size: 22px; font-weight: 650; }
 .card { border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
 .card-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
 .alert { margin: 0; padding: 12px; border: 1px solid var(--failing-dot); border-radius: var(--radius-md); background: var(--failing-bg); color: var(--failing-fg); }
+.detail-error { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 16px; }
 .alert p { margin: 4px 0 8px; user-select: text; }
 </style>

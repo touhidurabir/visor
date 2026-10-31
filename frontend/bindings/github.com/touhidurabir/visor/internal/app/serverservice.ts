@@ -55,7 +55,8 @@ export function MainLog(maxBytes: number): $CancellablePromise<string> {
 
 /**
  * OpenInEditor opens a file with its default app, or a folder in Finder.
- * It refuses executable files, which would run.
+ * It never launches anything: executable files are refused, and app
+ * bundles and file types macOS would run are revealed in Finder instead.
  */
 export function OpenInEditor(path: string): $CancellablePromise<void> {
     return $Call.ByID(2624086760, path);

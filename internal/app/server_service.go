@@ -151,7 +151,8 @@ func (s *ServerService) ConfigDetail(path string) (ConfigDetailView, error) {
 func (s *ServerService) Reveal(path string) error { return platform.Reveal(path) }
 
 // OpenInEditor opens a file with its default app, or a folder in Finder.
-// It refuses executable files, which would run.
+// It never launches anything: executable files are refused, and app
+// bundles and file types macOS would run are revealed in Finder instead.
 func (s *ServerService) OpenInEditor(path string) error { return platform.Open(path) }
 
 // StartAll starts every process.

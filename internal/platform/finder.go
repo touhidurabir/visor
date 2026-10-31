@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -38,12 +39,54 @@ func Reveal(path string) error {
 	return run(RevealCmd(path))
 }
 
-// Open opens path with its default app. It refuses executable files.
+// Open opens path with its default app (a folder opens in Finder). It
+// never launches anything: it refuses executable files, and reveals app
+// bundles and file types macOS would run (.command, .jar, .pkg, …) in
+// Finder instead.
 func Open(path string) error {
-	if err := check(path, true); err != nil {
+	cmd, err := openCmdFor(path)
+	if err != nil {
 		return err
 	}
-	return run(OpenCmd(path))
+	return run(cmd)
+}
+
+// openCmdFor is the command Open runs for path: open <path>, or
+// open -R <path> for anything macOS would launch rather than show.
+func openCmdFor(path string) (*exec.Cmd, error) {
+	if err := check(path, true); err != nil {
+		return nil, err
+	}
+	if launches(path) {
+		return RevealCmd(path), nil
+	}
+	return OpenCmd(path), nil
+}
+
+// bundleExts are folders macOS treats as an app or a loadable bundle.
+var bundleExts = []string{".app", ".bundle", ".framework", ".plugin", ".prefpane"}
+
+// launchExts are files (or bundle folders) that open runs, installs or
+// mounts even without an execute bit.
+var launchExts = []string{
+	".app", ".command", ".tool", ".terminal", ".jar", ".webloc", ".inetloc", ".fileloc",
+	".workflow", ".scpt", ".pkg", ".mpkg", ".dmg",
+}
+
+// launches reports whether opening path would launch something: a bundle
+// folder (by extension, or one holding Contents/Info.plist), or a file
+// type macOS runs. Execute bits are check's job.
+func launches(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	fi, err := os.Stat(path)
+	if err == nil && fi.IsDir() {
+		if slices.Contains(bundleExts, ext) || slices.Contains(launchExts, ext) {
+			return true
+		}
+		_, err := os.Stat(filepath.Join(path, "Contents", "Info.plist"))
+		return err == nil
+	}
+	return slices.Contains(launchExts, ext)
 }
 
 // check rejects paths that open(1) should not get: relative ones (which

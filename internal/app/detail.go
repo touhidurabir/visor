@@ -110,24 +110,12 @@ func (r *Runtime) lastError(d ConfigDetailView, inv config.Inventory, procs []su
 	return le
 }
 
-// tailLines returns the last n whole lines of a process's log (read with
-// one tail call of at most length bytes), or "" if it cannot be read.
+// tailLines returns the last n lines of a process's log, read with one
+// tail call of at most length bytes, or "" if it cannot be read.
 func tailLines(ctx context.Context, c logs.TailClient, process string, s logs.Stream, length, n int) string {
-	var res supervisor.TailResult
-	var err error
-	if s == logs.Stderr {
-		res, err = c.TailProcessStderrLog(ctx, process, 0, length)
-	} else {
-		res, err = c.TailProcessStdoutLog(ctx, process, 0, length)
-	}
-	if err != nil {
+	text, err := logs.Tail(ctx, c, process, s, length)
+	if err != nil || text == "" {
 		return ""
-	}
-	text := res.Bytes
-	if res.Offset > len(text) { // started mid-line
-		if _, rest, ok := strings.Cut(text, "\n"); ok {
-			text = rest
-		}
 	}
 	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
 	return strings.Join(lines[max(0, len(lines)-n):], "\n")

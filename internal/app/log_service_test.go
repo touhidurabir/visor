@@ -1,11 +1,13 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -213,5 +215,105 @@ func TestSaveLogText(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
 		t.Errorf("left %d files in %s, want only the saved log", len(entries), dir)
+	}
+}
+
+// flakyTail is a TailClient whose log is "hello\n" until fail is set.
+type flakyTail struct {
+	mu    sync.Mutex
+	fail  bool
+	calls int
+}
+
+func (f *flakyTail) tail() (supervisor.TailResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if f.fail {
+		return supervisor.TailResult{}, errors.New("supervisord: unreachable: connection refused")
+	}
+	return supervisor.TailResult{Bytes: "hello\n", Offset: 6}, nil
+}
+
+func (f *flakyTail) TailProcessStdoutLog(context.Context, string, int, int) (supervisor.TailResult, error) {
+	return f.tail()
+}
+
+func (f *flakyTail) TailProcessStderrLog(context.Context, string, int, int) (supervisor.TailResult, error) {
+	return f.tail()
+}
+
+func TestLogServiceStopsAfterRepeatedPollFailures(t *testing.T) {
+	rec := &recorder{}
+	s := NewLogService(nil, rec.emit)
+	s.interval = 10 * time.Millisecond
+	t.Cleanup(func() { _ = s.ServiceShutdown() })
+	f := &flakyTail{}
+
+	id, err := s.start(t.Context(), f, "a:a", logs.Stdout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitChunks(t, rec, id, func(cs []LogChunkView) bool { return len(cs) == 1 && cs[0].Text == "hello\n" })
+	f.mu.Lock()
+	f.fail = true
+	start := f.calls
+	f.mu.Unlock()
+
+	cs := waitChunks(t, rec, id, func(cs []LogChunkView) bool { return len(cs) == 2 })
+	if last := cs[1]; last.Error == "" || !strings.Contains(last.Error, "unreachable") || last.Text != "" {
+		t.Errorf("last event = %+v, want the poll error", last)
+	}
+	f.mu.Lock()
+	polls := f.calls - start
+	f.mu.Unlock()
+	if polls != maxPollFailures {
+		t.Errorf("gave up after %d failed polls, want %d", polls, maxPollFailures)
+	}
+	if n := s.active(); n != 0 {
+		t.Errorf("%d follows still active after giving up", n)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if n := len(rec.logChunks(id)); n != 2 {
+		t.Errorf("%d events after giving up, want none", n-2)
+	}
+	s.Unfollow(id) // already gone: a no-op
+}
+
+// A blip shorter than maxPollFailures polls keeps the follow alive.
+func TestLogServiceSurvivesShortPollFailures(t *testing.T) {
+	rec := &recorder{}
+	s := NewLogService(nil, rec.emit)
+	s.interval = 10 * time.Millisecond
+	t.Cleanup(func() { _ = s.ServiceShutdown() })
+	f := &flakyTail{}
+	id, err := s.start(t.Context(), f, "a:a", logs.Stdout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.fail = true
+	start := f.calls
+	f.mu.Unlock()
+	for {
+		f.mu.Lock()
+		n := f.calls - start
+		if n >= maxPollFailures-1 {
+			f.fail = false
+		}
+		f.mu.Unlock()
+		if n >= maxPollFailures-1 {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if s.active() != 1 {
+		t.Error("follow stopped after a short blip")
+	}
+	for _, c := range rec.logChunks(id) {
+		if c.Error != "" {
+			t.Errorf("error event after a short blip: %+v", c)
+		}
 	}
 }

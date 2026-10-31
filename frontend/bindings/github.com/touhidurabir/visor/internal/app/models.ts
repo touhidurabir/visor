@@ -77,13 +77,16 @@ export interface LastErrorView {
  * LogChunkView is new output from one follow (ID from Follow). The first
  * chunk is the last 64 KiB of the log. Truncated means the log was cleared
  * or rotated and Text starts the new log; Skipped means some output was
- * written too fast to read and is missing before Text.
+ * written too fast to read and is missing before Text. Error is set on a
+ * follow's last event when it stopped because polls kept failing; the
+ * frontend can Follow again.
  */
 export interface LogChunkView {
     "ID": string;
     "Text": string;
     "Truncated": boolean;
     "Skipped": boolean;
+    "Error": string;
 }
 
 /**
