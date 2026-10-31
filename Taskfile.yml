@@ -38,6 +38,15 @@ tasks:
       - scripts/sandbox.sh up
       - VISOR_CONFIG=/tmp/visor-sandbox/supervisord.conf VISOR_STATE_DIR=/tmp/visor-sandbox/state wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
 
+  test:e2e:
+    summary: Runs the Playwright UI tests (server-mode build + throwaway supervisord under /tmp/visor-e2e). Extra args go to Playwright, e.g. task test:e2e -- tests/issues.spec.ts
+    cmds:
+      - npm --prefix frontend run build
+      - go build -tags server -o bin/visor-e2e .
+      - npm --prefix e2e ci
+      - npm --prefix e2e exec -- playwright install webkit
+      - npm --prefix e2e test -- {{.CLI_ARGS}}
+
   install:msix:tools:
     summary: Installs tools required for Windows MSIX packaging
     cmds:
