@@ -15,6 +15,11 @@ describe('routes', () => {
     expect(r.name).toBe('tray')
     expect(r.meta.bare).toBe(true)
   })
+  it('an unknown path redirects to the dashboard', async () => {
+    const router = createAppRouter(createMemoryHistory())
+    await router.push('/nope/here')
+    expect(router.currentRoute.value.name).toBe('dashboard')
+  })
   it('/config/:path keeps slashes in the path', () => {
     expect(resolve('/config/conf.d/mailer.conf').params.path).toBe('conf.d/mailer.conf')
   })

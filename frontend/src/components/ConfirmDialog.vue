@@ -82,6 +82,6 @@ p { margin: 0 0 18px; color: var(--text-muted); line-height: 1.45; }
   cursor: pointer;
 }
 .btn:hover { background: var(--bg-hover); }
-.btn.danger { background: var(--failing-dot); border-color: var(--failing-dot); color: #fff; font-weight: 600; }
+.btn.danger { background: var(--danger-bg); border-color: var(--danger-bg); color: #fff; font-weight: 600; }
 .btn.danger:hover { filter: brightness(0.92); }
 </style>

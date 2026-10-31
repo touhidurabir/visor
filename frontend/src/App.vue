@@ -7,7 +7,10 @@ const route = useRoute()
 
 <template>
   <!-- The tray popover (#/tray) is a bare route: no sidebar. -->
-  <RouterView v-if="route.meta.bare" />
+  <!-- Render nothing until the first navigation resolves, so #/tray never
+       mounts AppShell (and its overview feed) for a frame. -->
+  <template v-if="route.matched.length === 0" />
+  <RouterView v-else-if="route.meta.bare" />
   <AppShell v-else>
     <RouterView />
   </AppShell>

@@ -27,6 +27,7 @@
   --failing-fg: #b42318;
   --failing-bg: #fdecea;
   --failing-dot: #d92d20;
+  --danger-bg: #d92d20; /* white text 5.6:1 */
   --warning-fg: #8a5300;
   --warning-bg: #fff4de;
   --warning-dot: #e8a21a;
@@ -72,6 +73,7 @@
     --failing-fg: #ff9c92;
     --failing-bg: #3f1613;
     --failing-dot: #f0544a;
+    --danger-bg: #c8372b; /* white text 5.2:1; --failing-dot is too light */
     --warning-fg: #f5c26b;
     --warning-bg: #3a2a0a;
     --warning-dot: #e8a21a;

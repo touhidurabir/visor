@@ -14,6 +14,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/settings', name: 'settings', component: Placeholder, meta: { title: 'Settings' } },
   { path: '/doctor', name: 'doctor', component: Placeholder, meta: { title: 'Doctor' } },
   { path: '/tray', name: 'tray', component: Tray, meta: { bare: true } },
+  { path: '/:rest(.*)*', redirect: '/' },
 ]
 
 export function createAppRouter(history = createWebHashHistory()) {
