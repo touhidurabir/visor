@@ -54,12 +54,37 @@ export interface ConnectionInput {
 }
 
 /**
- * IssueCounts is how many issues are open and how many are closed (resolved
- * or dismissed), for the filter labels on the Issues page.
+ * IssueQuery selects issues for List. Status is "open", "resolved" or
+ * "all" (or empty); Kind is an issue kind or empty for any. FromMs and ToMs
+ * bound OpenedMs to [FromMs, ToMs) (0 = unbounded). BeforeMs and BeforeID
+ * are the "Load older" cursor: the last issue shown (its OpenedMs and ID);
+ * only issues after it are returned, so issues opened in the same
+ * millisecond are neither skipped nor repeated. BeforeMs <= 0 means no
+ * cursor. Limit 0 means no limit; Query matches process, kind or message.
+ * Notified keeps only issues Visor showed a notification for.
  */
-export interface IssueCounts {
+export interface IssueQuery {
+    "Status": string;
+    "Kind": string;
+    "Notified": boolean;
+    "FromMs": number;
+    "ToMs": number;
+    "BeforeMs": number;
+    "BeforeID": string;
+    "Limit": number;
+    "Query": string;
+}
+
+/**
+ * IssueStats are the counts shown above the Issues list.
+ */
+export interface IssueStats {
+    "Total": number;
     "Open": number;
     "Resolved": number;
+    "Last24h": number;
+    "Last7d": number;
+    "Last30d": number;
 }
 
 /**
@@ -115,6 +140,62 @@ export interface LogChunkView {
 }
 
 /**
+ * MainLogLineView is one entry of the main log. Text may hold several
+ * lines (a traceback).
+ */
+export interface MainLogLineView {
+    "AtMs": number;
+    "Level": string;
+    "Text": string;
+}
+
+/**
+ * MainLogQuery picks lines of supervisord's main log. Empty Levels means
+ * every level; FromMs and ToMs bound the time as [from, to) in Unix
+ * milliseconds, 0 meaning open; Query is a case-insensitive substring.
+ * After is the Cursor of an earlier result: only lines written since are
+ * read and returned (the result says Since), unless the log was rotated or
+ * grew too much meanwhile, when it is read in full as without a cursor.
+ */
+export interface MainLogQuery {
+    "Levels": string[] | null;
+    "FromMs": number;
+    "ToMs": number;
+    "Query": string;
+
+    /**
+     * newest lines to return: 2000 if <= 0, at most 10000
+     */
+    "Limit": number;
+    "After": string;
+}
+
+/**
+ * MainLogResult is the newest matching lines, oldest first. With Since,
+ * they are only the lines written after the query's After cursor, to add
+ * to the ones shown; otherwise they replace them.
+ */
+export interface MainLogResult {
+    "Lines": MainLogLineView[] | null;
+
+    /**
+     * the log is longer than what was read, so older lines were not searched
+     */
+    "Truncated": boolean;
+
+    /**
+     * lines matching the query, which may exceed len(Lines)
+     */
+    "Matched": number;
+    "Since": boolean;
+
+    /**
+     * pass as After to read only newer lines
+     */
+    "Cursor": string;
+}
+
+/**
  * OverviewView is everything the dashboard shows for one server. It is
  * sent as the visor:overview event after every poll and every action.
  */
@@ -122,11 +203,6 @@ export interface OverviewView {
     "Server": ServerView;
     "Stats": StatsView;
     "Configs": ConfigView[] | null;
-
-    /**
-     * open, newest first, at most 10
-     */
-    "Issues": IssueView[] | null;
 }
 
 /**

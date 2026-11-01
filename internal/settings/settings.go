@@ -41,7 +41,16 @@ type Settings struct {
 	CrashLoop     CrashLoopRules `json:"crashLoop"`
 	RetentionDays int            `json:"retentionDays"`
 	Onboarded     bool           `json:"onboarded"`
+	// Appearance is the colour theme: AppearanceSystem, Light or Dark.
+	Appearance string `json:"appearance"`
 }
+
+// Appearance values.
+const (
+	AppearanceSystem = "system"
+	AppearanceLight  = "light"
+	AppearanceDark   = "dark"
+)
 
 // NotifyPrefs are which macOS notifications Visor sends. Enabled is the
 // master switch.
@@ -66,6 +75,7 @@ func Defaults() Settings {
 		Notify:        NotifyPrefs{Enabled: true, Fatal: true, UnexpectedExit: true, CrashLoop: true, Unreachable: true},
 		CrashLoop:     CrashLoopRules{Restarts: 5, Window: 10 * time.Minute},
 		RetentionDays: 90,
+		Appearance:    AppearanceSystem,
 	}
 }
 
@@ -74,6 +84,11 @@ func Defaults() Settings {
 func (s Settings) Clamp() Settings {
 	s.ConfigPath = strings.TrimSpace(s.ConfigPath)
 	s.Username = strings.TrimSpace(s.Username)
+	switch s.Appearance {
+	case AppearanceLight, AppearanceDark:
+	default:
+		s.Appearance = AppearanceSystem
+	}
 	s.PollInterval = min(max(s.PollInterval, MinPollInterval), MaxPollInterval)
 	s.RetentionDays = min(max(s.RetentionDays, MinRetentionDays), MaxRetentionDays)
 	s.CrashLoop.Restarts = min(max(s.CrashLoop.Restarts, MinCrashLoopRestart), MaxCrashLoopRestart)

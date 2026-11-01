@@ -23,3 +23,8 @@ export const VisorLog = "visor:log";
  */
 export const VisorOverview = "visor:overview";
 
+/**
+ * Name of the custom event "visor:settings".
+ */
+export const VisorSettings = "visor:settings";
+

@@ -1,17 +1,16 @@
 <script setup lang="ts">
 // The server dashboard (spec §5.2): header, changed-on-disk banner, six
-// stats, the configs and processes table, and open issues. All data comes
-// from the live overview; this view only wires menu ids to service calls.
+// stats and the configs and processes table (open issues live on the Issues
+// page). All data comes from the live overview; this view only wires menu ids
+// to service calls.
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRouter, type RouteLocationRaw } from 'vue-router'
-import { IssueService, ServerService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
-import type { ConfigView, IssueView, ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { useRouter } from 'vue-router'
+import { ServerService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import type { ConfigView, ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import ChangedBanner from '../components/ChangedBanner.vue'
 import ConfigTable from '../components/ConfigTable.vue'
-import IssueList from '../components/IssueList.vue'
 import ActionMenu from '../components/ActionMenu.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
-import MainLogDialog from '../components/MainLogDialog.vue'
 import SignalDialog from '../components/SignalDialog.vue'
 import StatTile from '../components/StatTile.vue'
 import { describeError } from '../lib/faults'
@@ -19,6 +18,7 @@ import { filterConfigs } from '../lib/filter'
 import { formatDuration } from '../lib/format'
 import { bulkConfirm, comingSoon, serverMenu, type BulkConfirm } from '../lib/menus'
 import { useOverview } from '../lib/overview'
+import { copyText } from '../lib/clipboard'
 import { configRoute } from '../lib/links'
 import { showToast } from '../lib/toast'
 
@@ -29,7 +29,6 @@ const query = ref('')
 const search = ref<HTMLInputElement>()
 const nowMs = ref(Date.now())
 const signalFor = ref<ProcessView | null>(null)
-const showLog = ref(false)
 const checking = ref(false)
 
 let tick: ReturnType<typeof setInterval>
@@ -56,7 +55,6 @@ function onKey(e: KeyboardEvent) {
 
 const configs = computed(() => overview.value?.Configs ?? [])
 const shown = computed(() => filterConfigs(configs.value, query.value))
-const issues = computed(() => overview.value?.Issues ?? [])
 const server = computed(() => overview.value?.Server)
 
 const subtitle = computed(() => {
@@ -112,8 +110,7 @@ function onServer(id: string) {
     case 'check':
       return void checkForChanges()
     case 'log':
-      showLog.value = true
-      return
+      return void router.push('/issues/log')
     case 'restart':
       return void run(() => ServerService.RestartDaemon()).then(ifOk(() => showToast('Restarting supervisord…')))
     case 'shutdown':
@@ -165,7 +162,7 @@ function onProcess(p: ProcessView, c: ConfigView, id: string) {
     case 'clear':
       return void run(() => ServerService.ClearLogs(p.FullName)).then(ifOk(() => showToast(`Cleared the logs of ${p.FullName}.`)))
     case 'copy-pid':
-      return void run(() => navigator.clipboard.writeText(String(p.PID))).then(ifOk(() => showToast(`Copied PID ${p.PID}.`)))
+      return void run(() => copyText(String(p.PID))).then(ifOk(() => showToast(`Copied PID ${p.PID}.`)))
   }
 }
 
@@ -214,17 +211,6 @@ function sendSignal(sig: string) {
   signalFor.value = null
   if (p) void run(() => ServerService.Signal(p.FullName, sig)).then(ifOk(() => showToast(`Sent ${sig} to ${p.FullName}.`)))
 }
-
-function logsTo(i: IssueView): RouteLocationRaw | null {
-  const c = configs.value.find((cfg) => (cfg.Processes ?? []).some((p) => p.FullName === i.Process))
-  if (!c?.Path || !i.Process) return null
-  return configRoute(c.Path, { tab: 'logs', process: i.Process })
-}
-
-const afterIssue = (fn: () => Promise<unknown>) => void run(fn).then(ifOk(() => reload()))
-const restartIssue = (i: IssueView) => afterIssue(() => ServerService.Restart(i.Process))
-const resolveIssue = (i: IssueView) => afterIssue(() => IssueService.Resolve(i.ID))
-const dismissIssue = (i: IssueView) => afterIssue(() => IssueService.Dismiss(i.ID))
 </script>
 
 <template>
@@ -286,27 +272,11 @@ const dismissIssue = (i: IssueView) => afterIssue(() => IssueService.Dismiss(i.I
         </div>
         <p v-if="!configs.length" class="muted">No config files found. Add a program to get started.</p>
         <ConfigTable v-else :configs="shown" :now-ms="nowMs" @process="onProcess" @config="onConfig" @watch="onWatch" />
-        <p class="muted">Grey text in each menu is the matching <span class="mono">supervisorctl</span> command.</p>
-      </section>
-
-      <section aria-labelledby="s3">
-        <div class="bar">
-          <h2 id="s3" class="label">Unresolved issues</h2>
-          <RouterLink to="/issues">View all issues →</RouterLink>
-        </div>
-        <IssueList
-          :issues="issues"
-          :now-ms="nowMs"
-          :logs-to="logsTo"
-          @restart="restartIssue"
-          @resolve="resolveIssue"
-          @dismiss="dismissIssue"
-        />
+        <p class="muted">Grey text in each menu is the matching <span class="mono">supervisorctl</span> command. Copy it with the button beside it, or ⌘C.</p>
       </section>
     </template>
 
     <SignalDialog v-if="signalFor" :process="signalFor.FullName" @send="sendSignal" @cancel="signalFor = null" />
-    <MainLogDialog v-if="showLog" @close="showLog = false" />
     <ConfirmDialog
       v-if="pendingBulk"
       :title="pendingBulk.ask.title"

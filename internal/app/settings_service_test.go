@@ -274,7 +274,7 @@ func TestSettingsSaveClampsPersistsAndAppliesLive(t *testing.T) {
 	conf := deadConf(t)
 	start := settings.Defaults()
 	start.ConfigPath = conf
-	rt, _ := newRuntimeWith(t, RuntimeOptions{StateDir: stateDir, Settings: start})
+	rt, rec := newRuntimeWith(t, RuntimeOptions{StateDir: stateDir, Settings: start})
 	svc := NewSettingsService(rt, stateDir, "", nil, errors.New("old load error"))
 	if svc.Get().LoadError == "" {
 		t.Error("load error not shown")
@@ -288,10 +288,26 @@ func TestSettingsSaveClampsPersistsAndAppliesLive(t *testing.T) {
 	in.CrashLoop = settings.CrashLoopRules{Restarts: 3, Window: 4 * time.Minute}
 	in.RetentionDays = 1 // ApplyRetention's job (R27)
 	in.Notify.Fatal = false
+	in.Appearance = settings.AppearanceDark                 // SetAppearance's job
 	in.ConfigPath, in.Username = "/ignored.conf", "ignored" // SaveConnection's job
 	v, err := svc.Save(in)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if v.Settings.Appearance != settings.AppearanceSystem {
+		t.Errorf("appearance = %q, want it unchanged (system)", v.Settings.Appearance)
+	}
+	// Every window hears about the save, so the popover follows too.
+	rec.mu.Lock()
+	var sent []SettingsView
+	for _, e := range rec.events {
+		if e.name == EventSettings {
+			sent = append(sent, e.data.(SettingsView))
+		}
+	}
+	rec.mu.Unlock()
+	if len(sent) != 1 || sent[0].Settings.Notify.Fatal {
+		t.Errorf("%s events = %+v, want one carrying the save", EventSettings, sent)
 	}
 	if v.Settings.PollInterval != time.Second || v.Settings.RetentionDays != 90 || v.Settings.Notify.Fatal {
 		t.Errorf("saved view = %+v, want clamped values, retention unchanged and Fatal off", v.Settings)
@@ -362,7 +378,7 @@ func TestSaveDoesNotLowerRetention(t *testing.T) {
 	if got, _ := settings.Load(stateDir); got.RetentionDays != 90 {
 		t.Errorf("saved retention = %d, want 90", got.RetentionDays)
 	}
-	if list, _ := issuesSvc.List("all", 0, "", 0, ""); len(list) != 1 {
+	if list, _ := issuesSvc.List(IssueQuery{Status: "all"}); len(list) != 1 {
 		t.Errorf("issues after Save = %+v, want the 30-day-old one kept", list)
 	}
 }
@@ -374,14 +390,14 @@ func TestApplyRetentionCompactsStore(t *testing.T) {
 	start.ConfigPath = deadConf(t)
 	rt, _ := newRuntimeWith(t, RuntimeOptions{StateDir: stateDir, Settings: start})
 	issuesSvc := NewIssueService(rt)
-	if list, _ := issuesSvc.List("all", 0, "", 0, ""); len(list) != 1 {
+	if list, _ := issuesSvc.List(IssueQuery{Status: "all"}); len(list) != 1 {
 		t.Fatalf("issues before = %+v, want the 30-day-old one (kept 90 days)", list)
 	}
 	svc := NewSettingsService(rt, stateDir, "", nil, nil)
 	if v, err := svc.ApplyRetention(120); err != nil || v.Settings.RetentionDays != 120 {
 		t.Fatalf("raise: %+v, %v", v.Settings, err)
 	}
-	if list, _ := issuesSvc.List("all", 0, "", 0, ""); len(list) != 1 {
+	if list, _ := issuesSvc.List(IssueQuery{Status: "all"}); len(list) != 1 {
 		t.Errorf("raising deleted %+v", list)
 	}
 	v, err := svc.ApplyRetention(14)
@@ -394,7 +410,7 @@ func TestApplyRetentionCompactsStore(t *testing.T) {
 	if got, _ := settings.Load(stateDir); got.RetentionDays != 14 {
 		t.Errorf("saved retention = %d, want 14", got.RetentionDays)
 	}
-	if list, _ := issuesSvc.List("all", 0, "", 0, ""); len(list) != 0 {
+	if list, _ := issuesSvc.List(IssueQuery{Status: "all"}); len(list) != 0 {
 		t.Errorf("issues after 14-day retention = %+v, want none", list)
 	}
 }
@@ -540,8 +556,8 @@ func TestDismissRacingReconnectStaysDismissed(t *testing.T) {
 	inst := supervisortest.Start(t, supervisortest.Failer)
 	rt, rec := startRuntime(t, confOf(inst), t.TempDir(), 50*time.Millisecond)
 	svc := NewServerService(rt)
-	ov := waitOverview(t, svc, 10*time.Second, "an open issue", func(ov OverviewView) bool { return len(ov.Issues) == 1 })
-	id := ov.Issues[0].ID
+	waitOverview(t, svc, 10*time.Second, "an open issue", func(ov OverviewView) bool { return ov.Stats.OpenIssues == 1 })
+	id := openIssues(svc)[0].ID
 	// A Dismiss that picked up the tracker just before a rebuild finishes
 	// after it.
 	_, tracker, err := rt.issueStore()
@@ -556,7 +572,7 @@ func TestDismissRacingReconnectStaysDismissed(t *testing.T) {
 	}
 	n := len(rec.issuesOpened())
 	time.Sleep(300 * time.Millisecond) // the same failure is seen again on every poll
-	if open := svc.Overview().Issues; len(open) != 0 {
+	if open := openIssues(svc); len(open) != 0 {
 		t.Errorf("open issues after dismissing = %+v, want none", open)
 	}
 	if got := rec.issuesOpened(); len(got) != n {
@@ -829,18 +845,18 @@ func TestSwitchingSupervisordClosesAbsentProcessIssues(t *testing.T) {
 	start.ConfigPath = confOf(a)
 	rt, rec := newRuntimeWith(t, RuntimeOptions{StateDir: stateDir, Settings: start, Interval: 100 * time.Millisecond})
 	server := NewServerService(rt)
-	waitOverview(t, server, 10*time.Second, "failer's unexpected exit", func(ov OverviewView) bool {
-		return len(openOfKind(ov, "unexpected_exit")) == 1
+	waitOverview(t, server, 10*time.Second, "failer's unexpected exit", func(OverviewView) bool {
+		return len(openOfKind(server, "unexpected_exit")) == 1
 	})
 	svc := NewSettingsService(rt, stateDir, "", nil, nil)
 	if _, err := svc.SaveConnection(ConnectionInput{ConfigPath: confOf(b)}); err != nil {
 		t.Fatal(err)
 	}
-	ov := waitOverview(t, server, 10*time.Second, "b's sleeper", procState("sleeper:sleeper", "RUNNING"))
-	if len(ov.Issues) != 0 {
-		t.Errorf("open issues after switching = %+v", ov.Issues)
+	waitOverview(t, server, 10*time.Second, "b's sleeper", procState("sleeper:sleeper", "RUNNING"))
+	if open := openIssues(server); len(open) != 0 {
+		t.Errorf("open issues after switching = %+v", open)
 	}
-	all, err := NewIssueService(rt).List("all", 0, "", 0, "")
+	all, err := NewIssueService(rt).List(IssueQuery{Status: "all"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -851,15 +867,52 @@ func TestSwitchingSupervisordClosesAbsentProcessIssues(t *testing.T) {
 	if _, err := svc.SaveConnection(ConnectionInput{ConfigPath: confOf(a)}); err != nil {
 		t.Fatal(err)
 	}
-	waitOverview(t, server, 10*time.Second, "failer's issue again", func(ov OverviewView) bool {
-		return len(openOfKind(ov, "unexpected_exit")) == 1
+	waitOverview(t, server, 10*time.Second, "failer's issue again", func(OverviewView) bool {
+		return len(openOfKind(server, "unexpected_exit")) == 1
 	})
 	if _, err := server.Reconnect(); err != nil {
 		t.Fatal(err)
 	}
 	waitOverview(t, server, 10*time.Second, "reachable", func(ov OverviewView) bool { return ov.Server.Reachable })
 	settle(t, rec, 3)
-	if ov = server.Overview(); len(openOfKind(ov, "unexpected_exit")) != 1 {
-		t.Errorf("after a plain reconnect, open = %+v", ov.Issues)
+	if open := openOfKind(server, "unexpected_exit"); len(open) != 1 {
+		t.Errorf("after a plain reconnect, open = %+v", open)
+	}
+}
+
+// SetAppearance changes only the appearance, so it never races a Settings
+// page save of the other settings, and tells every window.
+func TestSetAppearance(t *testing.T) {
+	stateDir := t.TempDir()
+	start := settings.Defaults()
+	start.ConfigPath = deadConf(t)
+	start.Notify.Fatal = false
+	rt, rec := newRuntimeWith(t, RuntimeOptions{StateDir: stateDir, Settings: start})
+	svc := NewSettingsService(rt, stateDir, "", nil, nil)
+
+	v, err := svc.SetAppearance(settings.AppearanceDark)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Settings.Appearance != settings.AppearanceDark || v.Settings.Notify.Fatal || v.Settings.ConfigPath != start.ConfigPath {
+		t.Errorf("view = %+v, want dark and nothing else changed", v.Settings)
+	}
+	saved, err := settings.Load(stateDir)
+	if err != nil || saved.Appearance != settings.AppearanceDark || saved.Notify.Fatal {
+		t.Errorf("saved = %+v, %v", saved, err)
+	}
+	if v, _ := svc.SetAppearance("sepia"); v.Settings.Appearance != settings.AppearanceSystem {
+		t.Errorf("unknown appearance = %q, want system", v.Settings.Appearance)
+	}
+	rec.mu.Lock()
+	n := 0
+	for _, e := range rec.events {
+		if e.name == EventSettings {
+			n++
+		}
+	}
+	rec.mu.Unlock()
+	if n != 2 {
+		t.Errorf("%d %s events, want 2", n, EventSettings)
 	}
 }

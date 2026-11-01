@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/services/dock"
 
 	"github.com/touhidurabir/visor/internal/app"
@@ -36,12 +37,16 @@ func main() {
 	// The shell (menu-bar icon, popover, Dock) watches every overview to
 	// keep the menu-bar icon's health current.
 	shell := app.NewShell()
+	// Native notifications for new issues; clicking one opens Issues. They
+	// work only in the packaged Visor.app (and never in the server build).
+	notifier := app.NewNotifyService(func() { shell.ShowMain(app.RouteIssues) })
 	rt := app.NewRuntime(app.RuntimeOptions{
 		ConfigPath: envConfig,
 		StateDir:   stateDir,
 		Settings:   prefs,
 		Keychain:   keychain,
 		Emit:       shell.Emit(app.WailsEmit),
+		Notifier:   notifier,
 	})
 	dockService := dock.New()
 	// LogLevel stays at Wails' default (Info). Do not raise it to Debug:
@@ -51,6 +56,8 @@ func main() {
 		Name:        "Visor",
 		Description: "A macOS menu-bar app for managing supervisord",
 		Services: []application.Service{
+			// Before ServerService, so notifications are ready by the first poll.
+			application.NewService(notifier),
 			// ServerService starts and stops rt with the app.
 			application.NewService(app.NewServerService(rt)),
 			application.NewService(app.NewIssueService(rt)),
@@ -84,6 +91,10 @@ func main() {
 		URL: "/",
 	})
 	shell.Setup(wails, mainWindow, dockService)
+	// The window chrome follows the saved appearance from launch on.
+	wails.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		app.ApplyStartupAppearance(prefs.Appearance)
+	})
 
 	if err := wails.Run(); err != nil {
 		log.Fatal(err)

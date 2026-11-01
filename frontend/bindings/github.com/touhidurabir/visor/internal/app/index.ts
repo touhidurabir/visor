@@ -3,12 +3,14 @@
 
 import * as IssueService from "./issueservice.js";
 import * as LogService from "./logservice.js";
+import * as NotifyService from "./notifyservice.js";
 import * as ServerService from "./serverservice.js";
 import * as SettingsService from "./settingsservice.js";
 import * as ShellService from "./shellservice.js";
 export {
     IssueService,
     LogService,
+    NotifyService,
     ServerService,
     SettingsService,
     ShellService
@@ -18,10 +20,14 @@ export type {
     ConfigDetailView,
     ConfigView,
     ConnectionInput,
-    IssueCounts,
+    IssueQuery,
+    IssueStats,
     IssueView,
     LastErrorView,
     LogChunkView,
+    MainLogLineView,
+    MainLogQuery,
+    MainLogResult,
     OverviewView,
     PathView,
     ProcessLogView,

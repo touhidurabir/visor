@@ -113,3 +113,94 @@ func (c *Client) RecentProcessLog(ctx context.Context, tailBytes int) (ProcessLo
 	}
 	return ParseProcessLog(text, time.Local), nil
 }
+
+// MainLogLine is one entry of supervisord's main log: a timestamped line
+// plus any continuation lines (a traceback) that follow it.
+type MainLogLine struct {
+	At    time.Time // parsed in loc, millisecond precision
+	Level string    // CRIT, ERRO, WARN, INFO, DEBG, TRAC or BLAT
+	Text  string    // the message; continuation lines are joined with "\n"
+}
+
+var mainLogLineRE = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) ([A-Z]+) (.*)$`)
+
+// ParseMainLogLines returns every entry in text, oldest first, with times
+// read in loc. A line without a timestamp prefix (a traceback) joins the
+// previous entry's Text. Lines before the first timestamped one are dropped:
+// text cut from the middle of the log starts with a partial line.
+func ParseMainLogLines(text string, loc *time.Location) []MainLogLine {
+	var out []MainLogLine
+	for line := range strings.Lines(text) {
+		line = strings.TrimRight(line, "\r\n")
+		if m := mainLogLineRE.FindStringSubmatch(line); m != nil {
+			if at, err := time.ParseInLocation(mainLogTime, m[1], loc); err == nil {
+				out = append(out, MainLogLine{At: at, Level: m[2], Text: m[3]})
+				continue
+			}
+		}
+		if len(out) > 0 {
+			out[len(out)-1].Text += "\n" + line
+		}
+	}
+	return out
+}
+
+// MainLogChunk is text read from the end of supervisord's main log.
+type MainLogChunk struct {
+	// Text holds whole lines only: a line supervisord is still writing is
+	// left for the next read. A full read may start with a partial line
+	// (ParseMainLogLines skips it).
+	Text string
+	// Cursor marks where Text ends. Pass it to the next ReadMainLog to get
+	// only what was written after it.
+	Cursor string
+	// Since says Text holds only the lines after the cursor passed in.
+	// Otherwise it is a full read of the last maxBytes.
+	Since bool
+	// Truncated says a full read filled maxBytes, so the log is likely
+	// longer than what was read.
+	Truncated bool
+}
+
+// mainLogCursorBytes is how much of the end of the text read a cursor
+// keeps: enough to be unique in a log whose lines carry millisecond times.
+const mainLogCursorBytes = 256
+
+// ReadMainLog reads the end of supervisord's main log. With a cursor from
+// an earlier read it reads only the last followBytes and returns what was
+// written after the cursor, so following a long log costs a small read.
+// When the cursor is not in that window (more than followBytes were
+// written, or the log was rotated or cleared), or there is no cursor, it
+// reads the last maxBytes instead. readLog does not report the log's
+// size, so the cursor is a piece of the log's text, not an offset.
+func (c *Client) ReadMainLog(ctx context.Context, cursor string, followBytes, maxBytes int) (MainLogChunk, error) {
+	return readMainLog(func(offset, length int) (string, error) {
+		return c.ReadLog(ctx, offset, length)
+	}, cursor, followBytes, maxBytes)
+}
+
+func readMainLog(read func(offset, length int) (string, error), cursor string, followBytes, maxBytes int) (MainLogChunk, error) {
+	if cursor != "" {
+		data, err := read(-followBytes, 0)
+		if err != nil {
+			return MainLogChunk{}, err
+		}
+		if i := strings.LastIndex(data, cursor); i >= 0 {
+			end := i + len(cursor)
+			text := wholeLines(data[end:])
+			return MainLogChunk{Text: text, Cursor: cursorOf(data[:end+len(text)]), Since: true}, nil
+		}
+	}
+	data, err := read(-maxBytes, 0)
+	if err != nil {
+		return MainLogChunk{}, err
+	}
+	text := wholeLines(data)
+	return MainLogChunk{Text: text, Cursor: cursorOf(text), Truncated: len(data) >= maxBytes}, nil
+}
+
+// wholeLines cuts s after its last newline.
+func wholeLines(s string) string { return s[:strings.LastIndexByte(s, '\n')+1] }
+
+// cursorOf is the end of the text read so far.
+func cursorOf(read string) string { return read[max(len(read)-mainLogCursorBytes, 0):] }

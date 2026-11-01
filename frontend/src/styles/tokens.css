@@ -1,8 +1,11 @@
 /* Design tokens (spec §9). Light values are the wireframes' exact colours;
    the dark set is the builder's call and keeps text at >= 4.5:1 against its
-   own background. State colours are always paired with a text label. */
+   own background. State colours are always paired with a text label.
+   Light is the default; theme.ts sets data-theme="dark" on <html> (the
+   early script in index.html does it before first paint), from Settings
+   or the OS. */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 
   --text: #1d1d1f;
   --text-muted: #5e5e66;
@@ -62,57 +65,56 @@
   --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #f5f5f7;
-    --text-muted: #a1a1a6;
-    --text-faint: #98989f;
-    --bg: #1e1e20;
-    --bg-sidebar: #28282b;
-    --bg-hover: #36363a;
-    --bg-active: #44444a;
-    --bg-subtle: #242427;
-    --line: #38383c;
-    --line-strong: #505056;
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --text: #f5f5f7;
+  --text-muted: #a1a1a6;
+  --text-faint: #98989f;
+  --bg: #1e1e20;
+  --bg-sidebar: #28282b;
+  --bg-hover: #36363a;
+  --bg-active: #44444a;
+  --bg-subtle: #242427;
+  --line: #38383c;
+  --line-strong: #505056;
 
-    --accent: #0a5fcc;
-    --accent-hover: #2a77de;
-    --accent-text: #6ca6f5;
-    --on-accent: #ffffff;
-    --focus: #6ca6f5;
+  --accent: #0a5fcc;
+  --accent-hover: #2a77de;
+  --accent-text: #6ca6f5;
+  --on-accent: #ffffff;
+  --focus: #6ca6f5;
 
-    --running-fg: #6fd08c;
-    --running-bg: #123220;
-    --running-dot: #3fb865;
-    --failing-fg: #ff9c92;
-    --failing-bg: #3f1613;
-    --failing-dot: #f0544a;
-    --danger-bg: #c8372b; /* white text 5.2:1; --failing-dot is too light */
-    --warning-fg: #f5c26b;
-    --warning-bg: #3a2a0a;
-    --warning-dot: #e8a21a;
-    --stopped-fg: #c7c7ce;
-    --stopped-bg: #323237;
-    --stopped-dot: #8e8e96;
+  --running-fg: #6fd08c;
+  --running-bg: #123220;
+  --running-dot: #3fb865;
+  --failing-fg: #ff9c92;
+  --failing-bg: #3f1613;
+  --failing-dot: #f0544a;
+  --danger-bg: #c8372b; /* white text 5.2:1; --failing-dot is too light */
+  --warning-fg: #f5c26b;
+  --warning-bg: #3a2a0a;
+  --warning-dot: #e8a21a;
+  --stopped-fg: #c7c7ce;
+  --stopped-bg: #323237;
+  --stopped-dot: #8e8e96;
 
-    --selected-bg: #16263d;
-    --watch-on-border: #2f5a94;
-    --watch-on-fg: #9cc3f7;
-    --seg-bg: #323237;
-    --seg-on: #55555c;
-    --error-card-border: #6b2a24;
-    --error-card-bg: #2a1513;
-    --log-bg: #111113;
-    --log-fg: #e8e8ec;
-    --log-muted: #8e8e96;
-    --log-mark-bg: #f5c26b;
-    --log-mark-fg: #1d1d1f;
+  --selected-bg: #16263d;
+  --watch-on-border: #2f5a94;
+  --watch-on-fg: #9cc3f7;
+  --seg-bg: #323237;
+  --seg-on: #55555c;
+  --error-card-border: #6b2a24;
+  --error-card-bg: #2a1513;
+  --log-bg: #111113;
+  --log-fg: #e8e8ec;
+  --log-muted: #8e8e96;
+  --log-mark-bg: #f5c26b;
+  --log-mark-fg: #1d1d1f;
 
-    --menu-bg: #2c2c30;
-    --menu-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-    --menu-cmd-hover: #dce8fa;
-    --scrim: rgba(0, 0, 0, 0.55);
-  }
+  --menu-bg: #2c2c30;
+  --menu-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  --menu-cmd-hover: #dce8fa;
+  --scrim: rgba(0, 0, 0, 0.55);
 }
 
 :focus-visible {

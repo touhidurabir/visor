@@ -2,9 +2,16 @@
 // A "..." trigger with a menu of MenuItems (lib/menus.ts). Keyboard: Enter,
 // Space or Down opens; Up/Down/Home/End move; Enter activates; Esc or Tab
 // closes. Focus returns to the trigger. Items with `confirm` ask first, and
-// the select event fires only after the person confirms.
+// the select event fires only after the person confirms. Each item with a
+// command has a copy button (mouse; not in the arrow-key cycle or Tab order)
+// and Cmd/Ctrl+C copies the command of the focused item. The menu is fixed
+// to the viewport, so a scrolling table never clips it, and flips upward or
+// leftward when it would run off the window.
 import { nextTick, onBeforeUnmount, ref } from 'vue'
+import { copyText } from '../lib/clipboard'
+import { menuIcons } from '../lib/menu-icons'
 import type { MenuItem } from '../lib/menus'
+import { showToast } from '../lib/toast'
 import ConfirmDialog from './ConfirmDialog.vue'
 
 const props = defineProps<{ items: MenuItem[]; label: string; heading?: string }>()
@@ -16,7 +23,46 @@ const root = ref<HTMLElement>()
 const trigger = ref<HTMLButtonElement>()
 const menu = ref<HTMLElement>()
 
-const enabledButtons = () => Array.from(menu.value?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])
+const pos = ref<{ top?: string; bottom?: string; left?: string; right?: string; maxHeight: string }>({ maxHeight: '' })
+// Where the trigger was when the menu was placed (see onViewport).
+let anchor: { top: number; left: number } | null = null
+const MENU_W = 360
+const GAP = 4
+const EDGE = 8
+
+const enabledButtons = () => Array.from(menu.value?.querySelectorAll<HTMLButtonElement>('button.mi:not(:disabled)') ?? [])
+
+/** Places the open menu under (or over) the trigger, inside the viewport. */
+function place() {
+  const t = trigger.value?.getBoundingClientRect()
+  const m = menu.value
+  if (!t || !m) return
+  anchor = { top: t.top, left: t.left }
+  const h = m.scrollHeight + 2
+  const below = window.innerHeight - t.bottom - GAP - EDGE
+  const above = t.top - GAP - EDGE
+  const up = h > below && above > below
+  const room = up ? above : below
+  // Prefer growing leftward from the trigger's right edge.
+  const left = t.right - MENU_W >= EDGE ? t.right - MENU_W : Math.min(t.left, window.innerWidth - MENU_W - EDGE)
+  pos.value = {
+    ...(up ? { bottom: `${window.innerHeight - t.top + GAP}px` } : { top: `${t.bottom + GAP}px` }),
+    left: `${Math.max(EDGE, left)}px`,
+    maxHeight: `${Math.max(120, room)}px`,
+  }
+}
+
+function onViewport(e: Event) {
+  if (e.type === 'scroll') {
+    if (menu.value?.contains(e.target as Node)) return
+    // Scroll events arrive a frame late, so one caused just before the menu
+    // opened (focusing the trigger scrolls it into view) can land after it.
+    // Close only when the trigger really moved away from the menu.
+    const t = trigger.value?.getBoundingClientRect()
+    if (t && anchor && t.top === anchor.top && t.left === anchor.left) return
+  }
+  close(false)
+}
 
 function onOutside(e: MouseEvent) {
   if (!root.value?.contains(e.target as Node)) close(false)
@@ -25,20 +71,30 @@ function onOutside(e: MouseEvent) {
 async function show(focus: 'first' | 'last' | 'none' = 'first') {
   open.value = true
   document.addEventListener('mousedown', onOutside)
+  window.addEventListener('resize', onViewport)
+  window.addEventListener('scroll', onViewport, true)
+  await nextTick()
+  place()
+  // Focus only once the menu sits in its place, and without scrolling: an
+  // item focused while the menu is still unplaced makes WebKit scroll the
+  // page to it, and that scroll closes the menu (onViewport).
   await nextTick()
   const btns = enabledButtons()
-  if (focus === 'first') btns[0]?.focus()
-  else if (focus === 'last') btns[btns.length - 1]?.focus()
-  else menu.value?.focus()
+  const opts = { preventScroll: true }
+  if (focus === 'first') btns[0]?.focus(opts)
+  else if (focus === 'last') btns[btns.length - 1]?.focus(opts)
+  else menu.value?.focus(opts)
 }
 
 function close(returnFocus = true) {
   open.value = false
   document.removeEventListener('mousedown', onOutside)
+  window.removeEventListener('resize', onViewport)
+  window.removeEventListener('scroll', onViewport, true)
   if (returnFocus) trigger.value?.focus()
 }
 
-onBeforeUnmount(() => document.removeEventListener('mousedown', onOutside))
+onBeforeUnmount(() => close(false))
 
 function toggle(e: MouseEvent) {
   if (open.value) close()
@@ -72,6 +128,16 @@ function onMenuKey(e: KeyboardEvent) {
       e.preventDefault()
       btns[btns.length - 1]?.focus()
       break
+    case 'c':
+    case 'C': {
+      const id = (document.activeElement as HTMLElement | null)?.dataset.id
+      const item = props.items.find((it) => it.id === id)
+      if ((e.metaKey || e.ctrlKey) && item?.cmd) {
+        e.preventDefault()
+        void copyCommand(item)
+      }
+      break
+    }
     case 'Escape':
       e.preventDefault()
       e.stopPropagation()
@@ -80,6 +146,16 @@ function onMenuKey(e: KeyboardEvent) {
     case 'Tab':
       close(false)
       break
+  }
+}
+
+async function copyCommand(item: MenuItem) {
+  close()
+  try {
+    await copyText(item.cmd)
+    showToast('Copied')
+  } catch {
+    showToast('Can’t copy: the clipboard is not available.', 'error')
   }
 }
 
@@ -120,21 +196,36 @@ function cancelled() {
         <circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" />
       </svg>
     </button>
-    <div v-if="open" ref="menu" class="menu" role="menu" :aria-label="props.label" tabindex="-1" @keydown="onMenuKey">
+    <div v-if="open" ref="menu" class="menu" role="menu" :aria-label="props.label" tabindex="-1" :style="pos" @keydown="onMenuKey">
       <div v-if="props.heading" class="heading" aria-hidden="true">{{ props.heading }}</div>
-      <button
-        v-for="item in props.items"
-        :key="item.id"
-        type="button"
-        role="menuitem"
-        :class="['mi', { danger: item.danger }]"
-        :disabled="item.disabled"
-        :title="item.title"
-        @click="choose(item)"
-      >
-        <span>{{ item.label }}</span>
-        <span v-if="item.cmd" class="cmd">{{ item.cmd }}</span>
-      </button>
+      <div v-for="item in props.items" :key="item.id" :class="['item', { off: item.disabled, danger: item.danger }]" role="none">
+        <button
+          type="button"
+          role="menuitem"
+          class="mi"
+          :data-id="item.id"
+          :disabled="item.disabled"
+          :title="item.title"
+          @click="choose(item)"
+        >
+          <svg v-if="menuIcons[item.id]" class="ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="menuIcons[item.id]" /></svg>
+          <span class="txt">
+            <span class="lbl">{{ item.label }}</span>
+            <span v-if="item.cmd" class="cmd" :title="item.cmd">{{ item.cmd }}</span>
+          </span>
+        </button>
+        <button
+          v-if="item.cmd && !item.disabled"
+          type="button"
+          class="copy"
+          tabindex="-1"
+          :aria-label="`Copy command: ${item.cmd}`"
+          title="Copy command (⌘C)"
+          @click="copyCommand(item)"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 9h11v11H9zM5 15V4h11" /></svg>
+        </button>
+      </div>
     </div>
     <ConfirmDialog
       v-if="pending"
@@ -163,15 +254,13 @@ function cancelled() {
 }
 .trigger:hover, .trigger[aria-expanded='true'] { background: var(--bg-hover); }
 .menu {
-  position: absolute;
-  right: 0;
-  top: 36px;
-  z-index: 5;
-  min-width: 280px;
-  width: max-content;
-  max-width: 420px;
+  position: fixed;
+  z-index: 20;
+  width: 360px;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
   padding: 5px;
   background: var(--menu-bg);
   border: 1px solid var(--line-strong);
@@ -187,27 +276,51 @@ function cancelled() {
   text-transform: uppercase;
   color: var(--text-muted);
 }
+.item { display: flex; align-items: center; border-radius: 6px; color: var(--text); }
+.item.danger { color: var(--failing-fg); }
+.item.off { color: var(--text-faint); }
 .mi {
+  flex: 1;
+  min-width: 0;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 16px;
-  min-height: 30px;
-  padding: 0 10px;
+  gap: 10px;
+  min-height: 32px;
+  box-sizing: border-box;
+  padding: 4px 10px;
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: var(--text);
+  color: inherit;
   font: inherit;
+  font-size: 13px;
   text-align: left;
   cursor: pointer;
 }
-.cmd { font-family: var(--font-mono); font-size: 12px; color: var(--text-faint); white-space: nowrap; }
-.mi:hover:not(:disabled), .mi:focus-visible:not(:disabled) {
-  background: var(--accent);
-  color: var(--on-accent);
-  outline: none;
+.mi:disabled { cursor: default; opacity: 0.8; }
+.ico { flex: none; }
+.txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.lbl { white-space: nowrap; }
+.cmd { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); overflow-wrap: anywhere; line-height: 1.35; }
+.copy {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-right: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
 }
-.mi:hover:not(:disabled) .cmd, .mi:focus-visible:not(:disabled) .cmd { color: var(--menu-cmd-hover); }
-.mi:disabled { color: var(--text-faint); cursor: default; opacity: 0.8; }
+.copy:hover { background: var(--bg-hover); color: var(--text); }
+.item:not(.off):hover, .item:not(.off):focus-within { background: var(--accent); color: var(--on-accent); }
+.item:not(.off):hover .cmd, .item:not(.off):focus-within .cmd { color: var(--menu-cmd-hover); }
+.item:not(.off):hover .copy, .item:not(.off):focus-within .copy { color: var(--menu-cmd-hover); }
+.item:not(.off):hover .copy:hover { background: rgba(255, 255, 255, 0.2); color: var(--on-accent); }
+.mi:focus-visible { outline: none; }
 </style>

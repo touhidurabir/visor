@@ -1,14 +1,24 @@
 import { describe, expect, it } from 'vitest'
-import { bulkConfirm, comingSoon, configMenu, processMenu, serverMenu, type MenuItem } from './menus'
+import { bulkConfirm, comingSoon, configMenu, ctlName, processMenu, serverMenu, type MenuItem } from './menus'
 import type { ConfigView, ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 
 const proc = (o: Partial<ProcessView>) =>
   ({ Name: 'web', Group: 'web', FullName: 'web', State: 'RUNNING', PID: 4242, ...o }) as ProcessView
 const find = (items: MenuItem[], id: string) => items.find((i) => i.id === id)!
 
+describe('ctlName', () => {
+  it('uses the bare name for a lone process whose group has the same name', () => {
+    expect(ctlName(proc({ Name: 'mailer-digest', Group: 'mailer-digest', FullName: 'mailer-digest:mailer-digest' }), 1)).toBe('mailer-digest')
+  })
+  it('keeps group:name for a numbered process or a bigger group', () => {
+    expect(ctlName(proc({ Name: 'shop-queue_00', Group: 'shop-queue', FullName: 'shop-queue:shop-queue_00' }), 4)).toBe('shop-queue:shop-queue_00')
+    expect(ctlName(proc({ Name: 'web', Group: 'web', FullName: 'web:web' }), 2)).toBe('web:web')
+  })
+})
+
 describe('processMenu', () => {
   it('lists the actions in order with supervisorctl commands', () => {
-    const items = processMenu(proc({ FullName: 'g:web_00' }))
+    const items = processMenu(proc({ Name: 'web_00', Group: 'g', FullName: 'g:web_00' }), 1)
     expect(items.map((i) => i.label)).toEqual([
       'Start', 'Stop', 'Restart', 'Send signal…', 'View logs', 'Clear logs', 'Copy PID',
     ])
@@ -16,26 +26,26 @@ describe('processMenu', () => {
     expect(find(items, 'clear').cmd).toBe('supervisorctl clear g:web_00')
   })
   it('disables Start while running', () => {
-    expect(find(processMenu(proc({ State: 'RUNNING' })), 'start').disabled).toBe(true)
-    expect(find(processMenu(proc({ State: 'FATAL' })), 'start').disabled).toBe(false)
+    expect(find(processMenu(proc({ State: 'RUNNING' }), 1), 'start').disabled).toBe(true)
+    expect(find(processMenu(proc({ State: 'FATAL' }), 1), 'start').disabled).toBe(false)
   })
   it.each(['STOPPED', 'FATAL', 'EXITED'])('disables Stop when %s', (State) => {
-    expect(find(processMenu(proc({ State, PID: 0 })), 'stop').disabled).toBe(true)
+    expect(find(processMenu(proc({ State, PID: 0 }), 1), 'stop').disabled).toBe(true)
   })
   it('confirms before clearing the logs, like the Logs tab', () => {
-    const clear = find(processMenu(proc({ FullName: 'g:web_00' })), 'clear')
+    const clear = find(processMenu(proc({ Name: 'web_00', Group: 'g', FullName: 'g:web_00' }), 1), 'clear')
     expect(clear.danger).toBe(true)
     expect(clear.confirm).toBe('supervisord empties both the stdout and the stderr log files of g:web_00. This can’t be undone.')
     expect(clear.disabled).toBe(false)
   })
   it.each(['STOPPED', 'FATAL', 'EXITED', 'STARTING', 'BACKOFF'])('disables Clear logs when %s, saying why', (State) => {
-    const clear = find(processMenu(proc({ State })), 'clear')
+    const clear = find(processMenu(proc({ State }), 1), 'clear')
     expect(clear.disabled).toBe(true)
     expect(clear.title).toBe('supervisord can clear the logs of a running process only')
   })
   it('disables Copy PID without a PID', () => {
-    expect(find(processMenu(proc({ PID: 0 })), 'copy-pid').disabled).toBe(true)
-    expect(find(processMenu(proc({ PID: 7 })), 'copy-pid').disabled).toBe(false)
+    expect(find(processMenu(proc({ PID: 0 }), 1), 'copy-pid').disabled).toBe(true)
+    expect(find(processMenu(proc({ PID: 7 }), 1), 'copy-pid').disabled).toBe(false)
   })
 })
 

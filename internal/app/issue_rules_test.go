@@ -27,9 +27,18 @@ func crasher(autorestart string) supervisortest.Program {
 	return p
 }
 
-func openOfKind(ov OverviewView, kind string) []IssueView {
+// openIssues lists the open issues (the overview carries only their count).
+func openIssues(svc *ServerService) []IssueView {
+	out, err := NewIssueService(svc.rt).List(IssueQuery{Status: "open"})
+	if err != nil {
+		return nil
+	}
+	return out
+}
+
+func openOfKind(svc *ServerService, kind string) []IssueView {
 	var out []IssueView
-	for _, is := range ov.Issues {
+	for _, is := range openIssues(svc) {
 		if is.Kind == kind {
 			out = append(out, is)
 		}
@@ -60,10 +69,10 @@ func TestAutorestartTrueCrashOpensIssueHarness(t *testing.T) {
 // second crash cycle opens no other.
 func assertOneCrashIssue(t *testing.T, svc *ServerService, rec *recorder) {
 	t.Helper()
-	ov := waitOverview(t, svc, 10*time.Second, "an unexpected_exit issue", func(ov OverviewView) bool {
-		return len(openOfKind(ov, "unexpected_exit")) > 0
+	waitOverview(t, svc, 10*time.Second, "an unexpected_exit issue", func(OverviewView) bool {
+		return len(openOfKind(svc, "unexpected_exit")) > 0
 	})
-	got := openOfKind(ov, "unexpected_exit")
+	got := openOfKind(svc, "unexpected_exit")
 	if len(got) != 1 || got[0].Process != "crasher:crasher" || !slices.Contains(crashMessages, got[0].Message) {
 		t.Fatalf("unexpected_exit issues = %+v, want one with a message in %q", got, crashMessages)
 	}
@@ -129,7 +138,7 @@ func TestUserRestartsOpenNoIssues(t *testing.T) {
 		t.Errorf("user restarts opened %+v", got)
 	}
 	if ov.Server.Health == "error" {
-		t.Errorf("health = error after user restarts; issues %+v", ov.Issues)
+		t.Errorf("health = error after user restarts; issues %+v", openIssues(svc))
 	}
 	hist, _ := NewIssueService(rt).History("sleeper:sleeper", 0)
 	byYou := false
@@ -289,8 +298,8 @@ func assertNoIssues(t *testing.T, svc *ServerService, rec *recorder) {
 	if got := rec.issuesOpened(); len(got) != 0 {
 		t.Errorf("restarts made outside Visor opened %+v", got)
 	}
-	if ov := svc.Overview(); len(ov.Issues) != 0 || ov.Server.Health == "error" {
-		t.Errorf("open issues %+v, health %s", ov.Issues, ov.Server.Health)
+	if ov := svc.Overview(); ov.Stats.OpenIssues != 0 || ov.Server.Health == "error" {
+		t.Errorf("open issues %+v, health %s", openIssues(svc), ov.Server.Health)
 	}
 }
 

@@ -46,11 +46,12 @@ export function ConfigDetail(path: string): $CancellablePromise<$models.ConfigDe
 }
 
 /**
- * MainLog returns the last maxBytes of supervisord's own log (64 KiB if
- * maxBytes <= 0, at most 1 MiB).
+ * MainLogLines reads the last 4 MiB of supervisord's own log, parses it and
+ * returns the newest lines matching q. With q.After (following), it reads
+ * only the last 64 KiB and returns the lines written since.
  */
-export function MainLog(maxBytes: number): $CancellablePromise<string> {
-    return $Call.ByID(850905403, maxBytes);
+export function MainLogLines(q: $models.MainLogQuery): $CancellablePromise<$models.MainLogResult> {
+    return $Call.ByID(3189548294, q);
 }
 
 /**

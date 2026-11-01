@@ -49,6 +49,7 @@ What it covers (`e2e/tests`):
 - `process-actions.spec.ts`: start and stop from a process menu; Stop all asks first and Cancel changes nothing.
 - `config-detail.spec.ts`: Overview flags a missing command, Logs follows the chosen process, History renders.
 - `issues.spec.ts`: the FATAL issue appears, filters and counts, resolving, search.
+- `issues-manage.spec.ts`: the stats strip and tabs, kind and date filters, bulk resolve, and deleting one or many resolved issues (each with Cancel leaving things unchanged); works on `flaky`'s issues only.
 - `settings.spec.ts`: config fixed by `VISOR_CONFIG`, polling interval and a notification toggle persist across a reload.
 - `navigation.spec.ts`: sidebar links, unknown routes, no console errors.
 
@@ -71,4 +72,14 @@ hand on a Mac (`wails3 task dev`) before a release:
 - [ ] Logs tab: Save… shows the save dialog and writes the file.
 - [ ] Settings: Choose… shows the file dialog. `task dev` sets `VISOR_CONFIG`, which disables Choose…, so run `scripts/sandbox.sh up && VISOR_STATE_DIR=/tmp/visor-sandbox/state wails3 dev -config ./build/config.yml` instead and choose `/tmp/visor-sandbox/supervisord.conf` (a saved path wins over auto-detection).
 - [ ] Saving a username and password asks the Keychain once; remove the test entry with `security delete-generic-password -s dev.getvisor.visor -a <config path>`.
-- [ ] Notifications (when they ship): one per event, none for unwatched files.
+- [ ] Appearance: with the Mac set to Light, choose Dark in the sidebar; the title bar, traffic-light area, scroll bars and the tray popover frame turn dark with the page; choose Light with the Mac on Dark; choose System and flip the Mac's appearance (System Settings → Appearance) while Visor is open: the window and popover follow. Quit and relaunch: the saved choice is already applied (the native part is the cgo `[NSApp setAppearance:]` in `internal/app/appearance_darwin.go`, which server mode can't show).
+- [ ] Notifications. These work only in the packaged app: `wails3 task dev` and `go build` binaries have no bundle identifier, so Visor logs `visor: notifications are off: notifications require a valid bundle identifier` and Settings → Notifications says "Not available in this build" (the app still runs). To check them:
+  1. `wails3 package` (builds `bin/visor.app`).
+  2. `VISOR_SANDBOX_DIR=/tmp/visor-notify scripts/sandbox.sh up`
+  3. `VISOR_CONFIG=/tmp/visor-notify/supervisord.conf VISOR_STATE_DIR=/tmp/visor-notify/state ./bin/visor.app/Contents/MacOS/visor`
+  4. The first launch asks to allow notifications: click Allow. The terminal logs `visor: notification permission: allowed=true`.
+  5. Within a few seconds `mailer-digest can't start` appears; `flaky exited unexpectedly` follows when flaky dies (about every 20 s, at most one a minute per process and kind). The Issues page shows the bell on each notified issue (`"notified":true` in `/tmp/visor-notify/state/issues.jsonl`).
+  6. Click a notification: the main window comes to the front on Issues.
+  7. Settings → Notifications shows "Allowed"; Send a test notification shows one. Turn Visor off in System Settings → Notifications: the page says so when you come back to it.
+  8. Turn off "A process can't start" (or turn Watch off for mailer-digest's config), Resolve its issue and Start it again from Visor: it goes FATAL again with no notification. supervisord not responding notifies even when no config is watched.
+  9. Quit Visor, then `VISOR_SANDBOX_DIR=/tmp/visor-notify scripts/sandbox.sh down`. macOS asks only once; change the answer later in System Settings → Notifications → Visor.

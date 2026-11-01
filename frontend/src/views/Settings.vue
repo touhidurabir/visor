@@ -4,11 +4,12 @@
 // "Apply", because lowering it deletes history (R27: it asks first).
 // Everything else saves as it changes and applies straight away; Go clamps
 // out-of-range values and the page shows what it kept.
-import { computed, onMounted, reactive, ref } from 'vue'
-import { ServerService, SettingsService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { NotifyService, ServerService, SettingsService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { ConnectionInput, SettingsView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { Settings } from '../../bindings/github.com/touhidurabir/visor/internal/settings'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import ThemeSwitch from '../components/ThemeSwitch.vue'
 import { describeError } from '../lib/faults'
 import { useOverview } from '../lib/overview'
 import { createSaveQueue } from '../lib/save-queue'
@@ -19,6 +20,7 @@ import {
   currentSettings,
   loadSettings,
   minutesToNs,
+  notifyPermission,
   nsToMinutes,
   nsToSeconds,
   retentionChange,
@@ -26,6 +28,7 @@ import {
   secondsToNs,
   typedNumber,
 } from '../lib/settings'
+import { appearance } from '../lib/theme-sync'
 import { showToast } from '../lib/toast'
 
 const { overview } = useOverview()
@@ -87,13 +90,22 @@ function adopt(v: SettingsView, keepDraft = false) {
   showSaved(v.Settings)
 }
 
+// The switch saves on its own (SetAppearance; Save leaves the appearance
+// alone); keep this page's copy current so it shows what is in use.
+watch(appearance, (a) => {
+  if (view.value) view.value.Settings.appearance = a
+})
+
 onMounted(async () => {
+  window.addEventListener('focus', checkPermission)
+  void checkPermission()
   try {
     adopt(await loadSettings())
   } catch (e) {
     loadError.value = describeError(e)
   }
 })
+onUnmounted(() => window.removeEventListener('focus', checkPermission))
 
 // --- Connection ---------------------------------------------------------
 
@@ -187,11 +199,18 @@ const queue = createSaveQueue<Settings, SettingsView>({
     saving.value = false
     const cur = view.value!
     if (v) {
-      // Save never changes the connection or retention; keep what the page
-      // shows for them, which their own saves may have changed meanwhile.
+      // Save never changes the connection, retention or appearance; keep
+      // what the page shows for them, which their own saves may have
+      // changed meanwhile.
       const merged: SettingsView = {
         ...cur,
-        Settings: { ...v.Settings, configPath: cur.Settings.configPath, username: cur.Settings.username, retentionDays: cur.Settings.retentionDays },
+        Settings: {
+          ...v.Settings,
+          configPath: cur.Settings.configPath,
+          username: cur.Settings.username,
+          retentionDays: cur.Settings.retentionDays,
+          appearance: cur.Settings.appearance,
+        },
         LoadError: v.LoadError,
         Warning: v.Warning,
       }
@@ -283,6 +302,33 @@ function setNotify(key: NotifyKey, on: boolean) {
   save((next) => (next.notify[key] = on))
 }
 
+// Whether macOS shows Visor's notifications. Checked again when the window
+// comes back to the front, e.g. from System Settings.
+const permission = ref('')
+const permissionView = computed(() => notifyPermission(permission.value))
+const testBusy = ref(false)
+
+async function checkPermission() {
+  try {
+    permission.value = await NotifyService.NotificationStatus()
+  } catch {
+    permission.value = 'unavailable'
+  }
+}
+
+async function sendTest() {
+  testBusy.value = true
+  try {
+    await NotifyService.SendTestNotification()
+    showToast('Sent a test notification')
+  } catch (e) {
+    showToast(describeError(e), 'error')
+  } finally {
+    testBusy.value = false
+    void checkPermission()
+  }
+}
+
 const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
   { key: 'fatal', label: 'A process can’t start (FATAL)' },
   { key: 'unexpectedExit', label: 'A process exits unexpectedly' },
@@ -319,194 +365,213 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
     </div>
 
     <template v-if="view && s">
-      <!-- Connection -->
-      <div class="card" role="group" aria-labelledby="conn-title">
-        <div class="card-head">
-          <h2 id="conn-title">Connection</h2>
-          <span :class="['badge', status.cls]"><span class="dot" aria-hidden="true" />{{ status.text }}</span>
+      <div class="cards">
+        <!-- Connection -->
+        <div class="card" role="group" aria-labelledby="conn-title">
+          <div class="card-head">
+            <h2 id="conn-title">Connection</h2>
+            <span :class="['badge', status.cls]"><span class="dot" aria-hidden="true" />{{ status.text }}</span>
+          </div>
+
+          <div class="row stack">
+            <div class="what">
+              <label class="name" for="conf-path">Config file</label>
+              <p class="hint">
+                <template v-if="envSet">Set by VISOR_CONFIG. Unset it to choose a file here.</template>
+                <template v-else-if="!conn.configPath">Auto-detect looks in the usual Homebrew and system locations.</template>
+                <template v-else>The supervisord.conf Visor reads.</template>
+              </p>
+            </div>
+            <div class="ctl wide">
+              <input
+                id="conf-path"
+                class="mono"
+                type="text"
+                readonly
+                :disabled="envSet"
+                :value="envSet ? view.EnvConfigPath : conn.configPath || (view.Settings.configPath === '' && view.ConfigPath ? `Auto-detect: ${view.ConfigPath}` : 'Auto-detect')"
+              />
+              <div class="btns">
+                <span v-if="envSet" class="badge stopped">Set by VISOR_CONFIG</span>
+                <button type="button" class="btn" :disabled="envSet || connBusy" @click="choose">Choose…</button>
+                <button type="button" class="btn" :disabled="envSet || connBusy || !conn.configPath" @click="autoDetect">Use auto-detect</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="what">
+              <span class="name">Socket</span>
+              <p class="hint">Read from the config’s [unix_http_server] or [inet_http_server] section.</p>
+            </div>
+            <div class="ctl wide">
+              <span v-if="view.Socket" class="mono value">{{ view.Socket }}</span>
+              <span v-else class="hint">None found</span>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="what">
+              <label class="name" for="conn-user">Username</label>
+              <p class="hint">Leave empty to use the [supervisorctl] username and password in the config.</p>
+            </div>
+            <div class="ctl">
+              <input id="conn-user" v-model.trim="conn.username" type="text" autocomplete="off" spellcheck="false" placeholder="From the config" />
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="what">
+              <label class="name" for="conn-pass">Password</label>
+              <p class="hint">
+                Saved in your Keychain, never in a file.<template v-if="view.HasPassword"> Removing it also clears the username, so the config’s credentials apply again.</template>
+              </p>
+            </div>
+            <div class="ctl">
+              <input
+                id="conn-pass"
+                v-model="conn.password"
+                type="password"
+                autocomplete="off"
+                :placeholder="view.HasPassword ? 'Saved in your Keychain' : 'Not set'"
+              />
+              <button v-if="view.HasPassword" type="button" class="btn" :disabled="connBusy" @click="removePassword">Remove password</button>
+            </div>
+          </div>
+
+          <div v-if="connError" class="alert" role="alert">
+            <strong>Can’t save the connection</strong>
+            <p>{{ connError }}</p>
+          </div>
+          <p v-else-if="serverError" class="server-error" role="status">{{ describeError(serverError) }}</p>
+
+          <div class="foot">
+            <button
+              type="button"
+              class="btn"
+              :disabled="connBusy || connDirty"
+              :title="connDirty ? 'Save and reconnect to use your changes' : undefined"
+              @click="reconnect"
+            >
+              {{ connBusy && !connDirty ? 'Reconnecting…' : 'Reconnect' }}
+            </button>
+            <template v-if="connDirty">
+              <button type="button" class="btn" :disabled="connBusy" @click="cancelConnection">Cancel</button>
+              <button type="button" class="btn primary" :disabled="connBusy" @click="saveConnection">{{ connBusy ? 'Reconnecting…' : 'Save and reconnect' }}</button>
+            </template>
+          </div>
         </div>
 
-        <div class="row stack">
-          <div class="what">
-            <label class="name" for="conf-path">Config file</label>
-            <p class="hint">
-              <template v-if="envSet">Set by VISOR_CONFIG. Unset it to choose a file here.</template>
-              <template v-else-if="!conn.configPath">Auto-detect looks in the usual Homebrew and system locations.</template>
-              <template v-else>The supervisord.conf Visor reads.</template>
-            </p>
-          </div>
-          <div class="ctl wide">
-            <input
-              id="conf-path"
-              class="mono"
-              type="text"
-              readonly
-              :disabled="envSet"
-              :value="envSet ? view.EnvConfigPath : conn.configPath || (view.Settings.configPath === '' && view.ConfigPath ? `Auto-detect: ${view.ConfigPath}` : 'Auto-detect')"
-            />
-            <div class="btns">
-              <span v-if="envSet" class="badge stopped">Set by VISOR_CONFIG</span>
-              <button type="button" class="btn" :disabled="envSet || connBusy" @click="choose">Choose…</button>
-              <button type="button" class="btn" :disabled="envSet || connBusy || !conn.configPath" @click="autoDetect">Use auto-detect</button>
+        <div class="more">
+          <div class="col">
+        <!-- Polling -->
+        <div class="card" role="group" aria-labelledby="poll-title">
+          <h2 id="poll-title">Polling</h2>
+          <div class="row">
+            <div class="what">
+              <label class="name" for="poll">Check supervisord every</label>
+              <p class="hint">1 to 10 seconds. Shorter shows changes sooner.</p>
+              <p v-if="notes.poll" class="note" role="status">{{ notes.poll }}</p>
+            </div>
+            <div class="ctl">
+              <input id="poll" v-model="fields.poll" class="num" @input="editing.add('poll')" type="number" inputmode="decimal" :min="LIMITS.pollSeconds.min" :max="LIMITS.pollSeconds.max" step="1" @change="savePoll" />
+              <span class="unit">seconds</span>
             </div>
           </div>
         </div>
 
-        <div class="row">
-          <div class="what">
-            <span class="name">Socket</span>
-            <p class="hint">Read from the config’s [unix_http_server] or [inet_http_server] section.</p>
+        <!-- Notifications -->
+        <div class="card" role="group" aria-labelledby="notify-title">
+          <h2 id="notify-title">Notifications</h2>
+          <div class="row">
+            <div class="what">
+              <label class="name" for="notify-on">Send notifications</label>
+              <p class="hint">Only for configs you watch. Issues are recorded either way.</p>
+            </div>
+            <div class="ctl">
+              <input id="notify-on" class="switch" type="checkbox" role="switch" :checked="notify.enabled" @change="setNotify('enabled', ($event.target as HTMLInputElement).checked)" />
+            </div>
           </div>
-          <div class="ctl wide">
-            <span v-if="view.Socket" class="mono value">{{ view.Socket }}</span>
-            <span v-else class="hint">None found</span>
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="what">
-            <label class="name" for="conn-user">Username</label>
-            <p class="hint">Leave empty to use the [supervisorctl] username and password in the config.</p>
-          </div>
-          <div class="ctl">
-            <input id="conn-user" v-model.trim="conn.username" type="text" autocomplete="off" spellcheck="false" placeholder="From the config" />
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="what">
-            <label class="name" for="conn-pass">Password</label>
-            <p class="hint">
-              Saved in your Keychain, never in a file.<template v-if="view.HasPassword"> Removing it also clears the username, so the config’s credentials apply again.</template>
-            </p>
-          </div>
-          <div class="ctl">
-            <input
-              id="conn-pass"
-              v-model="conn.password"
-              type="password"
-              autocomplete="off"
-              :placeholder="view.HasPassword ? 'Saved in your Keychain' : 'Not set'"
-            />
-            <button v-if="view.HasPassword" type="button" class="btn" :disabled="connBusy" @click="removePassword">Remove password</button>
+          <fieldset class="types" :disabled="!notify.enabled">
+            <legend class="sr-only">Notify me when</legend>
+            <label v-for="t in notifyTypes" :key="t.key" class="check">
+              <input type="checkbox" :checked="notify[t.key]" @change="setNotify(t.key, ($event.target as HTMLInputElement).checked)" />
+              {{ t.label }}
+            </label>
+          </fieldset>
+          <div class="row">
+            <div class="what">
+              <span class="name">macOS permission</span>
+              <p class="hint">Visor asks once, the first time it runs.</p>
+            </div>
+            <div class="ctl">
+              <span :class="['badge', 'wrap', permissionView.cls]" data-testid="notify-permission"><span class="dot" aria-hidden="true" />{{ permissionView.text }}</span>
+              <button type="button" class="btn" :disabled="testBusy" @click="sendTest">Send a test notification</button>
+            </div>
           </div>
         </div>
 
-        <div v-if="connError" class="alert" role="alert">
-          <strong>Can’t save the connection</strong>
-          <p>{{ connError }}</p>
+          </div>
+          <div class="col">
+        <!-- Crash loops -->
+        <div class="card" role="group" aria-labelledby="loop-title">
+          <h2 id="loop-title">Crash loops</h2>
+          <div class="row">
+            <div class="what">
+              <span class="name">Open a crash-loop issue after</span>
+              <p class="hint">Restarts you ask for don’t count.</p>
+              <p v-if="notes.restarts" class="note" role="status">{{ notes.restarts }}</p>
+              <p v-if="notes.window" class="note" role="status">{{ notes.window }}</p>
+            </div>
+            <div class="ctl">
+              <input id="loop-restarts" v-model="fields.restarts" @input="editing.add('restarts')" aria-label="Restarts" class="num" type="number" inputmode="numeric" :min="LIMITS.restarts.min" :max="LIMITS.restarts.max" step="1" @change="saveRestarts" />
+              <span class="unit">restarts within</span>
+              <input id="loop-window" v-model="fields.window" @input="editing.add('window')" aria-label="Minutes" class="num" type="number" inputmode="numeric" :min="LIMITS.windowMinutes.min" :max="LIMITS.windowMinutes.max" step="1" @change="saveWindow" />
+              <span class="unit">minutes</span>
+            </div>
+          </div>
         </div>
-        <p v-else-if="serverError" class="server-error" role="status">{{ describeError(serverError) }}</p>
 
-        <div class="foot">
-          <button
-            type="button"
-            class="btn"
-            :disabled="connBusy || connDirty"
-            :title="connDirty ? 'Save and reconnect to use your changes' : undefined"
-            @click="reconnect"
-          >
-            {{ connBusy && !connDirty ? 'Reconnecting…' : 'Reconnect' }}
-          </button>
-          <template v-if="connDirty">
-            <button type="button" class="btn" :disabled="connBusy" @click="cancelConnection">Cancel</button>
-            <button type="button" class="btn primary" :disabled="connBusy" @click="saveConnection">{{ connBusy ? 'Reconnecting…' : 'Save and reconnect' }}</button>
-          </template>
+        <!-- Issue history -->
+        <div class="card" role="group" aria-labelledby="keep-title">
+          <h2 id="keep-title">Issue history</h2>
+          <div class="row">
+            <div class="what">
+              <label class="name" for="keep">Keep resolved issues and process history for</label>
+              <p class="hint">At least 7 days. Open issues are always kept. A shorter time deletes older entries once you confirm.</p>
+              <p v-if="notes.retention" class="note" role="status">{{ notes.retention }}</p>
+            </div>
+            <div class="ctl">
+              <input id="keep" v-model="fields.retention" class="num" @input="editing.add('retention')" type="number" inputmode="numeric" :min="LIMITS.retentionDays.min" :max="LIMITS.retentionDays.max" step="1" @keydown.enter="applyRetention" @keydown.esc="cancelRetention" />
+              <span class="unit">days</span>
+              <template v-if="retention.kind === 'raise' || retention.kind === 'lower'">
+                <button type="button" class="btn" :disabled="retentionBusy" @click="cancelRetention">Cancel</button>
+                <button type="button" class="btn primary" :disabled="retentionBusy" @click="applyRetention">{{ retentionBusy ? 'Applying…' : 'Apply' }}</button>
+              </template>
+            </div>
+          </div>
         </div>
-      </div>
 
-      <!-- Polling -->
-      <div class="card" role="group" aria-labelledby="poll-title">
-        <h2 id="poll-title">Polling</h2>
-        <div class="row">
-          <div class="what">
-            <label class="name" for="poll">Check supervisord every</label>
-            <p class="hint">1 to 10 seconds. Shorter shows changes sooner.</p>
-            <p v-if="notes.poll" class="note" role="status">{{ notes.poll }}</p>
+        <!-- Startup and appearance -->
+        <div class="card" role="group" aria-labelledby="general-title">
+          <h2 id="general-title">General</h2>
+          <div class="row">
+            <div class="what">
+              <label class="name" for="login">Launch at login</label>
+              <p class="hint">Coming in this release.</p>
+            </div>
+            <div class="ctl">
+              <input id="login" class="switch" type="checkbox" role="switch" disabled />
+            </div>
           </div>
-          <div class="ctl">
-            <input id="poll" v-model="fields.poll" class="num" @input="editing.add('poll')" type="number" inputmode="decimal" :min="LIMITS.pollSeconds.min" :max="LIMITS.pollSeconds.max" step="1" @change="savePoll" />
-            <span class="unit">seconds</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Notifications -->
-      <div class="card" role="group" aria-labelledby="notify-title">
-        <h2 id="notify-title">Notifications</h2>
-        <div class="row">
-          <div class="what">
-            <label class="name" for="notify-on">Send notifications</label>
-            <p class="hint">Only for configs you watch. Issues are recorded either way.</p>
-          </div>
-          <div class="ctl">
-            <input id="notify-on" class="switch" type="checkbox" role="switch" :checked="notify.enabled" @change="setNotify('enabled', ($event.target as HTMLInputElement).checked)" />
+          <div class="row">
+            <div class="what">
+              <span class="name">Appearance</span>
+              <p class="hint">System follows your Mac’s light/dark setting.</p>
+            </div>
+            <div class="ctl"><ThemeSwitch /></div>
           </div>
         </div>
-        <fieldset class="types" :disabled="!notify.enabled">
-          <legend class="sr-only">Notify me when</legend>
-          <label v-for="t in notifyTypes" :key="t.key" class="check">
-            <input type="checkbox" :checked="notify[t.key]" @change="setNotify(t.key, ($event.target as HTMLInputElement).checked)" />
-            {{ t.label }}
-          </label>
-        </fieldset>
-      </div>
-
-      <!-- Crash loops -->
-      <div class="card" role="group" aria-labelledby="loop-title">
-        <h2 id="loop-title">Crash loops</h2>
-        <div class="row">
-          <div class="what">
-            <span class="name">Open a crash-loop issue after</span>
-            <p class="hint">Restarts you ask for don’t count.</p>
-            <p v-if="notes.restarts" class="note" role="status">{{ notes.restarts }}</p>
-            <p v-if="notes.window" class="note" role="status">{{ notes.window }}</p>
-          </div>
-          <div class="ctl">
-            <input id="loop-restarts" v-model="fields.restarts" @input="editing.add('restarts')" aria-label="Restarts" class="num" type="number" inputmode="numeric" :min="LIMITS.restarts.min" :max="LIMITS.restarts.max" step="1" @change="saveRestarts" />
-            <span class="unit">restarts within</span>
-            <input id="loop-window" v-model="fields.window" @input="editing.add('window')" aria-label="Minutes" class="num" type="number" inputmode="numeric" :min="LIMITS.windowMinutes.min" :max="LIMITS.windowMinutes.max" step="1" @change="saveWindow" />
-            <span class="unit">minutes</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Issue history -->
-      <div class="card" role="group" aria-labelledby="keep-title">
-        <h2 id="keep-title">Issue history</h2>
-        <div class="row">
-          <div class="what">
-            <label class="name" for="keep">Keep resolved issues and process history for</label>
-            <p class="hint">At least 7 days. Open issues are always kept. A shorter time deletes older entries once you confirm.</p>
-            <p v-if="notes.retention" class="note" role="status">{{ notes.retention }}</p>
-          </div>
-          <div class="ctl">
-            <input id="keep" v-model="fields.retention" class="num" @input="editing.add('retention')" type="number" inputmode="numeric" :min="LIMITS.retentionDays.min" :max="LIMITS.retentionDays.max" step="1" @keydown.enter="applyRetention" @keydown.esc="cancelRetention" />
-            <span class="unit">days</span>
-            <template v-if="retention.kind === 'raise' || retention.kind === 'lower'">
-              <button type="button" class="btn" :disabled="retentionBusy" @click="cancelRetention">Cancel</button>
-              <button type="button" class="btn primary" :disabled="retentionBusy" @click="applyRetention">{{ retentionBusy ? 'Applying…' : 'Apply' }}</button>
-            </template>
-          </div>
-        </div>
-      </div>
-
-      <!-- Startup and appearance -->
-      <div class="card" role="group" aria-labelledby="general-title">
-        <h2 id="general-title">General</h2>
-        <div class="row">
-          <div class="what">
-            <label class="name" for="login">Launch at login</label>
-            <p class="hint">Coming in this release.</p>
-          </div>
-          <div class="ctl">
-            <input id="login" class="switch" type="checkbox" role="switch" disabled />
-          </div>
-        </div>
-        <div class="row">
-          <div class="what">
-            <span class="name">Appearance</span>
-            <p class="hint">Follows your Mac’s light/dark setting.</p>
           </div>
         </div>
       </div>
@@ -524,7 +589,13 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 16px; max-width: 760px; }
+.page { display: flex; flex-direction: column; gap: 16px; container-type: inline-size; }
+.cards { display: flex; flex-direction: column; gap: 16px; }
+/* Wide windows: the other cards sit in two columns, under Connection. */
+.more, .col { display: flex; flex-direction: column; gap: 16px; }
+@container (min-width: 1100px) {
+  .more { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+}
 header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
 h1 { margin: 0; font-size: 22px; font-weight: 650; }
 h2 { margin: 0; font-size: 14px; font-weight: 650; }
@@ -543,7 +614,7 @@ h2 { margin: 0; font-size: 14px; font-weight: 650; }
 .stack { flex-direction: column; align-items: stretch; }
 .stack .what { flex: none; }
 .stack .ctl.wide { flex: none; justify-content: flex-start; }
-.ctl.wide input { flex: 1 1 260px; min-width: 0; }
+.ctl.wide input { flex: 1 1 260px; min-width: 0; max-width: 560px; }
 .btns { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .mono { font-family: var(--font-mono); font-size: 12px; }
 .value { overflow-wrap: anywhere; user-select: text; }
@@ -570,6 +641,7 @@ input.num { width: 72px; text-align: right; }
 .btn.primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
 .btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
 .badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.badge.wrap { white-space: normal; }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .running { background: var(--running-bg); color: var(--running-fg); }
 .running .dot { background: var(--running-dot); }

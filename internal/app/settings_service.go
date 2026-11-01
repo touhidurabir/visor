@@ -112,8 +112,9 @@ func (s *SettingsService) withWarning(err error) SettingsView {
 }
 
 // Save saves everything but the connection (config path and username,
-// which SaveConnection changes) and the issue retention (ApplyRetention's,
-// R27), and puts it into use: the poll interval and crash-loop thresholds
+// which SaveConnection changes), the issue retention (ApplyRetention's,
+// R27) and the appearance (SetAppearance's, so a page save built from an
+// older view never puts back an older theme), and puts it into use: the poll interval and crash-loop thresholds
 // apply straight away. Out-of-range values are clamped; the returned view
 // shows what was saved.
 func (s *SettingsService) Save(in settings.Settings) (SettingsView, error) {
@@ -123,12 +124,33 @@ func (s *SettingsService) Save(in settings.Settings) (SettingsView, error) {
 	// A lower retention saved here would delete history at the next
 	// launch without the person confirming it.
 	in.ConfigPath, in.Username, in.RetentionDays = cur.ConfigPath, cur.Username, cur.RetentionDays
-	in = in.Clamp()
-	if err := settings.Save(s.stateDir, in); err != nil {
+	in.Appearance = cur.Appearance
+	return s.saveAndTell(in)
+}
+
+// SetAppearance saves the colour theme ("system", "light" or "dark";
+// anything else means system) and nothing else, puts it into the window
+// chrome and tells every window, so the menu-bar popover follows.
+func (s *SettingsService) SetAppearance(appearance string) (SettingsView, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := s.rt.Settings()
+	next.Appearance = appearance
+	return s.saveAndTell(next)
+}
+
+// saveAndTell saves next (clamped), puts it into use and tells every
+// window. Caller holds mu.
+func (s *SettingsService) saveAndTell(next settings.Settings) (SettingsView, error) {
+	next = next.Clamp()
+	if err := settings.Save(s.stateDir, next); err != nil {
 		return s.view(), err
 	}
 	s.loadErr = nil
-	return s.withWarning(s.rt.ApplySettings(in, false)), nil
+	v := s.withWarning(s.rt.ApplySettings(next, false))
+	setNativeAppearance(next.Appearance)
+	s.rt.opts.Emit(EventSettings, v)
+	return v, nil
 }
 
 // ApplyRetention saves how many days of closed issues and process history
@@ -305,3 +327,8 @@ func (s *SettingsService) ChooseConfig() (string, error) {
 	}
 	return path, nil
 }
+
+// ApplyStartupAppearance puts the saved appearance into the window chrome.
+// Call it once the app is running (main does, on ApplicationStarted): the
+// main thread does not run before that.
+func ApplyStartupAppearance(appearance string) { setNativeAppearance(appearance) }

@@ -187,10 +187,11 @@ func TestOverviewStats(t *testing.T) {
 	if !strings.HasPrefix(p.Since, "failing ") || !strings.Contains(p.Detail, "exited 3") {
 		t.Errorf("failer = since %q detail %q", p.Since, p.Detail)
 	}
-	if len(ov.Issues) != 1 || ov.Issues[0].Process != "failer:failer" || ov.Issues[0].Kind != "unexpected_exit" {
-		t.Fatalf("issues = %+v", ov.Issues)
+	open := openIssues(svc)
+	if len(open) != 1 || open[0].Process != "failer:failer" || open[0].Kind != "unexpected_exit" {
+		t.Fatalf("issues = %+v", open)
 	}
-	if got := rec.issuesOpened(); len(got) != 1 || got[0].ID != ov.Issues[0].ID {
+	if got := rec.issuesOpened(); len(got) != 1 || got[0].ID != open[0].ID {
 		t.Errorf("issue-opened events = %+v", got)
 	}
 	if len(rec.overviews()) == 0 {
@@ -427,12 +428,41 @@ func TestCheckForChangesAndMainLog(t *testing.T) {
 		t.Errorf("fresh config = %+v", ov.Configs[0])
 	}
 
-	log, err := svc.MainLog(4096)
+	res, err := svc.MainLogLines(MainLogQuery{Query: "supervisord started"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(log, "supervisord started") || len(log) > 4096 {
-		t.Errorf("main log (%d bytes) = %q", len(log), log)
+	if len(res.Lines) == 0 || res.Lines[0].Level != "INFO" || res.Truncated || res.Matched != len(res.Lines) || res.Since || res.Cursor == "" {
+		t.Errorf("main log = %+v", res)
+	}
+
+	// Following: only what was written since, filtered the same way.
+	all, err := svc.MainLogLines(MainLogQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := svc.MainLogLines(MainLogQuery{After: all.Cursor, Query: "spawned"}); err != nil || !got.Since {
+		t.Fatalf("follow with no news = %+v, %v", got, err)
+	}
+	if err := svc.Restart("sleeper:sleeper"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		got, err := svc.MainLogLines(MainLogQuery{After: all.Cursor, Query: "spawned"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !got.Since {
+			t.Fatalf("follow read the whole log: %+v", got)
+		}
+		if len(got.Lines) == 1 && strings.Contains(got.Lines[0].Text, "spawned: 'sleeper'") && got.Matched == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("follow = %+v, want the new spawned line only", got)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
@@ -477,28 +507,28 @@ func TestIssueService(t *testing.T) {
 	is := NewIssueService(rt)
 	waitOverview(t, svc, 15*time.Second, "issue opened", func(ov OverviewView) bool { return ov.Stats.OpenIssues == 1 })
 
-	open, err := is.List("open", 0, "", 0, "")
+	open, err := is.List(IssueQuery{Status: "open"})
 	if err != nil || len(open) != 1 {
 		t.Fatalf("List(open) = %+v, %v", open, err)
 	}
 	if open[0].Config != filepath.Join(inst.Dir(), "conf.d", "failer.ini") || open[0].OpenedMs == 0 || open[0].Status != "open" {
 		t.Errorf("issue = %+v", open[0])
 	}
-	if got, _ := is.List("all", 0, "", 0, "no-such-text"); len(got) != 0 {
+	if got, _ := is.List(IssueQuery{Status: "all", Query: "no-such-text"}); len(got) != 0 {
 		t.Errorf("query filtered nothing: %+v", got)
 	}
-	if got, _ := is.List("all", open[0].OpenedMs, "", 0, ""); len(got) != 0 {
+	if got, _ := is.List(IssueQuery{Status: "all", BeforeMs: open[0].OpenedMs}); len(got) != 0 {
 		t.Errorf("before cursor kept the issue: %+v", got)
 	}
-	if got, _ := is.List("all", open[0].OpenedMs, open[0].ID, 0, ""); len(got) != 0 {
+	if got, _ := is.List(IssueQuery{Status: "all", BeforeMs: open[0].OpenedMs, BeforeID: open[0].ID}); len(got) != 0 {
 		t.Errorf("a cursor at the issue itself kept it: %+v", got)
 	}
-	if got, _ := is.List("all", open[0].OpenedMs, open[0].ID+"~", 0, ""); len(got) != 1 {
+	if got, _ := is.List(IssueQuery{Status: "all", BeforeMs: open[0].OpenedMs, BeforeID: open[0].ID + "~"}); len(got) != 1 {
 		t.Errorf("a cursor after the issue in the same millisecond dropped it: %+v", got)
 	}
 
-	if c, err := is.Counts(); err != nil || c != (IssueCounts{Open: 1}) {
-		t.Errorf("Counts before Resolve = %+v, %v", c, err)
+	if c, err := is.Stats(); err != nil || c.Open != 1 || c.Resolved != 0 {
+		t.Errorf("Stats before Resolve = %+v, %v", c, err)
 	}
 	n := len(rec.overviews())
 	if err := is.Resolve(open[0].ID); err != nil {
@@ -507,25 +537,84 @@ func TestIssueService(t *testing.T) {
 	if ovs := rec.overviews(); len(ovs) == n {
 		t.Error("Resolve emitted no overview")
 	}
-	if ov := svc.Overview(); ov.Stats.OpenIssues != 0 || len(ov.Issues) != 0 {
-		t.Errorf("after Resolve: %+v / %+v", ov.Stats, ov.Issues)
+	if ov := svc.Overview(); ov.Stats.OpenIssues != 0 || len(openIssues(svc)) != 0 {
+		t.Errorf("after Resolve: %+v / %+v", ov.Stats, openIssues(svc))
 	}
-	if got, _ := is.List("resolved", 0, "", 0, ""); len(got) != 1 || got[0].Status != "resolved_user" || got[0].ClosedMs == 0 {
+	if got, _ := is.List(IssueQuery{Status: "resolved"}); len(got) != 1 || got[0].Status != "resolved_user" || got[0].ClosedMs == 0 {
 		t.Errorf("List(resolved) = %+v", got)
 	}
-	if c, err := is.Counts(); err != nil || c != (IssueCounts{Resolved: 1}) {
-		t.Errorf("Counts after Resolve = %+v, %v", c, err)
+	if c, err := is.Stats(); err != nil || c.Open != 0 || c.Resolved != 1 {
+		t.Errorf("Stats after Resolve = %+v, %v", c, err)
 	}
 	if err := is.Dismiss(open[0].ID); err == nil {
 		t.Error("Dismiss of a closed issue: want error")
 	}
 
+	if got, _ := is.List(IssueQuery{Kind: open[0].Kind}); len(got) != 1 {
+		t.Errorf("kind=%s: %+v", open[0].Kind, got)
+	}
+	if got, _ := is.List(IssueQuery{Kind: "unreachable"}); len(got) != 0 {
+		t.Errorf("kind=unreachable: %+v", got)
+	}
+	if got, _ := is.List(IssueQuery{FromMs: open[0].OpenedMs + 1}); len(got) != 0 {
+		t.Errorf("From after the issue kept it: %+v", got)
+	}
+	if got, _ := is.List(IssueQuery{FromMs: open[0].OpenedMs, ToMs: open[0].OpenedMs + 1}); len(got) != 1 {
+		t.Errorf("range around the issue dropped it: %+v", got)
+	}
+	if st, err := is.Stats(); err != nil || st.Total != 1 || st.Resolved != 1 || st.Open != 0 || st.Last24h != 1 {
+		t.Errorf("Stats = %+v, %v", st, err)
+	}
+	// ResolveMany of a closed id resolves nothing; Delete removes it and emits.
+	if n, err := is.ResolveMany([]string{open[0].ID}); err != nil || n != 0 {
+		t.Errorf("ResolveMany(closed) = %d, %v", n, err)
+	}
 	hist, err := is.History("failer:failer", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(hist) == 0 || hist[0].Process != "failer:failer" || hist[0].AtMs == 0 {
 		t.Errorf("history = %+v", hist)
+	}
+}
+
+func TestIssueServiceBulk(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Failer)
+	rt, rec := startRuntime(t, confOf(inst), t.TempDir(), 100*time.Millisecond)
+	svc := NewServerService(rt)
+	is := NewIssueService(rt)
+	waitOverview(t, svc, 15*time.Second, "issue opened", func(ov OverviewView) bool { return ov.Stats.OpenIssues == 1 })
+	open, _ := is.List(IssueQuery{Status: "open"})
+	if len(open) != 1 {
+		t.Fatalf("open = %+v", open)
+	}
+
+	// An open issue is never deleted.
+	if n, err := is.Delete([]string{open[0].ID}); err != nil || n != 0 {
+		t.Fatalf("Delete(open) = %d, %v", n, err)
+	}
+	n := len(rec.overviews())
+	if got, err := is.ResolveMany([]string{open[0].ID, "unknown"}); err != nil || got != 1 {
+		t.Fatalf("ResolveMany = %d, %v", got, err)
+	}
+	if len(rec.overviews()) == n {
+		t.Error("ResolveMany emitted no overview")
+	}
+	if st, _ := is.Stats(); st.Open != 0 || st.Resolved != 1 {
+		t.Errorf("Stats = %+v", st)
+	}
+	n = len(rec.overviews())
+	if got, err := is.Delete([]string{open[0].ID, "unknown"}); err != nil || got != 1 {
+		t.Fatalf("Delete = %d, %v", got, err)
+	}
+	if len(rec.overviews()) == n {
+		t.Error("Delete emitted no overview")
+	}
+	if all, _ := is.List(IssueQuery{Status: "all"}); len(all) != 0 {
+		t.Errorf("after Delete: %+v", all)
+	}
+	if st, _ := is.Stats(); st != (IssueStats{}) {
+		t.Errorf("Stats after Delete = %+v", st)
 	}
 }
 
@@ -562,7 +651,7 @@ func TestOverviewWithoutUsableConfig(t *testing.T) {
 			if err := svc.StartAll(); err == nil {
 				t.Error("StartAll without a connection: want error")
 			}
-			if _, err := NewIssueService(rt).List("all", 0, "", 0, ""); err != nil {
+			if _, err := NewIssueService(rt).List(IssueQuery{Status: "all"}); err != nil {
 				t.Errorf("issue list should still work: %v", err)
 			}
 		})
@@ -636,12 +725,49 @@ func TestMainLogWithoutLogFile(t *testing.T) {
 	rt, _ := startRuntime(t, conf, t.TempDir(), 50*time.Millisecond)
 	svc := NewServerService(rt)
 	waitOverview(t, svc, 5*time.Second, "reachable", func(ov OverviewView) bool { return ov.Server.Reachable })
-	_, err := svc.MainLog(0)
+	_, err := svc.MainLogLines(MainLogQuery{})
 	want := "supervisord writes no log file (logfile= is unset or syslog). Set [supervisord] logfile= to see it here."
 	if err == nil || err.Error() != want {
-		t.Errorf("MainLog = %v, want %q", err, want)
+		t.Errorf("MainLogLines = %v, want %q", err, want)
 	}
 	if !errors.Is(err, supervisor.ErrNoFile) {
-		t.Errorf("MainLog error %v does not wrap ErrNoFile", err)
+		t.Errorf("MainLogLines error %v does not wrap ErrNoFile", err)
+	}
+}
+
+func TestFilterMainLog(t *testing.T) {
+	base := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
+	mk := func(min int, lvl, text string) supervisor.MainLogLine {
+		return supervisor.MainLogLine{At: base.Add(time.Duration(min) * time.Minute), Level: lvl, Text: text}
+	}
+	lines := []supervisor.MainLogLine{
+		mk(0, "INFO", "spawned: 'a'"), mk(1, "WARN", "exited: a"), mk(2, "CRIT", "Boom\nTraceback"),
+		mk(3, "DEBG", "noise"), mk(4, "INFO", "spawned: 'b'"),
+	}
+	texts := func(r MainLogResult) []string {
+		out := []string{}
+		for _, l := range r.Lines {
+			out = append(out, l.Text)
+		}
+		return out
+	}
+	tests := []struct {
+		name string
+		q    MainLogQuery
+		want []string
+		n    int
+	}{
+		{"all", MainLogQuery{}, []string{"spawned: 'a'", "exited: a", "Boom\nTraceback", "noise", "spawned: 'b'"}, 5},
+		{"levels", MainLogQuery{Levels: []string{"WARN", "CRIT"}}, []string{"exited: a", "Boom\nTraceback"}, 2},
+		{"search is case-insensitive and sees tracebacks", MainLogQuery{Query: "TRACEBACK"}, []string{"Boom\nTraceback"}, 1},
+		{"from is inclusive, to exclusive", MainLogQuery{FromMs: base.Add(time.Minute).UnixMilli(), ToMs: base.Add(3 * time.Minute).UnixMilli()}, []string{"exited: a", "Boom\nTraceback"}, 2},
+		{"limit keeps the newest", MainLogQuery{Limit: 2}, []string{"noise", "spawned: 'b'"}, 5},
+		{"no match", MainLogQuery{Query: "zzz"}, []string{}, 0},
+	}
+	for _, tc := range tests {
+		got := filterMainLog(lines, tc.q)
+		if !slices.Equal(texts(got), tc.want) || got.Matched != tc.n {
+			t.Errorf("%s: lines %q matched %d, want %q matched %d", tc.name, texts(got), got.Matched, tc.want, tc.n)
+		}
 	}
 }

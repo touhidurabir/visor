@@ -46,4 +46,9 @@ export interface Settings {
     "crashLoop": CrashLoopRules;
     "retentionDays": number;
     "onboarded": boolean;
+
+    /**
+     * Appearance is the colour theme: AppearanceSystem, Light or Dark.
+     */
+    "appearance": string;
 }

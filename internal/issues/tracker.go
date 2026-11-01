@@ -102,7 +102,8 @@ func (e *expectation) live(now time.Time) bool {
 }
 
 // NewTracker loads the issues that are still open in s, and when the user
-// last closed an issue for each process and kind.
+// last closed an issue for each process and kind (including closed issues
+// they have since deleted).
 func NewTracker(s *Store, r Rules, p Programs, now func() time.Time) *Tracker {
 	t := &Tracker{
 		store: s, rules: r, progs: p, now: now,
@@ -119,6 +120,12 @@ func NewTracker(s *Store, r Rules, p Programs, now func() time.Time) *Tracker {
 			case StatusResolvedUser, StatusDismissed:
 				t.noteUserClosed(is)
 			}
+		}
+	}
+	// Issues the user closed and then deleted still count as decided.
+	if sup, err := s.suppressions(); err == nil {
+		for _, x := range sup {
+			t.noteUserClosed(Issue{Process: x.Process, Kind: x.Kind, ClosedAt: x.ClosedAt})
 		}
 	}
 	return t
@@ -366,6 +373,39 @@ func (t *Tracker) Resolve(id string) error { return t.closeByID(id, StatusResolv
 
 // Dismiss closes an open issue without resolving it.
 func (t *Tracker) Dismiss(id string) error { return t.closeByID(id, StatusDismissed) }
+
+// ResolveMany resolves each open issue in ids like Resolve, so the same
+// failure does not reopen them. IDs that are not open are skipped. It
+// returns how many it resolved.
+func (t *Tracker) ResolveMany(ids []string) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	want := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		want[id] = true
+	}
+	closed := t.closeWhere(func(i *Issue) bool { return want[i.ID] }, StatusResolvedUser, "", t.now())
+	for _, is := range closed {
+		t.noteUserClosed(is)
+	}
+	return len(closed), nil
+}
+
+// MarkNotified records that a notification was shown for an open issue.
+// It returns ErrNotOpen when the issue is unknown or already closed.
+func (t *Tracker) MarkNotified(id string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	is, ok := t.open[id]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrNotOpen, id)
+	}
+	if is.Notified {
+		return nil
+	}
+	is.Notified = true
+	return t.store.putIssue(*is)
+}
 
 func (t *Tracker) closeByID(id string, st Status) error {
 	t.mu.Lock()

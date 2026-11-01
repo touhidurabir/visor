@@ -33,4 +33,18 @@ test.describe('dashboard', () => {
     await search.fill('')
     await expect(page.getByRole('link', { name: 'shop-api.ini', exact: true })).toBeVisible()
   })
+
+  test('the table fits the default 1000 px window with the ⋯ column in view', async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 700 })
+    await waitForDashboard(page)
+    const frame = page.locator('.frame').first()
+    expect(await frame.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
+    const box = (await frame.boundingBox())!
+    const menu = (await page.getByRole('button', { name: 'Actions for shop-queue:shop-queue_00' }).boundingBox())!
+    expect(menu.x + menu.width).toBeLessThanOrEqual(box.x + box.width)
+    // Name is in view too: nothing was scrolled sideways to reach the menu.
+    const name = (await page.getByRole('link', { name: 'reports.ini', exact: true }).boundingBox())!
+    expect(name.x).toBeGreaterThanOrEqual(box.x)
+  })
 })
+
