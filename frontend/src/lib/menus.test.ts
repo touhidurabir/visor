@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bulkConfirm, comingSoon, configMenu, ctlName, processMenu, serverMenu, type MenuItem } from './menus'
+import { bulkConfirm, configMenu, ctlName, processMenu, serverMenu, type MenuItem } from './menus'
 import type { ConfigView, ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 
 const proc = (o: Partial<ProcessView>) =>
@@ -81,14 +81,6 @@ describe('serverMenu', () => {
     const items = serverMenu()
     expect(items).toHaveLength(6)
     expect(items.filter((i) => i.confirm).map((i) => i.id)).toEqual(['restart', 'shutdown'])
-  })
-})
-
-describe('comingSoon', () => {
-  it('disables only the named items and explains why', () => {
-    const items = comingSoon(serverMenu(), ['apply-all'])
-    expect(find(items, 'apply-all')).toMatchObject({ disabled: true, title: 'Coming in this release' })
-    expect(find(items, 'check').disabled).toBe(false)
   })
 })
 

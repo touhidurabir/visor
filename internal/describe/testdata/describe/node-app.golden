@@ -1,0 +1,2 @@
+[program:acme-web]
+Runs node server.js in /srv/acme-web as you. Waits for you to start it, restarts it only if it exits with an unexpected code, and gives it 1 second to stop. Output and errors both go to syslog.

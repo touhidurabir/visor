@@ -1,12 +1,13 @@
 <script setup lang="ts">
 // Shown when any config differs from what supervisord runs (or Visor cannot
-// tell). "Apply changes" arrives with the apply flow in a later task.
+// tell). "Apply changes" asks the dashboard to run the apply flow.
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { ConfigView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { configRoute } from '../lib/links'
 
-const props = defineProps<{ configs: ConfigView[] }>()
+const props = defineProps<{ configs: ConfigView[]; busy?: boolean }>()
+const emit = defineEmits<{ apply: [] }>()
 
 const changed = computed(() => props.configs.filter((c) => c.Changed))
 const uncertain = computed(() => props.configs.filter((c) => c.Uncertain && !c.Changed))
@@ -33,7 +34,7 @@ const detail = computed(() =>
     </svg>
     <span class="msg"><strong>{{ headline }}</strong> {{ detail }}</span>
     <RouterLink v-if="first && first.Path" :to="diffTo">Show diff</RouterLink>
-    <button type="button" class="btn" disabled title="Coming in this release">Apply changes</button>
+    <button type="button" class="btn" :disabled="busy" @click="emit('apply')">{{ busy ? 'Applying…' : 'Apply changes' }}</button>
   </div>
 </template>
 

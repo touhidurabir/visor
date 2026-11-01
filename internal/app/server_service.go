@@ -218,9 +218,38 @@ func (s *ServerService) CheckForChanges() (supervisor.ConfigDiff, error) {
 	return diff, err
 }
 
+// ApplyChanges applies supervisord's re-read config (supervisorctl update):
+// changed groups restart, added ones are added (and start if autostart),
+// removed ones stop and go. groups limits it to those groups; nil applies
+// every change. The files applied are recorded as loaded, which clears
+// their "changed" badge. Per-group failures are in the result's Errors.
+// An error means nothing was applied (no connection, or supervisord could
+// not re-read its config), unless it says otherwise.
+func (s *ServerService) ApplyChanges(groups []string) (ApplyResultView, error) {
+	s.rt.applyMu.Lock()
+	defer s.rt.applyMu.Unlock()
+	res, err := s.rt.applyChanges(groups)
+	return toApplyResultView(res), err
+}
+
+// RemoveFromSupervisor takes a config file out of supervisord: it stops
+// the file's processes, moves the file into Visor's backups (where
+// "Restore a backup…" can bring it back), and removes its groups from
+// supervisord, so a later update does not add them again. It never
+// deletes the file outright, and stops nothing when the file cannot be
+// moved (a folder Visor may not write) or backed up.
+func (s *ServerService) RemoveFromSupervisor(path string) (ApplyResultView, error) {
+	s.rt.applyMu.Lock()
+	defer s.rt.applyMu.Unlock()
+	res, err := s.rt.removeFromSupervisor(path)
+	return toApplyResultView(res), err
+}
+
 // RestartDaemon restarts supervisord, which re-reads every config file and
 // restarts every process.
 func (s *ServerService) RestartDaemon() error {
+	s.rt.applyMu.Lock()
+	defer s.rt.applyMu.Unlock()
 	err := s.rt.act(expectDaemonRestart(), func(ctx context.Context, c *supervisor.Client) error {
 		return wrap("restart supervisord", c.Restart(ctx))
 	})
@@ -236,6 +265,8 @@ func (s *ServerService) RestartDaemon() error {
 // ShutdownDaemon stops supervisord and every process it runs. The outage
 // that follows is the user's choice, so it opens no unreachable issue.
 func (s *ServerService) ShutdownDaemon() error {
+	s.rt.applyMu.Lock()
+	defer s.rt.applyMu.Unlock()
 	return s.rt.act(expectDaemonShutdown(), func(ctx context.Context, c *supervisor.Client) error {
 		return wrap("shut down supervisord", c.Shutdown(ctx))
 	})

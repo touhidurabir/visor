@@ -6,6 +6,28 @@
 import * as settings$0 from "../settings/models.js";
 
 /**
+ * ApplyResultView is the outcome of applying config changes: the groups
+ * supervisord added, changed and removed, and any per-group errors.
+ */
+export interface ApplyResultView {
+    "Added": string[] | null;
+    "Changed": string[] | null;
+    "Removed": string[] | null;
+    "Errors": string[] | null;
+}
+
+/**
+ * BackupView is one saved copy of a file. At is when it was taken.
+ * Removed marks the copy made when the file was removed from supervisor.
+ */
+export interface BackupView {
+    "ID": string;
+    "At": string;
+    "Removed": boolean;
+    "Content": string;
+}
+
+/**
  * ConfigDetailView is the config detail page: the config with its live
  * processes, the paths it refers to, each process's log files and, when a
  * process is failing, its last error.
@@ -51,6 +73,18 @@ export interface ConnectionInput {
     "Username": string;
     "Password": string;
     "SetPassword": boolean;
+}
+
+/**
+ * FileView is a config file as read from disk. Hash identifies this
+ * content: Save refuses to write when the file no longer has it.
+ * Writable is false when Visor may not replace the file.
+ */
+export interface FileView {
+    "Path": string;
+    "Content": string;
+    "Hash": string;
+    "Writable": boolean;
 }
 
 /**
@@ -121,6 +155,18 @@ export interface LastErrorView {
     "ExitStatus": number;
     "StderrTail": string;
     "StderrLog": string;
+}
+
+/**
+ * LoadedDiffView holds the two texts to compare for "changed on disk vs.
+ * what supervisord is running"; the frontend computes the line diff.
+ * Known is false when Visor holds no copy of what supervisord loaded
+ * (apply to be sure).
+ */
+export interface LoadedDiffView {
+    "Known": boolean;
+    "Loaded": string;
+    "Disk": string;
 }
 
 /**
@@ -256,6 +302,26 @@ export interface ProcessView {
     "NowMs": number;
     "Since": string;
     "Detail": string;
+}
+
+/**
+ * ProgramForm is the form's view of a config: the first program's name and
+ * the settings the form has fields for.
+ */
+export interface ProgramForm {
+    "Name": string;
+    "Values": { [_ in string]?: string } | null;
+}
+
+/**
+ * RemovedView is a config file removed from supervisor that is not back:
+ * BackupID is the backup Restore brings it back from, taken At.
+ */
+export interface RemovedView {
+    "Path": string;
+    "FileName": string;
+    "BackupID": string;
+    "At": string;
 }
 
 /**

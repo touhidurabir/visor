@@ -569,9 +569,21 @@ func TestIssueService(t *testing.T) {
 	if n, err := is.ResolveMany([]string{open[0].ID}); err != nil || n != 0 {
 		t.Errorf("ResolveMany(closed) = %d, %v", n, err)
 	}
-	hist, err := is.History("failer:failer", 10)
-	if err != nil {
-		t.Fatal(err)
+	// When Visor's first poll already sees failer FATAL (a slow -race
+	// start), it records no transition: start it again so history has
+	// some (M-20).
+	_ = svc.Start("failer:failer") // fails: it exits too quickly
+	var hist []TransitionView
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		var err error
+		if hist, err = is.History("failer:failer", 10); err != nil {
+			t.Fatal(err)
+		}
+		if len(hist) > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 	if len(hist) == 0 || hist[0].Process != "failer:failer" || hist[0].AtMs == 0 {
 		t.Errorf("history = %+v", hist)

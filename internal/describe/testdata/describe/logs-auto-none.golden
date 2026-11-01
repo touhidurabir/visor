@@ -1,0 +1,15 @@
+[program:acme-auto]
+Runs node server.js as you. Starts with supervisord, restarts it only if it exits with an unexpected code, and gives it 10 seconds to stop. Output goes to an auto-named file in supervisord's log folder. Errors go to an auto-named file in supervisord's log folder.
+! acme-auto has no stderr_logfile, so errors go to an auto-named file in supervisord's log folder.
+
+[program:acme-quiet]
+Runs node quiet.js as you. Starts with supervisord, restarts it only if it exits with an unexpected code, and gives it 10 seconds to stop. Output is discarded. Errors are discarded.
+
+[program:acme-merged-quiet]
+Runs node merged.js as you. Starts with supervisord, restarts it only if it exits with an unexpected code, and gives it 10 seconds to stop. Output and errors are discarded.
+
+[program:acme-split]
+Runs node split.js as you. Starts with supervisord, restarts it only if it exits with an unexpected code, and gives it 10 seconds to stop. Output goes to /var/log/acme/out.log. Errors go to /var/log/acme/err.log.
+
+[program:acme-auto-out]
+Runs node auto-out.js as you. Starts with supervisord, restarts it only if it exits with an unexpected code, and gives it 10 seconds to stop. Output and errors both go to an auto-named file in supervisord's log folder.

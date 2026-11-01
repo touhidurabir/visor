@@ -268,6 +268,34 @@ func TestRemovedClosesProcessIssues(t *testing.T) {
 	}
 }
 
+// M-12: Visor applying a changed group stops, removes and adds it again.
+// Its process going away then is not the program being removed: its issues
+// close noting the apply.
+func TestRemovedDuringReapplyNotesConfigApplied(t *testing.T) {
+	tr, _, c := newTracker(t, nil)
+	tr.Apply(change(c.now(), supervisor.StateBackoff, supervisor.StateFatal, info(0)))
+	removed := monitor.Update{
+		Snapshot: monitor.Snapshot{At: c.now(), Reachable: true},
+		Events:   []monitor.Event{{Kind: monitor.Removed, At: c.now(), Process: "g:w", From: supervisor.StateFatal, Info: info(supervisor.StateFatal)}},
+	}
+	is := func(p string) bool { return p == "g:w" }
+	tr.ExpectApply(is, is, c.now().Add(5*time.Second))
+	_, closed := tr.Apply(removed)
+	if len(closed) != 1 || closed[0].Status != StatusResolvedAuto || closed[0].Note != "config applied" {
+		t.Fatalf("closed = %+v, want the fatal issue noted config applied", closed)
+	}
+
+	// Removing a program on request (covered, but not re-applied) is a removal.
+	c.advance(6 * time.Second) // the apply above has ended
+	removed.Snapshot.At, removed.Events[0].At = c.now(), c.now()
+	tr.Apply(change(c.now(), supervisor.StateBackoff, supervisor.StateFatal, info(0)))
+	tr.ExpectApply(is, nil, c.now().Add(5*time.Second))
+	_, closed = tr.Apply(removed)
+	if len(closed) != 1 || closed[0].Note != "program removed" {
+		t.Fatalf("closed = %+v, want program removed", closed)
+	}
+}
+
 func TestUserActionsAreNotFailures(t *testing.T) {
 	tr, s, c := newTracker(t, nil)
 	tr.Expect(func(p string) bool { return p == "g:w" }, c.now().Add(5*time.Second))
@@ -595,6 +623,30 @@ func TestUnreachableAfterTwoPolls(t *testing.T) {
 	}
 }
 
+// supervisord answers every call with SHUTDOWN_STATE while it stops its
+// processes for a restart or shutdown (which can take stopwaitsecs per
+// program). It is answering, so those polls are not "not responding"; if it
+// then really goes away, connection errors still open the issue.
+func TestShutdownStateIsNotUnreachable(t *testing.T) {
+	tr, _, c := newTracker(t, nil)
+	poll := func(err error) []Issue {
+		c.advance(time.Second)
+		opened, _ := tr.Apply(monitor.Update{Snapshot: monitor.Snapshot{At: c.now(), Err: err}})
+		return opened
+	}
+	for i := 0; i < 5; i++ {
+		if opened := poll(supervisor.ErrShutdownState); len(opened) != 0 {
+			t.Fatalf("SHUTDOWN_STATE poll %d opened %+v", i+1, opened)
+		}
+	}
+	if opened := poll(supervisor.ErrUnreachable); len(opened) != 0 {
+		t.Fatalf("one failed poll after shutdown opened %+v", opened)
+	}
+	if opened := poll(supervisor.ErrUnreachable); len(opened) != 1 || opened[0].Kind != KindUnreachable {
+		t.Fatalf("supervisord gone after shutdown: opened = %+v", opened)
+	}
+}
+
 func TestUnreachableNeedsConsecutivePolls(t *testing.T) {
 	tr, _, c := newTracker(t, nil)
 	down := monitor.Update{Snapshot: monitor.Snapshot{At: c.now()}}
@@ -644,6 +696,46 @@ func TestHistoryAppended(t *testing.T) {
 	if h, _ := s.History("other", 10); len(h) != 0 {
 		t.Fatal("process filter ignored")
 	}
+}
+
+// supervisord removes only stopped processes, so a process last seen
+// running was stopped first, even when the stop and the removal both fell
+// between two polls. History records that stop.
+func TestRemovedWhileLastSeenRunningRecordsTheStop(t *testing.T) {
+	removed := func(at time.Time, from supervisor.ProcessState) monitor.Update {
+		return monitor.Update{
+			Snapshot: monitor.Snapshot{At: at, Reachable: true},
+			Events:   []monitor.Event{{Kind: monitor.Removed, At: at, Process: "g:w", From: from, Info: info(from)}},
+		}
+	}
+
+	t.Run("by you", func(t *testing.T) {
+		tr, s, c := newTracker(t, nil)
+		tr.Expect(func(p string) bool { return p == "g:w" }, c.now().Add(time.Minute))
+		tr.Apply(removed(c.now(), supervisor.StateRunning))
+		h, err := s.History("g:w", 10)
+		if err != nil || len(h) != 1 || h[0].From != "RUNNING" || h[0].To != "STOPPED" || h[0].Note != noteByUser {
+			t.Fatalf("history = %+v, %v", h, err)
+		}
+	})
+	t.Run("outside Visor", func(t *testing.T) {
+		tr, s, c := newTracker(t, nil)
+		tr.Apply(removed(c.now(), supervisor.StateStarting))
+		h, err := s.History("g:w", 10)
+		if err != nil || len(h) != 1 || h[0].From != "STARTING" || h[0].To != "STOPPED" || h[0].Note != noteRemoved {
+			t.Fatalf("history = %+v, %v", h, err)
+		}
+		if len(tr.Open()) != 0 {
+			t.Fatalf("removal opened %+v", tr.Open())
+		}
+	})
+	t.Run("stop already seen", func(t *testing.T) {
+		tr, s, c := newTracker(t, nil)
+		tr.Apply(removed(c.now(), supervisor.StateStopped))
+		if h, _ := s.History("g:w", 10); len(h) != 0 {
+			t.Fatalf("history = %+v, want nothing added", h)
+		}
+	})
 }
 
 func TestStoreRoundTripAndLastRecordWins(t *testing.T) {

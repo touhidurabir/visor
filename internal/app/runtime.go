@@ -140,6 +140,11 @@ type Runtime struct {
 	stopped bool
 	parent  context.Context
 
+	// applyMu makes config writes, applies, removals and daemon restarts
+	// run one at a time, whichever window or the tray asked (ConfigService
+	// and ServerService share it). Take it before mu, never inside it.
+	applyMu sync.Mutex
+
 	mu       sync.Mutex
 	prefs    settings.Settings
 	cancel   context.CancelFunc // ends the current connection
@@ -531,7 +536,9 @@ func (r *Runtime) handle(u monitor.Update) {
 	switch {
 	case u.Snapshot.Reachable:
 		r.failedPolls = 0
-	case !u.Snapshot.At.IsZero():
+	case !u.Snapshot.At.IsZero() && !errors.Is(u.Snapshot.Err, supervisor.ErrShutdownState):
+		// Counted like the tracker does: a restart in progress stays a
+		// warning, not an error.
 		r.failedPolls++
 	}
 	r.last = u
@@ -814,8 +821,11 @@ func (r *Runtime) act(e expectation, do func(ctx context.Context, c *supervisor.
 // match, or the daemon itself (and with it every process). The zero value
 // changes no process state (e.g. clearing logs).
 type expectation struct {
-	match  func(process string) bool
-	daemon bool
+	match func(process string) bool
+	// reapplied matches processes of groups being re-added with new
+	// settings (Tracker.ExpectApply); nil for other actions.
+	reapplied func(process string) bool
+	daemon    bool
 	// untilReachable holds a daemon expectation while supervisord is down.
 	untilReachable bool
 	// minGrace raises actionGrace for slow actions.
@@ -872,7 +882,7 @@ func (e expectation) register(t *issues.Tracker, until time.Time) func(time.Time
 	case e.daemon:
 		return t.ExpectDaemon(until, e.untilReachable)
 	case e.match != nil:
-		return t.Expect(e.match, until)
+		return t.ExpectApply(e.match, e.reapplied, until)
 	}
 	return func(time.Time) {}
 }
@@ -904,10 +914,11 @@ func (r *Runtime) groupsInFile(path string) ([]string, error) {
 }
 
 // markAllLoaded records every include file, and every file supervisord
-// had loaded before, as what supervisord now runs (after a daemon restart).
+// had loaded before (including ones since deleted), as what supervisord
+// now runs: after a daemon restart, or after applying every change.
 func (r *Runtime) markAllLoaded() error {
 	r.mu.Lock()
-	d, watcher, old := r.d, r.watcher, r.inv
+	d, watcher, old, removed := r.d, r.watcher, r.inv, slices.Clone(r.changes.Removed)
 	r.mu.Unlock()
 	if watcher == nil {
 		return nil
@@ -916,11 +927,11 @@ func (r *Runtime) markAllLoaded() error {
 	if err != nil {
 		return err
 	}
-	var paths []string
+	paths := removed
 	for _, f := range append(old.Files, inv.Files...) {
 		paths = append(paths, f.Path)
 	}
-	return watcher.MarkLoaded(paths...)
+	return r.markLoaded(paths)
 }
 
 // loadedSnapshot is the content Visor believes supervisord runs for path.

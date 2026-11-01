@@ -7,7 +7,9 @@
 // (?tab=…&process=group:name), so dashboard links land on them.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { ServerService, type ConfigDetailView, type ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ConfigService, ServerService, type ConfigDetailView, type ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import ConfigEditor from '../components/ConfigEditor.vue'
+import DescribeCard from '../components/DescribeCard.vue'
 import HistoryList from '../components/HistoryList.vue'
 import LastErrorCard from '../components/LastErrorCard.vue'
 import LogView from '../components/LogView.vue'
@@ -41,6 +43,8 @@ const config = computed(() => overview.value?.Configs?.find((c) => c.Path !== ''
 const procs = computed(() => config.value?.Processes ?? [])
 const detail = ref<ConfigDetailView | null>(null)
 const detailError = ref<string | null>(null)
+/** The file as it is on disk, for the Overview tab's description. */
+const diskContent = ref<string | null>(null)
 const busy = ref(false)
 const nowMs = ref(Date.now())
 const tabEls = ref<HTMLButtonElement[]>([])
@@ -111,6 +115,9 @@ async function loadDetail() {
           detail.value = d
           detailError.value = null
         }
+        // Best effort: the description is a bonus, the page works without it.
+        const f = await ConfigService.Read(want).catch(() => null)
+        if (want === path.value) diskContent.value = f?.Content ?? null
       } catch (e) {
         if (want === path.value) detailError.value = describeError(e)
       }
@@ -126,7 +133,10 @@ async function loadDetail() {
 // Reload paths and the last error when a process here changes state.
 const stateKey = computed(() => procs.value.map((p) => `${p.FullName}=${p.State}/${p.PID}/${p.StopMs}`).join(','))
 watch([path, stateKey], ([p], [oldP]) => {
-  if (p !== oldP) detail.value = null
+  if (p !== oldP) {
+    detail.value = null
+    diskContent.value = null
+  }
   void loadDetail()
 })
 
@@ -301,13 +311,7 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
             <PathsCard v-if="detail" :paths="detail.Paths ?? []" @open="openPath" @open-log="openLog" @reveal="reveal" />
             <p v-else-if="!detailError" class="muted">Loading…</p>
           </div>
-          <section class="card" aria-labelledby="describe-title">
-            <div class="card-head">
-              <strong id="describe-title">What this config does</strong>
-              <span class="muted small">Generated from the file, no AI</span>
-            </div>
-            <p class="muted">A plain-English description of each program, with settings worth a look. Coming in this release.</p>
-          </section>
+          <DescribeCard :content="diskContent" />
         </div>
 
         <template v-else-if="tab === 'logs'">
@@ -324,16 +328,14 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
           <p v-else class="muted">Loading…</p>
         </template>
 
-        <section v-else-if="tab === 'config'" class="card" aria-labelledby="editor-title">
-          <div class="card-head">
-            <strong id="editor-title">Editor</strong>
-            <button type="button" class="btn" @click="openPath(config.Path)">Open in editor</button>
-          </div>
-          <p class="muted">
-            Editing this file in Visor, with checks, a diff against what supervisord runs and a backup before every save, is coming in
-            this release. Until then, open it in your editor and use Check for changes on the dashboard.
-          </p>
-        </section>
+        <ConfigEditor
+          v-else-if="tab === 'config'"
+          :key="config.Path"
+          :path="config.Path"
+          :file-name="config.FileName"
+          :changed="config.Changed"
+          :uncertain="config.Uncertain"
+        />
 
         <template v-else-if="tab === 'history'">
           <HistoryList

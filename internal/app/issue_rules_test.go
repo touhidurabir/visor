@@ -373,10 +373,13 @@ func TestOutsideReloadSettlesWithNoOpenIssues(t *testing.T) {
 		}},
 		supervisortest.Program{Name: "graceful", Command: `sh -c 'trap "exit 0" TERM; while :; do sleep 0.2; done'`},
 		supervisortest.Program{Name: "always", Command: "sleep 3600", Extra: map[string]string{"autorestart": "true"}},
+		// Takes ~1.5 s to stop, so supervisord answers SHUTDOWN_STATE for
+		// several polls: a restart in progress, not "not responding".
+		supervisortest.Program{Name: "slowstop", Command: `sh -c 'trap "sleep 1.5; exit 0" TERM; while :; do sleep 0.2; done'`},
 	)
 	rt, rec := outsideRuntime(t, inst, 300*time.Millisecond)
 	svc := NewServerService(rt)
-	names := []string{"sleeper:sleeper", "web:web_00", "web:web_01", "graceful:graceful", "always:always"}
+	names := []string{"sleeper:sleeper", "web:web_00", "web:web_01", "graceful:graceful", "always:always", "slowstop:slowstop"}
 	ov := waitOverview(t, svc, 10*time.Second, "all running", func(ov OverviewView) bool {
 		for _, n := range names {
 			if !procState(n, "RUNNING")(ov) {

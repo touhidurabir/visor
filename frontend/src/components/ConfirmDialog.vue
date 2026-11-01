@@ -70,7 +70,7 @@ function onKeydown(e: KeyboardEvent) {
   user-select: text;
 }
 h2 { margin: 0 0 8px; font-size: 15px; font-weight: 650; }
-p { margin: 0 0 18px; color: var(--text-muted); line-height: 1.45; }
+p { margin: 0 0 18px; color: var(--text-muted); line-height: 1.45; white-space: pre-line; }
 .actions { display: flex; justify-content: flex-end; gap: 8px; }
 .btn {
   min-height: 32px;

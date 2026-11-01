@@ -1,0 +1,3 @@
+[program:acme-root]
+Runs /srv/acme/bin/admin.sh as user root. Starts with supervisord, restarts it only if it exits with an unexpected code, and gives it 10 seconds to stop. Output goes to an auto-named file in supervisord's log folder. Errors go to /var/log/acme/root.err.
+! acme-root runs as root.

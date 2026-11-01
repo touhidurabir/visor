@@ -21,6 +21,19 @@ import * as supervisor$0 from "../supervisor/models.js";
 import * as $models from "./models.js";
 
 /**
+ * ApplyChanges applies supervisord's re-read config (supervisorctl update):
+ * changed groups restart, added ones are added (and start if autostart),
+ * removed ones stop and go. groups limits it to those groups; nil applies
+ * every change. The files applied are recorded as loaded, which clears
+ * their "changed" badge. Per-group failures are in the result's Errors.
+ * An error means nothing was applied (no connection, or supervisord could
+ * not re-read its config), unless it says otherwise.
+ */
+export function ApplyChanges(groups: string[] | null): $CancellablePromise<$models.ApplyResultView> {
+    return $Call.ByID(2025266615, groups);
+}
+
+/**
  * CheckForChanges asks supervisord to re-read its config files (reread)
  * and reports which groups were added, changed or removed. Nothing is
  * applied.
@@ -87,6 +100,18 @@ export function Overview(): $CancellablePromise<$models.OverviewView> {
  */
 export function Reconnect(): $CancellablePromise<$models.OverviewView> {
     return $Call.ByID(2689955699);
+}
+
+/**
+ * RemoveFromSupervisor takes a config file out of supervisord: it stops
+ * the file's processes, moves the file into Visor's backups (where
+ * "Restore a backup…" can bring it back), and removes its groups from
+ * supervisord, so a later update does not add them again. It never
+ * deletes the file outright, and stops nothing when the file cannot be
+ * moved (a folder Visor may not write) or backed up.
+ */
+export function RemoveFromSupervisor(path: string): $CancellablePromise<$models.ApplyResultView> {
+    return $Call.ByID(3287246372, path);
 }
 
 /**

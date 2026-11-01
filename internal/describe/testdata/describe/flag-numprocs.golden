@@ -1,0 +1,3 @@
+[program:acme-pool]
+Runs python3 worker.py as you. Starts 3 copies when supervisord starts, restarts each copy only if it exits with an unexpected code, and gives each 10 seconds to stop. Output goes to an auto-named file in supervisord's log folder. Errors go to /var/log/acme/pool.err.
+! acme-pool: numprocs=3 but process_name has no %(process_num), so supervisord will refuse to load it.

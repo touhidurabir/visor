@@ -1,0 +1,4 @@
+[program:acme-forever]
+Runs python3 worker.py as you. Starts with supervisord, restarts it only if it exits with an unexpected code, and gives it 10 seconds to stop. Output goes to /var/log/acme/out.log. Errors go to /var/log/acme/err.log.
+! acme-forever: stdout_logfile_maxbytes=0, so that log is never rotated and keeps growing.
+! acme-forever: stderr_logfile_maxbytes=0, so that log is never rotated and keeps growing.

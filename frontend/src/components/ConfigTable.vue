@@ -6,7 +6,7 @@ import { reactive } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { ConfigView, ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { sinceLabel } from '../lib/format'
-import { comingSoon, configMenu, processMenu } from '../lib/menus'
+import { configMenu, processMenu } from '../lib/menus'
 import { configRoute } from '../lib/links'
 import ActionMenu from './ActionMenu.vue'
 import StateBadge from './StateBadge.vue'
@@ -18,6 +18,7 @@ const emit = defineEmits<{
   watch: [c: ConfigView, on: boolean]
 }>()
 
+const NEEDS_FILE = ['open-config', 'describe', 'reveal', 'open-log', 'apply', 'remove']
 const collapsed = reactive<Record<string, boolean>>({})
 const key = (c: ConfigView) => c.Path || c.FileName
 
@@ -68,7 +69,7 @@ function procName(p: ProcessView) {
           </div>
           <div v-else />
           <ActionMenu
-            :items="comingSoon(configMenu(c), c.Path ? ['apply', 'remove'] : ['open-config', 'describe', 'reveal', 'open-log', 'apply', 'remove'])"
+            :items="configMenu(c).map((i) => (c.Path || !NEEDS_FILE.includes(i.id) ? i : { ...i, disabled: true, title: 'This process has no config file in the include folder' }))"
             :label="`Actions for ${c.FileName}`"
             heading="Whole config file"
             @select="(id) => emit('config', c, id)"

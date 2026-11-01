@@ -70,3 +70,55 @@ export async function supervisorStates(): Promise<Record<string, string>> {
   }
   return states
 }
+
+/** The config row of a file on the dashboard. */
+export function configRow(page: Page, fileName: string): Locator {
+  return page.locator('.cfg-row').filter({ has: page.getByRole('link', { name: fileName, exact: true }) })
+}
+
+/**
+ * Takes a config file out of supervisor through the dashboard's menu
+ * ("Remove from supervisor": stops its programs, moves the file into Visor's
+ * backups, removes its groups). Specs that create a config call this to leave
+ * the sandbox as they found it. Does nothing when the file is already gone.
+ */
+export async function removeConfig(page: Page, path: string) {
+  const { existsSync } = await import('node:fs')
+  if (!existsSync(path)) return
+  const fileName = path.split('/').pop()!
+  await openApp(page, '/')
+  await expect(configRow(page, fileName)).toBeVisible()
+  await configRow(page, fileName).getByRole('button', { name: `Actions for ${fileName}` }).click()
+  await page.getByRole('menuitem', { name: /^Remove from supervisor/ }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Remove from supervisor' }).click()
+  await expect.poll(() => existsSync(path), { timeout: 20_000 }).toBe(false)
+}
+
+/**
+ * Writes a sandbox config back to its original content and, when that
+ * leaves supervisord running something else (a test that failed after
+ * applying an edit), applies it from the dashboard's banner, so later specs
+ * see no "changed on disk" banner. With `always`, it looks for the banner
+ * even when the file already had its original content.
+ */
+export async function restoreConfig(page: Page, path: string, original: string, always = false) {
+  const { readFileSync, writeFileSync } = await import('node:fs')
+  const changed = readFileSync(path, 'utf8') !== original
+  if (changed) writeFileSync(path, original)
+  if (!changed && !always) return
+  await waitForDashboard(page)
+  const banner = page.getByRole('status').filter({ hasText: 'changed on disk' })
+  try {
+    await banner.waitFor({ timeout: 3_000 })
+  } catch {
+    return
+  }
+  await banner.getByRole('button', { name: 'Apply changes' }).click()
+  // A comment-only difference (or a banner from just before the write) has
+  // nothing supervisord would apply: no confirmation then.
+  const confirm = page.getByRole('alertdialog').getByRole('button', { name: 'Apply changes' })
+  const nothing = page.getByRole('status').filter({ hasText: 'Nothing to apply' })
+  await expect(confirm.or(nothing)).toBeVisible()
+  if (await confirm.isVisible()) await confirm.click()
+  await expect(banner).toBeHidden()
+}
