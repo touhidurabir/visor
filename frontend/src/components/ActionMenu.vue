@@ -24,6 +24,8 @@ const trigger = ref<HTMLButtonElement>()
 const menu = ref<HTMLElement>()
 
 const pos = ref<{ top?: string; bottom?: string; left?: string; right?: string; maxHeight: string }>({ maxHeight: '' })
+// Where the trigger was when the menu was placed (see onViewport).
+let anchor: { top: number; left: number } | null = null
 const MENU_W = 360
 const GAP = 4
 const EDGE = 8
@@ -35,6 +37,7 @@ function place() {
   const t = trigger.value?.getBoundingClientRect()
   const m = menu.value
   if (!t || !m) return
+  anchor = { top: t.top, left: t.left }
   const h = m.scrollHeight + 2
   const below = window.innerHeight - t.bottom - GAP - EDGE
   const above = t.top - GAP - EDGE
@@ -50,7 +53,14 @@ function place() {
 }
 
 function onViewport(e: Event) {
-  if (e.type === 'scroll' && menu.value?.contains(e.target as Node)) return
+  if (e.type === 'scroll') {
+    if (menu.value?.contains(e.target as Node)) return
+    // Scroll events arrive a frame late, so one caused just before the menu
+    // opened (focusing the trigger scrolls it into view) can land after it.
+    // Close only when the trigger really moved away from the menu.
+    const t = trigger.value?.getBoundingClientRect()
+    if (t && anchor && t.top === anchor.top && t.left === anchor.left) return
+  }
   close(false)
 }
 
@@ -65,10 +75,15 @@ async function show(focus: 'first' | 'last' | 'none' = 'first') {
   window.addEventListener('scroll', onViewport, true)
   await nextTick()
   place()
+  // Focus only once the menu sits in its place, and without scrolling: an
+  // item focused while the menu is still unplaced makes WebKit scroll the
+  // page to it, and that scroll closes the menu (onViewport).
+  await nextTick()
   const btns = enabledButtons()
-  if (focus === 'first') btns[0]?.focus()
-  else if (focus === 'last') btns[btns.length - 1]?.focus()
-  else menu.value?.focus()
+  const opts = { preventScroll: true }
+  if (focus === 'first') btns[0]?.focus(opts)
+  else if (focus === 'last') btns[btns.length - 1]?.focus(opts)
+  else menu.value?.focus(opts)
 }
 
 function close(returnFocus = true) {

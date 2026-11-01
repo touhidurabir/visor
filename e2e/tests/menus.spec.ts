@@ -47,6 +47,19 @@ test.describe('action menus', () => {
     await expect(trigger).toBeFocused()
   })
 
+  test('scrolling the page closes an open menu', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 500 }) // short enough to scroll
+    await waitForDashboard(page)
+    await page.getByRole('button', { name: 'Actions for shop-queue:shop-queue_00' }).click()
+    await expect(page.getByRole('menu')).toBeVisible()
+    const content = page.locator('main.content')
+    expect(await content.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+    const before = await content.evaluate((el) => el.scrollTop)
+    await content.evaluate((el) => el.scrollBy(0, 60))
+    expect(await content.evaluate((el) => el.scrollTop)).not.toBe(before)
+    await expect(page.getByRole('menu')).toBeHidden()
+  })
+
   test('copying a command puts it on the clipboard', async ({ page }) => {
     // Record what the page writes: WebKit gives tests no clipboard to read.
     await page.addInitScript(() => {
