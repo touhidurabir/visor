@@ -54,8 +54,10 @@ test.describe('action menus', () => {
     await expect(page.getByRole('menu')).toBeVisible()
     const content = page.locator('main.content')
     expect(await content.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+    // Opening the menu may have scrolled the row into view, even to the very
+    // bottom, so scroll whichever way has room.
     const before = await content.evaluate((el) => el.scrollTop)
-    await content.evaluate((el) => el.scrollBy(0, 60))
+    await content.evaluate((el) => el.scrollBy(0, el.scrollTop > 0 ? -60 : 60))
     expect(await content.evaluate((el) => el.scrollTop)).not.toBe(before)
     await expect(page.getByRole('menu')).toBeHidden()
   })
