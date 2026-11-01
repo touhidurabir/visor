@@ -65,6 +65,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - A retry while a program is still starting no longer opens an unexpected exit; FATAL and the crash loop cover programs that can't start.
 
 ### Fixed
+- A supervisord restart that takes a few seconds (programs slow to stop) no longer opens "supervisord is not responding" or turns the menu-bar icon red: while it stops its programs supervisord still answers (SHUTDOWN_STATE), so those polls don't count as failed. If it then really goes away, the issue opens as before.
 - A restart made outside Visor (`supervisorctl restart`, a stop and start from another client, `supervisorctl reload`, SIGHUP, or `supervisorctl update` re-adding a group) no longer opens an unexpected exit or counts toward a crash loop. supervisord logs these as `stopped:`, which Visor now reads (after a daemon restart, from the line before the process's `spawned:` line), and history notes them "Restarted (stopped on request)". The main log is read once per poll however many processes restarted, and a start from STOPPED never counts toward a crash loop.
 - Clear logs in a process's menu on the dashboard now asks first, like the Logs tab, and is disabled unless the process is running (supervisord leaves other processes' logs alone and reported success anyway).
 - Lowering issue retention no longer deletes history on every spinner click or typo; see Changed.

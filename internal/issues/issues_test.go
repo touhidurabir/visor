@@ -623,6 +623,30 @@ func TestUnreachableAfterTwoPolls(t *testing.T) {
 	}
 }
 
+// supervisord answers every call with SHUTDOWN_STATE while it stops its
+// processes for a restart or shutdown (which can take stopwaitsecs per
+// program). It is answering, so those polls are not "not responding"; if it
+// then really goes away, connection errors still open the issue.
+func TestShutdownStateIsNotUnreachable(t *testing.T) {
+	tr, _, c := newTracker(t, nil)
+	poll := func(err error) []Issue {
+		c.advance(time.Second)
+		opened, _ := tr.Apply(monitor.Update{Snapshot: monitor.Snapshot{At: c.now(), Err: err}})
+		return opened
+	}
+	for i := 0; i < 5; i++ {
+		if opened := poll(supervisor.ErrShutdownState); len(opened) != 0 {
+			t.Fatalf("SHUTDOWN_STATE poll %d opened %+v", i+1, opened)
+		}
+	}
+	if opened := poll(supervisor.ErrUnreachable); len(opened) != 0 {
+		t.Fatalf("one failed poll after shutdown opened %+v", opened)
+	}
+	if opened := poll(supervisor.ErrUnreachable); len(opened) != 1 || opened[0].Kind != KindUnreachable {
+		t.Fatalf("supervisord gone after shutdown: opened = %+v", opened)
+	}
+}
+
 func TestUnreachableNeedsConsecutivePolls(t *testing.T) {
 	tr, _, c := newTracker(t, nil)
 	down := monitor.Update{Snapshot: monitor.Snapshot{At: c.now()}}

@@ -327,7 +327,9 @@ func (t *Tracker) Apply(u monitor.Update) (opened, closed []Issue) {
 		t.failedPolls = 0
 		// First contact after starting unreachable emits no Reconnected.
 		closed = append(closed, t.closeWhere(func(i *Issue) bool { return i.Kind == KindUnreachable }, StatusResolvedAuto, "", now)...)
-	} else if !u.Snapshot.At.IsZero() {
+	} else if !u.Snapshot.At.IsZero() && !errors.Is(u.Snapshot.Err, supervisor.ErrShutdownState) {
+		// SHUTDOWN_STATE is an answer: supervisord is stopping its processes
+		// to restart or shut down, so it neither counts nor resets.
 		t.failedPolls++
 		if t.failedPolls >= t.rules.UnreachablePolls && !t.byUser("", now) {
 			msg := "supervisord is not responding"

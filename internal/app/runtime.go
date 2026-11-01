@@ -536,7 +536,9 @@ func (r *Runtime) handle(u monitor.Update) {
 	switch {
 	case u.Snapshot.Reachable:
 		r.failedPolls = 0
-	case !u.Snapshot.At.IsZero():
+	case !u.Snapshot.At.IsZero() && !errors.Is(u.Snapshot.Err, supervisor.ErrShutdownState):
+		// Counted like the tracker does: a restart in progress stays a
+		// warning, not an error.
 		r.failedPolls++
 	}
 	r.last = u
