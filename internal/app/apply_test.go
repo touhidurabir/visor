@@ -81,9 +81,9 @@ func TestApplyChangesAppliesAllAndMarksLoaded(t *testing.T) {
 	if cs := changesOf(rt); flagged(cs) != 0 {
 		t.Errorf("after applying everything, still flagged: %+v", cs)
 	}
-	if p := waitRunning(t, svc, "worker:worker"); p.PID == oldWorker {
-		t.Errorf("worker not restarted (PID %d)", p.PID)
-	}
+	// The overview may still show the poll from before the apply, so wait
+	// for the new PID rather than reading the next view once.
+	waitNewPID(t, svc, "worker:worker", oldWorker)
 	waitRunning(t, svc, "fresh:fresh")
 	if got := pidIn(t, svc, "sleeper:sleeper"); got != sleeperPID {
 		t.Errorf("sleeper PID %d -> %d", sleeperPID, got)
