@@ -698,6 +698,46 @@ func TestHistoryAppended(t *testing.T) {
 	}
 }
 
+// supervisord removes only stopped processes, so a process last seen
+// running was stopped first, even when the stop and the removal both fell
+// between two polls. History records that stop.
+func TestRemovedWhileLastSeenRunningRecordsTheStop(t *testing.T) {
+	removed := func(at time.Time, from supervisor.ProcessState) monitor.Update {
+		return monitor.Update{
+			Snapshot: monitor.Snapshot{At: at, Reachable: true},
+			Events:   []monitor.Event{{Kind: monitor.Removed, At: at, Process: "g:w", From: from, Info: info(from)}},
+		}
+	}
+
+	t.Run("by you", func(t *testing.T) {
+		tr, s, c := newTracker(t, nil)
+		tr.Expect(func(p string) bool { return p == "g:w" }, c.now().Add(time.Minute))
+		tr.Apply(removed(c.now(), supervisor.StateRunning))
+		h, err := s.History("g:w", 10)
+		if err != nil || len(h) != 1 || h[0].From != "RUNNING" || h[0].To != "STOPPED" || h[0].Note != noteByUser {
+			t.Fatalf("history = %+v, %v", h, err)
+		}
+	})
+	t.Run("outside Visor", func(t *testing.T) {
+		tr, s, c := newTracker(t, nil)
+		tr.Apply(removed(c.now(), supervisor.StateStarting))
+		h, err := s.History("g:w", 10)
+		if err != nil || len(h) != 1 || h[0].From != "STARTING" || h[0].To != "STOPPED" || h[0].Note != noteRemoved {
+			t.Fatalf("history = %+v, %v", h, err)
+		}
+		if len(tr.Open()) != 0 {
+			t.Fatalf("removal opened %+v", tr.Open())
+		}
+	})
+	t.Run("stop already seen", func(t *testing.T) {
+		tr, s, c := newTracker(t, nil)
+		tr.Apply(removed(c.now(), supervisor.StateStopped))
+		if h, _ := s.History("g:w", 10); len(h) != 0 {
+			t.Fatalf("history = %+v, want nothing added", h)
+		}
+	})
+}
+
 func TestStoreRoundTripAndLastRecordWins(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := OpenStore(dir, time.Hour)

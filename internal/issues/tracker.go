@@ -261,6 +261,16 @@ func (t *Tracker) Apply(u monitor.Update) (opened, closed []Issue) {
 		case monitor.Removed:
 			delete(t.runningSince, ev.Process)
 			delete(t.restarts, ev.Process)
+			// supervisord removes only stopped processes, so one last seen
+			// running was stopped between two polls: record that stop.
+			switch ev.From {
+			case supervisor.StateStarting, supervisor.StateRunning, supervisor.StateBackoff, supervisor.StateStopping:
+				stop := noteRemoved
+				if byUser {
+					stop = noteByUser
+				}
+				trans = append(trans, Transition{At: ev.At, Process: ev.Process, From: ev.From.String(), To: supervisor.StateStopped.String(), Note: stop})
+			}
 			// Its fatal, unexpected exit and crash loop issues (the only
 			// kinds with a process) can no longer resolve themselves.
 			note := noteRemoved
