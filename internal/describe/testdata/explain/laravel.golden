@@ -1,0 +1,37 @@
+summary: This file sets up one background program. acme-queue runs three copies of a Laravel queue worker and starts with supervisord. Its output goes to /var/log/acme/queue.log.
+
+[program:acme-queue] program="acme-queue"
+  2 section [program:acme-queue]
+    => Starts a program section. Visor and supervisorctl call it acme-queue.
+  3 key     command=php artisan queue:work redis --queue=high,default --tries=3 --max-time=3600
+    => What it runs: a Laravel queue worker. It takes jobs from the high and default queues, in that order. A failed job is tried up to 3 times. Each worker exits after 1 hour, and supervisord starts a fresh one.
+  4 key     directory=/srv/acme
+    => Runs it inside /srv/acme.
+  5 key     numprocs=3
+    => Runs 3 copies side by side, so 3 jobs can be handled at once.
+  6 key     process_name=%(program_name)s_%(process_num)02d
+    => How each copy is named: acme-queue_00 to _02.
+  7 key     autostart=true
+    => Starts when supervisord starts.
+  8 key     autorestart=true
+    => Restarts it whenever it stops, even after a clean exit.
+  9 key     user=www
+    => Runs as user www.
+ 10 key     stopwaitsecs=3600
+    => When stopping, waits up to 1 hour for it to finish before killing it.
+ 11 key     redirect_stderr=true
+    => Errors go into the same file as its output.
+ 12 key     stdout_logfile=/var/log/acme/queue.log
+    => Its output and errors go to this file. supervisord writes it, and the Logs tab reads it.
+ 13 key     stdout_logfile_maxbytes=0
+    => The log is never rotated, so it keeps growing.
+ 14 key     environment=APP_ENV="production", QUEUE="high"
+    => Sets environment variables for it: APP_ENV, QUEUE.
+ 16 key     autorestrat=true
+    => supervisord doesn’t know this setting, so it ignores it.
+
+[group:acme] program=""
+ 18 section [group:acme]
+    => A group: its programs can be started and stopped together as acme.
+ 19 key     programs=acme-queue
+    => The programs in this group: acme-queue.

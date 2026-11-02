@@ -21,6 +21,11 @@ describe('fieldNotes', () => {
     expect(n.numprocs.level).toBe('error')
     expect(n.process_name.level).toBe('error')
   })
+  it('shows the process_num error on both fields when Go puts it on process_name', () => {
+    const n = fieldNotes([c('error', 'process_name', 'numprocs=3 needs %(process_num) in process_name')])
+    expect(n.numprocs?.level).toBe('error')
+    expect(n.process_name?.level).toBe('error')
+  })
 
   it('leaves file-level checks out', () => {
     const file = c('error', '', 'x.conf does not match the include setting', '')

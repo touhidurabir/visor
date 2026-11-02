@@ -9,8 +9,29 @@ test.describe('config detail', () => {
     await expect(page.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByRole('button', { name: /reports-sync/ })).toBeVisible()
 
-    const row = page.locator('.row').filter({ hasText: '/nonexistent/sync' })
+    const lines = page.getByRole('region', { name: 'Line by line' })
+    const row = lines.getByRole('listitem').filter({ hasText: 'command=/nonexistent/sync' })
     await expect(row).toContainText('missing')
+    await expect(row).toContainText('Error.')
+    await expect(row).toContainText('How to fix:')
+    await expect(row.getByRole('button', { name: 'Reveal in Finder' })).toBeDisabled()
+
+    // The last error card points at that line.
+    const card = page.getByRole('region', { name: /Last error/ })
+    await expect(card).toContainText('Caused by line')
+
+    // "Edit line N" opens the editor on that line.
+    await row.getByRole('button', { name: /^Edit line \d+$/ }).click()
+    await expect(page.getByRole('tab', { name: 'Config' })).toHaveAttribute('aria-selected', 'true')
+    await expect(page).toHaveURL(/line=\d+/)
+  })
+
+  test('a log path opens its process in the Logs tab', async ({ page }) => {
+    await waitForDashboard(page)
+    await page.getByRole('link', { name: 'shop-api.ini', exact: true }).click()
+    const lines = page.getByRole('region', { name: 'Line by line' })
+    await lines.getByRole('button', { name: 'View in Logs tab' }).first().click()
+    await expect(page.getByRole('tab', { name: 'Logs' })).toHaveAttribute('aria-selected', 'true')
   })
 
   test('logs tab follows the process picked in the chips', async ({ page }) => {

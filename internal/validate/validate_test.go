@@ -280,3 +280,55 @@ func TestUserExistsTakesUIDs(t *testing.T) {
 		t.Error("a missing user was found")
 	}
 }
+
+// Every problem says how to fix it; some carry the exact edit.
+func TestChecksSayHowToFix(t *testing.T) {
+	const head = "[program:acme]\ncommand=php x\n"
+	tests := []struct {
+		name, content, contains string
+		fix                     string
+		edit                    *Edit
+	}{
+		{"numprocs on process_name line", head + "numprocs=3\nprocess_name=%(program_name)s\n", "%(process_num)", "acme_00, acme_01, acme_02",
+			&Edit{Line: 4, Text: "process_name=%(program_name)s_%(process_num)02d"}},
+		{"numprocs without process_name", head + "numprocs=2\n", "%(process_num)", "acme_00, acme_01",
+			&Edit{Line: 3, Insert: true, Text: "process_name=%(program_name)s_%(process_num)02d"}},
+		{"typo", head + "autorestrat=true\n", "Did you mean", "autorestart", &Edit{Line: 3, Text: "autorestart=true", Rename: "autorestart"}},
+		{"typo on a value that spans lines", head + "enviroment=A=\"1\",\n  B=\"2\"\n", "Did you mean", "environment",
+			&Edit{Line: 3, Text: "environment=A=\"1\", …", Rename: "environment"}},
+		{"killasgroup", head + "stopasgroup=true\nkillasgroup=false\n", "killasgroup can't", "", &Edit{Line: 4, Text: "killasgroup=true"}},
+		{"missing binary", "[program:acme]\ncommand=/opt/gone --x\n", "/opt/gone", "full path", nil},
+		{"not on PATH", "[program:acme]\ncommand=nosuchtool\n", "nosuchtool", "which nosuchtool", nil},
+		{"not executable", "[program:acme]\ncommand=/opt/noexec\n", "not executable", "chmod +x /opt/noexec", nil},
+		{"missing folder", head + "directory=/srv/nope\n", "/srv/nope", "project folder", nil},
+		{"missing user", head + "user=ghost\n", "user ghost", "remove the line", nil},
+		{"missing log folder", head + "stdout_logfile=/var/log/acme/w.log\n", "/var/log/acme", "mkdir -p /var/log/acme", nil},
+		{"bad bool", head + "autostart=maybe\n", "autostart must be", "true or false", nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cs := File("a.conf", tc.content, fakeEnv())
+			var c *Check
+			for i := range cs {
+				if cs[i].Level != OK && strings.Contains(cs[i].Message, tc.contains) {
+					c = &cs[i]
+				}
+			}
+			if c == nil {
+				t.Fatalf("no problem containing %q in %+v", tc.contains, cs)
+			}
+			if tc.fix != "" && !strings.Contains(c.Fix, tc.fix) {
+				t.Errorf("Fix = %q, want it to mention %q", c.Fix, tc.fix)
+			}
+			if c.Fix == "" {
+				t.Errorf("no Fix for %+v", c)
+			}
+			if (tc.edit == nil) != (c.Edit == nil) || (tc.edit != nil && *tc.edit != *c.Edit) {
+				t.Errorf("Edit = %+v, want %+v", c.Edit, tc.edit)
+			}
+			if tc.edit != nil && !tc.edit.Insert && c.Line != tc.edit.Line {
+				t.Errorf("check on line %d, its fix edits line %d", c.Line, tc.edit.Line)
+			}
+		})
+	}
+}

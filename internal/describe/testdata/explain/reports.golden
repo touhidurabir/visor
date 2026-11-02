@@ -1,0 +1,32 @@
+summary: This file sets up two background programs. reports-export runs a shell command and waits for you to start it. Its output goes to /var/log/supervisor/reports-export.log. reports-sync runs the program at /nonexistent/sync and starts with supervisord.
+
+[program:reports-export] program="reports-export"
+  1 section [program:reports-export]
+    => Starts a program section. Visor and supervisorctl call it reports-export.
+  2 key     command=sh -c ': visor-sandbox; while :; do sleep 5; done'
+    => What it runs: a shell command.
+  3 key     stopasgroup=true
+    => When you stop it, the stop signal also goes to everything it started, so nothing is left behind.
+  4 key     killasgroup=true
+    => If it has to be killed, its child processes are killed too.
+  5 key     autostart=false
+    => Doesn’t start with supervisord. It runs only when you start it.
+  6 key     stdout_logfile=/var/log/supervisor/reports-export.log
+    => Its output goes to this file. supervisord writes it, and the Logs tab reads it.
+  6 unset   not set: autorestart, stderr_logfile
+    => Defaults apply: it’s restarted only if it exits with an unexpected code and its errors go to a file supervisord names itself.
+    suggest: Its errors go to a file supervisord names itself. It’s hard to find and is deleted when supervisord restarts.
+    add: stderr_logfile=/var/log/supervisor/reports-export.err.log
+
+[program:reports-sync] program="reports-sync"
+  8 section [program:reports-sync]
+    => Starts a program section. Visor and supervisorctl call it reports-sync.
+  9 key     command=/nonexistent/sync
+    => What it runs: the program at /nonexistent/sync.
+ 10 key     stopasgroup=true
+    => When you stop it, the stop signal also goes to everything it started, so nothing is left behind.
+ 11 key     killasgroup=true
+    => If it has to be killed, its child processes are killed too.
+ 11 unset   not set: autostart, autorestart, stdout_logfile, stderr_logfile
+    => Defaults apply: it starts with supervisord, it’s restarted only if it exits with an unexpected code and its output and errors go to files supervisord names itself.
+    suggest: Files supervisord names itself are hard to find and are deleted when supervisord restarts. Set both log paths.

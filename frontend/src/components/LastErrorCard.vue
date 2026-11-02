@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // The most recent failure in a config (spec §5.3): what supervisord says,
-// the end of its stderr, and Restart / Open stderr log / Open in editor.
+// the end of its stderr, Restart / Open stderr log / Open in editor, and
+// the config line it comes from when Visor can tell.
 import { computed } from 'vue'
 import type { LastErrorView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 
 const props = defineProps<{ error: LastErrorView; busy?: boolean }>()
-const emit = defineEmits<{ restart: []; openStderr: []; openConfig: [] }>()
+const emit = defineEmits<{ restart: []; openStderr: []; openConfig: []; showLine: [line: number] }>()
 
 const name = computed(() => props.error.Process.split(':').pop() ?? props.error.Process)
 const badge = computed(() => (props.error.Since ? `${props.error.State} for ${props.error.Since}` : props.error.State))
@@ -33,6 +34,9 @@ const tone = computed(() => (props.error.State === 'BACKOFF' ? 'warning' : 'fail
         Open stderr log
       </button>
       <button type="button" class="btn" @click="emit('openConfig')">Open in editor</button>
+      <span v-if="error.Line" class="cause">
+        Caused by <button type="button" class="link" @click="emit('showLine', error.Line)">line {{ error.Line }}</button>, see the fix below.
+      </span>
     </div>
   </section>
 </template>
@@ -62,7 +66,9 @@ const tone = computed(() => (props.error.State === 'BACKOFF' ? 'warning' : 'fail
   word-break: break-word;
   user-select: text;
 }
-.acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cause { margin-left: 4px; color: var(--text-muted); }
+.link { padding: 0; border: 0; background: none; color: var(--accent-text); font: inherit; text-decoration: underline; cursor: pointer; }
 .btn { display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; white-space: nowrap; cursor: pointer; }
 .btn:hover:not(:disabled) { background: var(--bg-hover); }
 .btn:disabled { color: var(--text-faint); cursor: default; }

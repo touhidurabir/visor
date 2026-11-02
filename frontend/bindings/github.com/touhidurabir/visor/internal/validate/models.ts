@@ -3,6 +3,8 @@
 
 /**
  * Check is one finding. Line is 1-based, 0 when it is not about one line.
+ * A problem (warning or error) has Fix, a sentence on how to fix it, and
+ * Edit when the fix is one exact change to the file.
  */
 export interface Check {
     "Level": Level;
@@ -10,6 +12,25 @@ export interface Check {
     "Key": string;
     "Program": string;
     "Message": string;
+    "Fix": string;
+    "Edit": Edit | null;
+}
+
+/**
+ * Edit is one change to the file: Text replaces line Line, or with Insert
+ * goes in as a new line after it.
+ */
+export interface Edit {
+    "Line": number;
+    "Insert": boolean;
+    "Text": string;
+
+    /**
+     * Rename, when set, renames only the key on line Line, keeping its
+     * value, inline comment and continuation lines; Text then shows the
+     * result.
+     */
+    "Rename": string;
 }
 
 /**

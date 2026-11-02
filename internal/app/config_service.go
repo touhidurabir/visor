@@ -104,6 +104,13 @@ func (s *ConfigService) Describe(content string) ([]describe.Program, error) {
 	return describe.File(content)
 }
 
+// Explain explains content line by line as the file fileName: what each
+// line means, its problems and how to fix them, and the paths it points
+// to. selfPath is the file on disk being edited ("" for a new one).
+func (s *ConfigService) Explain(fileName, content, selfPath string) ExplainView {
+	return s.rt.explain(fileName, content, selfPath)
+}
+
 // LoadedDiff returns what supervisord loaded from path (Visor's snapshot)
 // and what is on disk now.
 func (s *ConfigService) LoadedDiff(path string) (LoadedDiffView, error) {

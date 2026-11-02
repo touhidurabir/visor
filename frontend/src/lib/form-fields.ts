@@ -84,7 +84,12 @@ export function fieldNotes(checks: Check[]): Record<string, FieldNote> {
   for (const c of checks) {
     if (!c.Program && !c.Key) continue
     put(c.Key === '' ? 'name' : c.Key, c)
-    if (c.Key === 'numprocs' && c.Level === 'error' && c.Message.includes('process_num')) put('process_name', c)
+    // "numprocs=N needs %(process_num) in process_name" is about both fields,
+    // whichever line Go puts it on.
+    if (c.Level === 'error' && c.Message.includes('%(process_num)') && (c.Key === 'numprocs' || c.Key === 'process_name')) {
+      put('numprocs', c)
+      put('process_name', c)
+    }
   }
   return out
 }

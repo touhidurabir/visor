@@ -129,6 +129,10 @@ type ConfigDetailView struct {
 	Paths     []PathView
 	Logs      []ProcessLogView
 	LastError *LastErrorView // nil when nothing in the file is failing
+	// Explain is the file on disk explained line by line; ExplainError
+	// says why it could not be read.
+	Explain      ExplainView
+	ExplainError string
 }
 
 // PathView is one path a config refers to. Kind is "dir" (a working
@@ -156,8 +160,12 @@ type ProcessLogView struct {
 // ("" when it has none). ExitStatus is supervisord's, which stays 0 when a
 // process exits within startsecs (FATAL or BACKOFF after "Exited too
 // quickly"), so Message only quotes it for EXITED.
+//
+// Line is the config line the failure comes from, when Visor can tell
+// (see ExplainView), else 0.
 type LastErrorView struct {
 	Process    string
+	Line       int
 	State      string
 	Since      string
 	Message    string
