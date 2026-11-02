@@ -60,6 +60,15 @@ export function Describe(content: string): $CancellablePromise<describe$0.Progra
 }
 
 /**
+ * Explain explains content line by line as the file fileName: what each
+ * line means, its problems and how to fix them, and the paths it points
+ * to. selfPath is the file on disk being edited ("" for a new one).
+ */
+export function Explain(fileName: string, content: string, selfPath: string): $CancellablePromise<$models.ExplainView> {
+    return $Call.ByID(1948555542, fileName, content, selfPath);
+}
+
+/**
  * IncludeDir is the folder new configs are written to: the directory of the
  * first include pattern. It is empty when supervisord has no usable one.
  */

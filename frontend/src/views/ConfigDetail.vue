@@ -1,20 +1,23 @@
 <script setup lang="ts">
 // One config file (spec §5.3): header with Watch and file actions, process
 // chips, and the Overview / Logs / Config / History tabs. The config and its
-// processes come from the live overview; paths, log files and the last
-// error come from ServerService.ConfigDetail, reloaded whenever a process
-// in this file changes state. The tab and process live in the URL
-// (?tab=…&process=group:name), so dashboard links land on them.
+// processes come from the live overview; log files, the last error and the
+// line-by-line explanation come from ServerService.ConfigDetail, reloaded
+// whenever a process in this file changes state. The tab, process, log
+// stream and editor line live in the URL (?tab=…&process=group:name
+// &stream=stderr&line=9), so links land on them.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { ConfigService, ServerService, type ConfigDetailView, type ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ServerService, type ConfigDetailView, type EditView, type ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import ConfigEditor from '../components/ConfigEditor.vue'
-import DescribeCard from '../components/DescribeCard.vue'
+import ExplainSummary from '../components/ExplainSummary.vue'
 import HistoryList from '../components/HistoryList.vue'
 import LastErrorCard from '../components/LastErrorCard.vue'
+import LineByLine from '../components/LineByLine.vue'
 import LogView from '../components/LogView.vue'
-import PathsCard from '../components/PathsCard.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import { openLog, openPath, reveal } from '../lib/finder'
+import { setPendingEdit } from '../lib/pending-edit'
 import { describeError } from '../lib/faults'
 import { bulkConfirm, type BulkConfirm } from '../lib/menus'
 import { sinceLabel } from '../lib/format'
@@ -43,8 +46,6 @@ const config = computed(() => overview.value?.Configs?.find((c) => c.Path !== ''
 const procs = computed(() => config.value?.Processes ?? [])
 const detail = ref<ConfigDetailView | null>(null)
 const detailError = ref<string | null>(null)
-/** The file as it is on disk, for the Overview tab's description. */
-const diskContent = ref<string | null>(null)
 const busy = ref(false)
 const nowMs = ref(Date.now())
 const tabEls = ref<HTMLButtonElement[]>([])
@@ -71,8 +72,10 @@ const subtitle = computed(() => {
   return [path.value, `${programs.value} ${programs.value === 1 ? 'program' : 'programs'}`, `${n} ${n === 1 ? 'process' : 'processes'}`].join(' · ')
 })
 
-/** A failing process opens on stderr, where its errors are, when stderr has its own log. */
+/** ?stream= picks the log; else a failing process opens on stderr, where its errors are, when stderr has its own log. */
 const initialStream = computed<Stream>(() => {
+  const q = String(route.query.stream ?? '')
+  if (q === 'stdout' || q === 'stderr') return q
   const p = selected.value
   const l = selectedLogs.value
   return p?.Status === 'failing' && l?.Stderr && l.Stderr !== l.Stdout ? 'stderr' : 'stdout'
@@ -85,7 +88,7 @@ function go(patch: Record<string, string>) {
 }
 
 function pickTab(t: Tab) {
-  go({ tab: t === 'overview' ? '' : t })
+  go({ tab: t === 'overview' ? '' : t, line: '', stream: '' })
 }
 
 function onTabKey(e: KeyboardEvent, i: number) {
@@ -115,9 +118,6 @@ async function loadDetail() {
           detail.value = d
           detailError.value = null
         }
-        // Best effort: the description is a bonus, the page works without it.
-        const f = await ConfigService.Read(want).catch(() => null)
-        if (want === path.value) diskContent.value = f?.Content ?? null
       } catch (e) {
         if (want === path.value) detailError.value = describeError(e)
       }
@@ -130,15 +130,38 @@ async function loadDetail() {
   }
 }
 
-// Reload paths and the last error when a process here changes state.
-const stateKey = computed(() => procs.value.map((p) => `${p.FullName}=${p.State}/${p.PID}/${p.StopMs}`).join(','))
+// Reload the explanation and the last error when a process here changes
+// state or the file changes on disk.
+const stateKey = computed(
+  () => procs.value.map((p) => `${p.FullName}=${p.State}/${p.PID}/${p.StopMs}`).join(',') + `|${config.value?.Changed}|${config.value?.Uncertain}`,
+)
 watch([path, stateKey], ([p], [oldP]) => {
-  if (p !== oldP) {
-    detail.value = null
-    diskContent.value = null
-  }
+  if (p !== oldP) detail.value = null
   void loadDetail()
 })
+
+/** The line in the Config tab editor (?line=N), opened from the Overview. */
+const editorLine = computed(() => Number(route.query.line ?? 0) || 0)
+function editLine(line: number) {
+  go({ tab: 'config', line: String(line) })
+}
+function fixInEditor(edit: EditView) {
+  setPendingEdit(path.value, { edit })
+  go({ tab: 'config', line: String(edit.Insert ? edit.Line + 1 : edit.Line) })
+}
+function addInEditor(after: number, lines: string[]) {
+  setPendingEdit(path.value, { after, lines })
+  go({ tab: 'config', line: String(after + 1) })
+}
+function viewLog(process: string, stream: string) {
+  go({ tab: 'logs', process, stream })
+}
+/** "Caused by line N": brings that line of the explanation into view. */
+function showLine(line: number) {
+  const el = document.getElementById(`explain-line-${line}`)
+  el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  el?.focus({ preventScroll: true })
+}
 
 let tick: ReturnType<typeof setInterval>
 onMounted(() => {
@@ -181,17 +204,6 @@ function confirmBulk() {
   pendingBulk.value = null
   if (p) void run(fileCalls[p.what])
 }
-/** Finder and editor actions change nothing in supervisord: no busy state, no reload. */
-async function finder(fn: () => Promise<unknown>) {
-  try {
-    await fn()
-  } catch (e) {
-    showToast(describeError(e), 'error')
-  }
-}
-const reveal = (p: string) => void finder(() => ServerService.Reveal(p))
-const openPath = (p: string) => void finder(() => ServerService.OpenInEditor(p))
-const openLog = (p: string) => void finder(() => ServerService.OpenLog(p))
 const toggleWatch = () => {
   const c = config.value
   if (c) void run(() => ServerService.SetWatch(c.Path, !c.Watched)).then((ok) => {
@@ -298,20 +310,29 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
           <button type="button" class="btn" @click="loadDetail">Retry</button>
         </div>
 
-        <div v-if="tab === 'overview'" class="grid">
-          <div class="col">
-            <LastErrorCard
-              v-if="detail?.LastError"
-              :error="detail.LastError"
-              :busy="busy"
-              @restart="restart(detail.LastError.Process)"
-              @open-stderr="openLog(detail.LastError.StderrLog)"
-              @open-config="openPath(config.Path)"
-            />
-            <PathsCard v-if="detail" :paths="detail.Paths ?? []" @open="openPath" @open-log="openLog" @reveal="reveal" />
-            <p v-else-if="!detailError" class="muted">Loading…</p>
-          </div>
-          <DescribeCard :content="diskContent" />
+        <div v-if="tab === 'overview'" class="overview">
+          <LastErrorCard
+            v-if="detail?.LastError"
+            :error="detail.LastError"
+            :busy="busy"
+            @restart="restart(detail.LastError.Process)"
+            @open-stderr="openLog(detail.LastError.StderrLog)"
+            @open-config="openPath(config.Path)"
+            @show-line="showLine"
+          />
+          <ExplainSummary :view="detail ? detail.Explain : null" :failed="detail?.ExplainError || null" />
+          <LineByLine
+            :view="detail ? detail.Explain : null"
+            :failed="detail?.ExplainError || null"
+            mode="overview"
+            @goto="editLine"
+            @edit="fixInEditor"
+            @add="addInEditor"
+            @open="openPath"
+            @reveal="reveal"
+            @open-log="openLog"
+            @view-log="viewLog"
+          />
         </div>
 
         <template v-else-if="tab === 'logs'">
@@ -335,6 +356,7 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
           :file-name="config.FileName"
           :changed="config.Changed"
           :uncertain="config.Uncertain"
+          :line="editorLine"
         />
 
         <template v-else-if="tab === 'history'">
@@ -394,8 +416,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 650; }
 .tabs { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
 .tab { min-height: 36px; padding: 0 4px; margin-right: 18px; border: 0; border-bottom: 2px solid transparent; background: transparent; font: inherit; color: var(--stopped-fg); cursor: pointer; }
 .tab.on { border-bottom-color: var(--accent-text); color: var(--text); font-weight: 600; }
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; align-items: start; }
-.col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.overview { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .card { border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
 .card-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
 .alert { margin: 0; padding: 12px; border: 1px solid var(--failing-dot); border-radius: var(--radius-md); background: var(--failing-bg); color: var(--failing-fg); }

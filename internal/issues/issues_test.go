@@ -1671,3 +1671,81 @@ func TestStoreFilterNotified(t *testing.T) {
 		t.Fatalf("no filter = %+v", got)
 	}
 }
+
+// A process that keeps failing while its issue is open counts the repeats
+// on that issue (no new issue opens), so notifications can say "3rd time".
+func TestRepeatedFailureCountsOnOpenIssue(t *testing.T) {
+	tr, s, c := newTrackerAuto(t, nil, "unexpected")
+	start := c.now()
+	res := tr.ApplyAll(crashChange(c.now(), supervisor.StateStarting))
+	if len(res.Opened) != 1 || len(res.Repeated) != 0 {
+		t.Fatalf("first crash: %+v", res)
+	}
+	id := res.Opened[0].ID
+	for i := 2; i <= 3; i++ {
+		c.advance(time.Minute)
+		tr.Apply(steady(c.now(), info(supervisor.StateRunning)))
+		c.advance(time.Minute)
+		res = tr.ApplyAll(crashChange(c.now(), supervisor.StateStarting))
+		if len(res.Opened) != 0 || len(res.Repeated) != 1 {
+			t.Fatalf("crash %d: %+v", i, res)
+		}
+		r := res.Repeated[0]
+		if r.ID != id || r.Count != i || !r.LastAt.Equal(c.now().Add(-time.Second)) {
+			t.Fatalf("crash %d repeated = %+v", i, r)
+		}
+	}
+	if !tr.Open()[0].OpenedAt.Equal(start.Add(-time.Second)) {
+		t.Errorf("OpenedAt moved: %v", tr.Open()[0].OpenedAt)
+	}
+	list, err := s.Issues(Filter{})
+	if err != nil || len(list) != 1 || list[0].Count != 3 {
+		t.Fatalf("stored = %+v, %v", list, err)
+	}
+}
+
+func TestRepeatedExitCountsButFatalDoesNot(t *testing.T) {
+	tr, _, c := newTracker(t, []int{0})
+	pi := info(supervisor.StateExited)
+	pi.ExitStatus = 1
+	tr.Apply(change(c.now(), supervisor.StateRunning, supervisor.StateExited, pi))
+	c.advance(time.Second)
+	res := tr.ApplyAll(change(c.now(), supervisor.StateRunning, supervisor.StateExited, pi))
+	if len(res.Repeated) != 1 || res.Repeated[0].Count != 2 {
+		t.Fatalf("exit repeat = %+v", res)
+	}
+	tr.Apply(change(c.now(), supervisor.StateBackoff, supervisor.StateFatal, info(0)))
+	res = tr.ApplyAll(change(c.now(), supervisor.StateBackoff, supervisor.StateFatal, info(0)))
+	if len(res.Repeated) != 0 || len(res.Opened) != 0 {
+		t.Fatalf("fatal again = %+v", res)
+	}
+}
+
+// A new monitor reports every process as Added: at launch, on Reconnect and
+// on a config change. A process still sitting in EXITED from the crash the
+// open issue already holds is not another crash; one that exited again
+// while Visor was away is.
+func TestAddedExitedCountsOnlyANewerExit(t *testing.T) {
+	tr, s, c := newTracker(t, nil)
+	pi := info(supervisor.StateExited)
+	pi.ExitStatus = 1
+	pi.Start, pi.Stop = c.now().Add(-time.Minute), c.now().Add(-time.Second)
+	if res := tr.ApplyAll(change(c.now(), supervisor.StateRunning, supervisor.StateExited, pi)); len(res.Opened) != 1 {
+		t.Fatalf("first exit: %+v", res)
+	}
+	for range 3 { // relaunch Visor: same store, new tracker, same EXITED process
+		c.advance(time.Hour)
+		tr = NewTracker(s, DefaultRules, programs(nil, ""), c.now)
+		if res := tr.ApplyAll(added(c.now(), pi)); len(res.Opened)+len(res.Repeated) != 0 {
+			t.Fatalf("relaunch counted the old exit: %+v", res)
+		}
+	}
+	pi.Start, pi.Stop = c.now().Add(-time.Minute), c.now().Add(-time.Second)
+	res := tr.ApplyAll(added(c.now(), pi))
+	if len(res.Repeated) != 1 || res.Repeated[0].Count != 2 {
+		t.Fatalf("newer exit while away = %+v", res)
+	}
+	if list, _ := s.Issues(Filter{}); len(list) != 1 || list[0].Count != 2 {
+		t.Fatalf("stored = %+v", list)
+	}
+}

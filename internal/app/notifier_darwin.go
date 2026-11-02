@@ -6,6 +6,7 @@ import (
 	"context"
 	"log"
 	"sync/atomic"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
@@ -20,9 +21,17 @@ import (
 type macNotifier struct {
 	ns    *notifications.NotificationService
 	ready atomic.Bool // ns started; set once, after ns
+	// asked is closed once the launch permission request has its answer.
+	// Issues often open in the first second after launch, while the
+	// prompt is still on screen: their sends wait for it instead of being
+	// dropped as not allowed.
+	asked chan struct{}
 }
 
-func newNativeNotifier() nativeNotifier { return &macNotifier{} }
+// permissionWait bounds how long a send waits for the permission prompt.
+const permissionWait = 2 * time.Minute
+
+func newNativeNotifier() nativeNotifier { return &macNotifier{asked: make(chan struct{})} }
 
 func (n *macNotifier) start(ctx context.Context, onClick func()) {
 	ns := notifications.New()
@@ -46,6 +55,7 @@ func (n *macNotifier) start(ctx context.Context, onClick func()) {
 	// Ask once at launch. macOS prompts only the first time; afterwards
 	// this returns the person's choice. It may wait minutes for an answer.
 	go func() {
+		defer close(n.asked)
 		granted, err := ns.RequestNotificationAuthorization()
 		if err != nil {
 			log.Printf("visor: notification permission: %v", err)
@@ -62,7 +72,15 @@ func (n *macNotifier) send(m notify.Message) error {
 	// macOS accepts a notification while permission is undecided or
 	// denied and then drops it, so check first: only a notification that
 	// can show marks its issue Notified.
-	if ok, err := n.ns.CheckNotificationAuthorization(); err != nil {
+	ok, err := n.ns.CheckNotificationAuthorization()
+	if err == nil && !ok {
+		select { // the person may still be answering the launch prompt
+		case <-n.asked:
+		case <-time.After(permissionWait):
+		}
+		ok, err = n.ns.CheckNotificationAuthorization()
+	}
+	if err != nil {
 		return err
 	} else if !ok {
 		return notify.ErrNotAllowed

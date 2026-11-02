@@ -8,7 +8,9 @@ import { ConfigService } from '../../bindings/github.com/touhidurabir/visor/inte
 import AddHeader from '../components/AddHeader.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import CreatedCard from '../components/CreatedCard.vue'
-import DescribeCard from '../components/DescribeCard.vue'
+import ExplainSummary from '../components/ExplainSummary.vue'
+import LineByLine from '../components/LineByLine.vue'
+import { openLog, openPath, reveal } from '../lib/finder'
 import type { TemplateInfo } from '../lib/draft'
 import { FORM_SECTIONS, fieldNotes, fileChecks, nameProblem, type FormField } from '../lib/form-fields'
 import { resetNewConfig, useNewConfig } from '../lib/new-config'
@@ -173,7 +175,16 @@ const cantSave = computed(() => {
             <div><RouterLink to="/new">Switch to writing it by hand</RouterLink> (keeps what you entered)</div>
           </section>
 
-          <DescribeCard :content="n.checked.value?.content ?? null" />
+          <ExplainSummary :view="n.explained.value" :failed="n.checkFailed.value" />
+          <LineByLine
+            :view="n.explained.value"
+            :failed="n.checkFailed.value"
+            mode="editor"
+            :actions="false"
+            @reveal="reveal"
+            @open="openPath"
+            @open-log="openLog"
+          />
 
           <p v-if="n.failure.value" class="alert" role="alert">{{ n.failure.value }}</p>
           <CreatedCard v-if="n.created.value" v-bind="{ path: n.created.value.path, fileName: n.created.value.fileName, result: n.created.value.res }" @open="resetNewConfig" />
@@ -215,7 +226,8 @@ legend { padding: 0 6px; font-weight: 650; }
 .field.wide { grid-column: 1 / -1; }
 .flabel { font-weight: 600; }
 .key { font-weight: 400; color: var(--text-faint); }
-.inp { min-height: 32px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); font: inherit; background: var(--bg); color: var(--text); box-sizing: border-box; width: 100%; }
+.inp { min-height: 32px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); font: inherit; background-color: var(--bg); color: var(--text); box-sizing: border-box; width: 100%; }
+select.inp { padding-right: 28px; }
 .inp.mono { font-family: var(--font-mono); font-size: 12px; }
 .inp.err { border-color: var(--failing-dot); }
 .inp:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }

@@ -386,7 +386,7 @@ const empty = computed(() => {
 .tile { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
 .tile dt { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
 .tile dd { margin: 2px 0 0; font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
-select, input[type='date'] { min-height: 32px; box-sizing: border-box; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; }
+input[type='date'] { min-height: 32px; box-sizing: border-box; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; }
 .bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--watch-on-border); border-radius: 10px; background: var(--selected-bg); }
 .bulk > span { margin-right: 6px; font-weight: 600; }
 .danger-text { color: var(--failing-fg); }

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// Servers (Local with its health and failing count, Dashboard, Issues, Add
+// The notification bell, Servers (Local with its health and failing count, Dashboard, Issues, Add
 // new), Remote (later), and Doctor / Settings at the bottom.
 import { RouterLink, useRoute } from 'vue-router'
+import NotificationBell from './NotificationBell.vue'
 import ThemeSwitch from './ThemeSwitch.vue'
 
 defineProps<{ name: string; health: string; failing: number; openIssues: number }>()
@@ -17,6 +18,7 @@ const route = useRoute()
         <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z" /><circle cx="12" cy="12" r="2.5" />
       </svg>
       Visor
+      <NotificationBell />
     </div>
 
     <div class="label">Servers</div>

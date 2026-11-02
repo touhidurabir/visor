@@ -38,7 +38,8 @@ test.describe('config editor', () => {
     const before = await supervisorStates()
     const save = page.getByRole('button', { name: 'Save & apply' })
     await expect(save).toBeDisabled() // nothing to save yet
-    await expect(page.getByRole('region', { name: 'Validation' })).toContainText('All checks pass')
+    await expect(page.getByRole('region', { name: 'Line by line' })).toContainText('What it runs')
+    await expect(page.getByRole('region', { name: 'Line by line' })).not.toContainText('Error.')
 
     await setText(page, original.replace('sleep 2', 'sleep 3'))
     await expect(page.getByText('Unsaved changes')).toBeVisible()
@@ -86,15 +87,22 @@ test.describe('config editor', () => {
     expect(readFileSync(FILE, 'utf8')).toBe(original)
   })
 
-  test('an error in the checks blocks saving', async ({ page }) => {
+  test('an error blocks saving until its fix is applied', async ({ page }) => {
     await openEditor(page)
     await setText(page, '[program:notes-indexer]\ncommand=sleep 1\nnumprocs=2\n')
-    const checks = page.getByRole('region', { name: 'Validation' })
-    await expect(checks).toContainText(/1 error to fix|errors? to fix/)
-    await expect(checks).toContainText('process_name')
+    const lines = page.getByRole('region', { name: 'Line by line' })
+    await expect(lines).toContainText('Error.')
+    await expect(lines).toContainText('process_name')
     const save = page.getByRole('button', { name: 'Save & apply' })
     await expect(save).toBeDisabled()
+    await expect(save).toHaveAttribute('title', /Fix 1 line to save/)
     expect(readFileSync(FILE, 'utf8')).toBe(original)
+
+    await lines.getByRole('button', { name: 'Apply fix' }).click()
+    await expect(page.getByRole('textbox', { name: 'Editor for notes.ini' })).toContainText('process_name=%(program_name)s_%(process_num)02d')
+    await expect(lines).not.toContainText('Error.')
+    await expect(save).toBeEnabled()
+    expect(readFileSync(FILE, 'utf8')).toBe(original) // a fix changes the text, not the file
   })
 
   test('a file edited elsewhere is not overwritten, and the edits stay until you choose', async ({ page }) => {
@@ -129,8 +137,13 @@ test.describe('config editor', () => {
     await expect(page.getByText('Your unsaved edits from earlier are back')).toBeVisible()
   })
 
-  test('the overview describes the programs in plain English', async ({ page }) => {
+  test('the overview explains the config line by line', async ({ page }) => {
     await openApp(page, `/config/${encodeURIComponent(FILE)}`)
     await expect(page.getByRole('region', { name: 'What this config does' })).toContainText('notes-indexer')
+    const lines = page.getByRole('region', { name: 'Line by line' })
+    await expect(lines).toContainText('[program:notes-indexer]')
+    await expect(lines).toContainText('What it runs')
+    // A missing setting shows the default that applies.
+    await expect(lines).toContainText('Defaults apply')
   })
 })

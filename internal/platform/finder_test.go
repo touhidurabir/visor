@@ -187,3 +187,11 @@ func TestOpenTextCmdForAlwaysUsesTheTextEditor(t *testing.T) {
 		}
 	}
 }
+
+func TestNotificationSettingsCmdArgs(t *testing.T) {
+	got := NotificationSettingsCmd().Args
+	want := []string{"open", "x-apple.systempreferences:com.apple.Notifications-Settings.extension"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("args = %q, want %q", got, want)
+	}
+}

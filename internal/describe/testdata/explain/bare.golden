@@ -1,0 +1,14 @@
+summary: This file sets up one background program. web runs a Node.js app and starts with supervisord.
+
+[program:web] program="web"
+  1 section [program:web]
+    => Starts a program section. Visor and supervisorctl call it web.
+  2 key     command=node server.js
+    => What it runs: a Node.js app.
+  3 key     stopsignal=INT
+    => Stops it with the INT signal (the default is TERM).
+  3 unset   not set: autostart, autorestart, stdout_logfile, stderr_logfile
+    => Defaults apply: it starts with supervisord, it’s restarted only if it exits with an unexpected code and its output and errors go to files supervisord names itself.
+    suggest: Files supervisord names itself are hard to find and are deleted when supervisord restarts. Set both log paths.
+    add: stdout_logfile=/usr/local/var/log/supervisor/web.log
+    add: stderr_logfile=/usr/local/var/log/supervisor/web.err.log

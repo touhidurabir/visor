@@ -46,6 +46,13 @@ export interface ConfigDetailView {
      * nil when nothing in the file is failing
      */
     "LastError": LastErrorView | null;
+
+    /**
+     * Explain is the file on disk explained line by line; ExplainError
+     * says why it could not be read.
+     */
+    "Explain": ExplainView;
+    "ExplainError": string;
 }
 
 /**
@@ -73,6 +80,74 @@ export interface ConnectionInput {
     "Username": string;
     "Password": string;
     "SetPassword": boolean;
+}
+
+/**
+ * EditView is one change to a config: Text replaces line Line, or with
+ * Insert goes in as a new line after it.
+ */
+export interface EditView {
+    "Line": number;
+    "Insert": boolean;
+    "Text": string;
+
+    /**
+     * only the key on Line becomes Rename; Text shows the result
+     */
+    "Rename": string;
+}
+
+/**
+ * ExplainLineView is one line. Kind is "section", "key" or "unset" (the
+ * settings a program leaves out, with the defaults that apply; Line is
+ * then the line after which Add would go). Level is the worst of Problems
+ * ("error" or "warning"), "suggestion" for an unset row with a
+ * suggestion, or "".
+ */
+export interface ExplainLineView {
+    "Line": number;
+    "Text": string;
+    "Key": string;
+    "Kind": string;
+    "Meaning": string;
+    "Level": string;
+    "Problems": ProblemView[] | null;
+    "Suggest": string;
+    "Add": string[] | null;
+    "Paths": LinePathView[] | null;
+}
+
+/**
+ * ExplainSectionView is one [name] block; Program is "" unless it is a
+ * [program:x].
+ */
+export interface ExplainSectionView {
+    "Name": string;
+    "Program": string;
+    "Lines": ExplainLineView[] | null;
+}
+
+/**
+ * ExplainView explains a config line by line: a
+ * plain-English summary, then every line with what it means, the problems
+ * on it with how to fix them, and the files and folders it points to,
+ * checked on disk. Errors and Suggestions count lines; Settings counts
+ * explained settings and Paths the paths checked. SaveErrors counts the
+ * problems that block saving: errors in the text, not what supervisord
+ * says about the running program. ParseError is set (and
+ * Sections empty) when the file cannot be read as a config. FileProblems
+ * are problems not about one line.
+ */
+export interface ExplainView {
+    "Summary": string;
+    "Errors": number;
+    "SaveErrors": number;
+    "Suggestions": number;
+    "Settings": number;
+    "Paths": number;
+    "ParseError": ProblemView | null;
+    "FileProblems": ProblemView[] | null;
+    "Sections": ExplainSectionView[] | null;
 }
 
 /**
@@ -146,15 +221,36 @@ export interface IssueView {
  * ("" when it has none). ExitStatus is supervisord's, which stays 0 when a
  * process exits within startsecs (FATAL or BACKOFF after "Exited too
  * quickly"), so Message only quotes it for EXITED.
+ * 
+ * Line is the config line the failure comes from, when Visor can tell
+ * (see ExplainView), else 0.
  */
 export interface LastErrorView {
     "Process": string;
+    "Line": number;
     "State": string;
     "Since": string;
     "Message": string;
     "ExitStatus": number;
     "StderrTail": string;
     "StderrLog": string;
+}
+
+/**
+ * LinePathView is a file or folder a line points to. Kind is "bin", "dir"
+ * or "log"; Auto marks a log file supervisord named itself. Size is the
+ * file's size in bytes (-1 when unknown). A log has the Process and
+ * Stream ("stdout" or "stderr") the Logs tab shows it under.
+ */
+export interface LinePathView {
+    "Label": string;
+    "Path": string;
+    "Kind": string;
+    "Exists": boolean;
+    "Auto": boolean;
+    "Size": number;
+    "Process": string;
+    "Stream": string;
 }
 
 /**
@@ -242,6 +338,35 @@ export interface MainLogResult {
 }
 
 /**
+ * NotificationView is one notification. Config is the config file's path
+ * ("" for supervisord itself) and ConfigName its file name; AtMs is when
+ * it last happened. Shown says whether macOS showed it as a banner.
+ */
+export interface NotificationView {
+    "ID": string;
+    "IssueID": string;
+    "Kind": string;
+    "Process": string;
+    "Config": string;
+    "ConfigName": string;
+    "Title": string;
+    "Detail": string;
+    "AtMs": number;
+    "Count": number;
+    "Read": boolean;
+    "Shown": boolean;
+}
+
+/**
+ * NotificationsView is Visor's own notification list, newest first, with
+ * how many are unread.
+ */
+export interface NotificationsView {
+    "Unread": number;
+    "Items": NotificationView[] | null;
+}
+
+/**
  * OverviewView is everything the dashboard shows for one server. It is
  * sent as the visor:overview event after every poll and every action.
  */
@@ -261,6 +386,21 @@ export interface PathView {
     "Path": string;
     "Kind": string;
     "Exists": boolean;
+}
+
+/**
+ * ProblemView is one problem: what is wrong, how to fix it, and the exact
+ * change when there is one. Line is where it is (0: the whole file). Live
+ * marks what supervisord says about the running program, rather than a
+ * problem in the text.
+ */
+export interface ProblemView {
+    "Level": string;
+    "Live": boolean;
+    "Line": number;
+    "Message": string;
+    "Fix": string;
+    "Edit": EditView | null;
 }
 
 /**

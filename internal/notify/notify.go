@@ -5,7 +5,9 @@ package notify
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,12 +26,15 @@ var ErrUnavailable = errors.New("notifications are not available in this build")
 var ErrNotAllowed = errors.New("notifications are not allowed for Visor")
 
 // Message is one notification. ID is unique per notification (the issue's
-// ID); IssueID, Process and Config say what it is about.
+// ID, plus the count for a repeat); IssueID, Kind, Process and Config say
+// what it is about. Body is Detail plus the config file's name.
 type Message struct {
 	ID      string
 	Title   string
 	Body    string
+	Detail  string
 	IssueID string
+	Kind    issues.Kind
 	Process string
 	Config  string
 }
@@ -61,10 +66,21 @@ func ShouldNotify(is issues.Issue, prefs settings.NotifyPrefs, watched bool) boo
 }
 
 // Compose words the notification for an issue: the title says what
-// happened to which process, the body gives supervisord's reason and the
-// config file it comes from.
+// happened to which process, the detail gives supervisord's reason (and,
+// for a failure that keeps happening, "3rd time in 10 minutes"), and the
+// body adds the config file it comes from.
 func Compose(is issues.Issue) Message {
-	m := Message{ID: is.ID, IssueID: is.ID, Process: is.Process, Config: is.Config, Body: is.Message}
+	m := Message{ID: is.ID, IssueID: is.ID, Kind: is.Kind, Process: is.Process, Config: is.Config, Detail: is.Message}
+	if n := is.Times(); n > 1 {
+		m.ID = fmt.Sprintf("%s-%d", is.ID, n)
+		again := ordinal(n) + " time in " + span(is.Latest().Sub(is.OpenedAt))
+		if m.Detail == "" {
+			m.Detail = upperFirst(again)
+		} else {
+			m.Detail += " · " + again
+		}
+	}
+	m.Body = m.Detail
 	name := DisplayName(is.Process)
 	switch is.Kind {
 	case issues.KindFatal:
@@ -87,6 +103,50 @@ func Compose(is issues.Issue) Message {
 		}
 	}
 	return m
+}
+
+// ordinal is 1st, 2nd, 3rd, 4th, ..., 11th, 12th, 13th, 21st, ...
+func ordinal(n int) string {
+	suffix := "th"
+	if n%100 < 11 || n%100 > 13 {
+		switch n % 10 {
+		case 1:
+			suffix = "st"
+		case 2:
+			suffix = "nd"
+		case 3:
+			suffix = "rd"
+		}
+	}
+	return strconv.Itoa(n) + suffix
+}
+
+// span says how long d is in one unit, rounding up: "40 seconds",
+// "2 minutes", "3 hours", "2 days".
+func span(d time.Duration) string {
+	unit := func(n int64, one string) string {
+		if n == 1 {
+			return "1 " + one
+		}
+		return strconv.FormatInt(n, 10) + " " + one + "s"
+	}
+	up := func(u time.Duration) int64 { return int64((d + u - 1) / u) }
+	switch {
+	case d < time.Minute:
+		return unit(max(up(time.Second), 1), "second")
+	case d < time.Hour:
+		return unit(up(time.Minute), "minute")
+	case d < 48*time.Hour:
+		return unit(up(time.Hour), "hour")
+	}
+	return unit(up(24*time.Hour), "day")
+}
+
+func upperFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // DisplayName is the shortest name for a process ("group:name"): the bare

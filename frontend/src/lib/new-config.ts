@@ -1,7 +1,7 @@
 // The state behind "Add new": one draft shared by both pages, the live
 // checks on it, and the save. Pure draft logic is in draft.ts.
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { ConfigService, type ApplyResultView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ConfigService, type ApplyResultView, type ExplainView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { Check } from '../../bindings/github.com/touhidurabir/visor/internal/validate'
 import { createDraft, type TemplateInfo } from './draft'
 import { describeError } from './faults'
@@ -21,6 +21,8 @@ const ready = ref(false)
 const loadError = ref<string | null>(null)
 
 const checks = ref<Check[] | null>(null)
+/** The same text explained line by line (the same checks, with meanings and fixes). */
+const explained = ref<ExplainView | null>(null)
 const checkFailed = ref<string | null>(null)
 /** The text and file name the checks above were run on. */
 const checked = ref<{ fileName: string; content: string } | null>(null)
@@ -57,9 +59,13 @@ async function runChecks() {
   const mine = ++seq
   const snap = { fileName: draft.state.fileName, content: draft.state.content }
   try {
-    const cs = await ConfigService.Validate(snap.fileName, snap.content, '')
+    const [cs, ex] = await Promise.all([
+      ConfigService.Validate(snap.fileName, snap.content, ''),
+      ConfigService.Explain(snap.fileName, snap.content, ''),
+    ])
     if (mine !== seq) return
     checks.value = cs ?? []
+    explained.value = ex
     checkFailed.value = null
     checked.value = snap
   } catch (e) {
@@ -124,13 +130,14 @@ export function useNewConfig() {
     }
   }
 
-  return { draft, templates, dir, ready, loadError, checks, checked, checkFailed, upToDate, errorCount, hasErrors, busy, failure, created, save, retry: () => void start() }
+  return { draft, templates, dir, ready, loadError, checks, explained, checked, checkFailed, upToDate, errorCount, hasErrors, busy, failure, created, save, retry: () => void start() }
 }
 
 /** Forgets the draft and everything about it (Cancel, or after "Open it"). */
 export function resetNewConfig() {
   draft.reset()
   checks.value = null
+  explained.value = null
   checked.value = null
   failure.value = null
   created.value = null

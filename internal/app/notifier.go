@@ -9,6 +9,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/touhidurabir/visor/internal/notify"
+	"github.com/touhidurabir/visor/internal/platform"
 )
 
 // Notification permission, as Settings shows it.
@@ -67,6 +68,10 @@ func (s *NotifyService) Send(m notify.Message) error { return s.native.send(m) }
 // NotificationStatus says whether macOS shows Visor's notifications:
 // NotifyAllowed, NotifyDenied or NotifyUnavailable.
 func (s *NotifyService) NotificationStatus() string { return s.native.status() }
+
+// OpenNotificationSettings opens System Settings at Notifications, where
+// Visor's banners are turned on.
+func (s *NotifyService) OpenNotificationSettings() error { return platform.OpenNotificationSettings() }
 
 // SendTestNotification shows a sample notification, or says why it cannot.
 func (s *NotifyService) SendTestNotification() error {

@@ -6,5 +6,6 @@ export {
 } from "./models.js";
 
 export type {
-    Check
+    Check,
+    Edit
 } from "./models.js";

@@ -38,6 +38,22 @@ type Issue struct {
 	Status   Status    `json:"status"`
 	Notified bool      `json:"notified"`
 	Note     string    `json:"note,omitempty"`
+	// Count is how many times the failure happened while the issue was
+	// open (0 in records from before it was counted: once). LastAt is
+	// when it last happened (zero: only at OpenedAt).
+	Count  int       `json:"count,omitempty"`
+	LastAt time.Time `json:"lastAt,omitzero"`
+}
+
+// Times is how many times the failure happened while the issue was open.
+func (i Issue) Times() int { return max(i.Count, 1) }
+
+// Latest is when the failure last happened.
+func (i Issue) Latest() time.Time {
+	if i.LastAt.IsZero() {
+		return i.OpenedAt
+	}
+	return i.LastAt
 }
 
 // Transition is one process state change.

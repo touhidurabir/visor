@@ -6,31 +6,36 @@
 // The file is read with a hash; a save is refused when the file no longer
 // has it (edited elsewhere), and then the edits stay here until the person
 // chooses what to do with them.
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import {
   ConfigService,
   type ApplyResultView,
   type BackupView,
+  type EditView,
+  type ExplainView,
   type FileView,
   type LoadedDiffView,
 } from '../../bindings/github.com/touhidurabir/visor/internal/app'
-import type { Check } from '../../bindings/github.com/touhidurabir/visor/internal/validate'
 import { classifySaveError, saveErrorText } from '../lib/config-errors'
+import { addLines, applyEdit, explainMarks, fixToSave } from '../lib/explain'
+import { openLog, openPath, reveal } from '../lib/finder'
+import { takePendingEdit } from '../lib/pending-edit'
 import { copyText } from '../lib/clipboard'
 import { diffLines, diffStats } from '../lib/diff'
 import { dropDraft, keepDraft, takeDraft } from '../lib/edit-drafts'
 import { describeError } from '../lib/faults'
 import { historyTime } from '../lib/format'
 import { showToast } from '../lib/toast'
-import ChecksCard from './ChecksCard.vue'
-import DescribeCard from './DescribeCard.vue'
 import DialogShell from './DialogShell.vue'
 import DiffView from './DiffView.vue'
-import IniEditor, { type LineMark } from './IniEditor.vue'
+import ExplainSummary from './ExplainSummary.vue'
+import IniEditor from './IniEditor.vue'
+import LineByLine from './LineByLine.vue'
 import RestoreDialog from './RestoreDialog.vue'
 
-const props = defineProps<{ path: string; fileName: string; changed: boolean; uncertain: boolean }>()
+// line (from ?line=N) is the line to show when the editor opens.
+const props = defineProps<{ path: string; fileName: string; changed: boolean; uncertain: boolean; line?: number }>()
 
 const CHECK_DELAY_MS = 300
 
@@ -43,7 +48,7 @@ const busy = ref<'save' | 'restore' | 'apply' | null>(null)
 const result = ref<{ title: string; res: ApplyResultView } | null>(null)
 const restoredDraft = ref(false)
 
-const checks = ref<Check[] | null>(null)
+const explained = ref<ExplainView | null>(null)
 const checkFailed = ref<string | null>(null)
 const checkedText = ref<string | null>(null)
 const loadedDiff = ref<LoadedDiffView | null>(null)
@@ -57,10 +62,8 @@ const editor = ref<InstanceType<typeof IniEditor>>()
 
 const dirty = computed(() => !!file.value && text.value !== file.value.Content)
 const writable = computed(() => !!file.value?.Writable)
-const errorCount = computed(() => (checks.value ?? []).filter((c) => c.Level === 'error').length)
-const marks = computed<LineMark[]>(() =>
-  (checks.value ?? []).filter((c) => c.Level !== 'ok' && c.Line > 0).map((c) => ({ line: c.Line, level: c.Level as 'error' | 'warning' })),
-)
+const errorCount = computed(() => explained.value?.SaveErrors ?? 0)
+const marks = computed(() => explainMarks(explained.value))
 const saveDiff = computed(() => diffLines(file.value?.Content ?? '', text.value))
 const saveStats = computed(() => diffStats(saveDiff.value))
 const cantSave = computed(() => {
@@ -68,7 +71,7 @@ const cantSave = computed(() => {
   if (!writable.value) return 'Visor can’t write this file.'
   if (diskNewer.value) return 'The file changed on disk. Choose what to do with your edits first.'
   if (!dirty.value) return 'There is nothing to save yet.'
-  if (checkedText.value === text.value && errorCount.value) return 'Fix the errors in the checks first.'
+  if (checkedText.value === text.value && errorCount.value) return `${fixToSave(errorCount.value)}: see Line by line.`
   return ''
 })
 
@@ -90,6 +93,14 @@ async function load(keepEdits = false) {
     const draft = keepEdits ? text.value : takeDraft(props.path, f.Hash)
     restoredDraft.value = !keepEdits && draft !== null && draft !== f.Content
     text.value = draft ?? f.Content
+    // A fix chosen on the Overview: applied to the text, not saved.
+    // Its line numbers are the file's, so not when unsaved edits came back.
+    const pending = keepEdits ? undefined : takePendingEdit(props.path)
+    if (pending && f.Writable && restoredDraft.value) {
+      showToast('The fix was not applied because your unsaved edits are back in the editor. Apply it from Line by line instead.', 'info')
+    } else if (pending && f.Writable) {
+      text.value = 'edit' in pending ? applyEdit(text.value, pending.edit) : addLines(text.value, pending.after, pending.lines)
+    }
     await runChecks()
   } catch (e) {
     if (!gone) loadError.value = describeError(e)
@@ -150,9 +161,9 @@ async function runChecks() {
   const mine = ++checkSeq
   const t = text.value
   try {
-    const cs = await ConfigService.Validate(props.fileName, t, props.path)
+    const v = await ConfigService.Explain(props.fileName, t, props.path)
     if (mine !== checkSeq || gone) return
-    checks.value = cs ?? []
+    explained.value = v
     checkFailed.value = null
     checkedText.value = t
   } catch (e) {
@@ -167,13 +178,32 @@ watch(text, () => {
   timer = setTimeout(() => void runChecks(), CHECK_DELAY_MS)
 })
 
+// Fixes from Line by line change the text; saving still shows the diff.
+function fix(e: EditView) {
+  text.value = applyEdit(text.value, e)
+  void nextTick(() => editor.value?.goToLine(e.Insert ? e.Line + 1 : e.Line))
+}
+function add(after: number, lines: string[]) {
+  text.value = addLines(text.value, after, lines)
+  void nextTick(() => editor.value?.goToLine(after + 1))
+}
+
+// Open on ?line=N once the editor is there, and when it changes.
+watch(
+  () => [props.line, editor.value] as const,
+  ([line, ed]) => {
+    if (line && ed) void nextTick(() => ed.goToLine(line))
+  },
+  { immediate: true },
+)
+
 // ---- save ----
 
 async function startSave() {
   if (cantSave.value) return
   await runChecks()
   if (errorCount.value) {
-    showToast(`Fix ${errorCount.value === 1 ? 'the error' : 'the errors'} in the checks first.`, 'error')
+    showToast(`${fixToSave(errorCount.value)}: see Line by line.`, 'error')
     return
   }
   failure.value = null
@@ -419,8 +449,19 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
           </div>
         </section>
 
-        <ChecksCard :checks="checks" :failed="checkFailed" @goto="(n: number) => editor?.goToLine(n)" />
-        <DescribeCard :content="checkedText" />
+        <ExplainSummary :view="explained" :failed="checkFailed" />
+        <LineByLine
+          :view="explained"
+          :failed="checkFailed"
+          mode="editor"
+          :read-only="!writable || !!busy || checkedText !== text"
+          @goto="(n: number) => editor?.goToLine(n)"
+          @edit="fix"
+          @add="add"
+          @reveal="reveal"
+          @open="openPath"
+          @open-log="openLog"
+        />
       </div>
     </div>
 
