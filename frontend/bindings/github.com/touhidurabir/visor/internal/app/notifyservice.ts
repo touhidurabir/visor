@@ -25,6 +25,14 @@ export function NotificationStatus(): $CancellablePromise<string> {
 }
 
 /**
+ * OpenNotificationSettings opens System Settings at Notifications, where
+ * Visor's banners are turned on.
+ */
+export function OpenNotificationSettings(): $CancellablePromise<void> {
+    return $Call.ByID(3523886682);
+}
+
+/**
  * SendTestNotification shows a sample notification, or says why it cannot.
  */
 export function SendTestNotification(): $CancellablePromise<void> {

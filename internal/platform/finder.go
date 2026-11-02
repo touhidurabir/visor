@@ -1,7 +1,7 @@
 // Package platform holds the few macOS integrations Visor needs outside
 // supervisord: showing files in Finder and opening them with their default
-// app (logs: the default text editor). It runs /usr/bin/open and nothing
-// else.
+// app (logs: the default text editor), and opening System Settings at
+// Notifications. It runs /usr/bin/open and nothing else.
 package platform
 
 import (
@@ -36,6 +36,15 @@ func OpenCmd(path string) *exec.Cmd { return exec.Command("open", path) }
 
 // OpenTextCmd opens path in the default text editor: open -t <path>.
 func OpenTextCmd(path string) *exec.Cmd { return exec.Command("open", "-t", path) }
+
+// NotificationSettingsCmd opens System Settings at Notifications, where
+// Visor's banners are allowed: open <fixed settings URL>.
+func NotificationSettingsCmd() *exec.Cmd {
+	return exec.Command("open", "x-apple.systempreferences:com.apple.Notifications-Settings.extension")
+}
+
+// OpenNotificationSettings opens System Settings at Notifications.
+func OpenNotificationSettings() error { return run(NotificationSettingsCmd()) }
 
 // Reveal shows path in Finder.
 func Reveal(path string) error {

@@ -81,6 +81,8 @@ type Tracker struct {
 	expects      []*expectation
 	failedPolls  int
 	seq          int
+	// repeated collects the open issues that repeated during one ApplyAll.
+	repeated []Issue
 }
 
 // closedKey is a (process, kind) whose last issue the user closed.
@@ -212,11 +214,30 @@ func (t *Tracker) SetRules(r Rules) {
 	t.rules = r
 }
 
+// Result is what one update changed. Repeated are open issues whose
+// failure happened again (their Count went up); no new issue opened.
+type Result struct {
+	Opened, Closed, Repeated []Issue
+}
+
 // Apply records the update's transitions, opens and closes issues, and
-// returns what changed. Store write failures do not stop tracking.
+// returns what opened and closed. Store write failures do not stop tracking.
 func (t *Tracker) Apply(u monitor.Update) (opened, closed []Issue) {
+	r := t.ApplyAll(u)
+	return r.Opened, r.Closed
+}
+
+// ApplyAll is Apply that also returns the open issues that repeated.
+func (t *Tracker) ApplyAll(u monitor.Update) Result {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.repeated = nil
+	opened, closed := t.apply(u)
+	return Result{Opened: opened, Closed: closed, Repeated: t.repeated}
+}
+
+// apply is ApplyAll's work. Caller holds mu.
+func (t *Tracker) apply(u monitor.Update) (opened, closed []Issue) {
 	now := t.now()
 	t.expects = slices.DeleteFunc(t.expects, func(e *expectation) bool { return !e.live(now) })
 
@@ -503,7 +524,16 @@ func (t *Tracker) entered(ev monitor.Event, now time.Time) []Issue {
 		if t.expected(ev.Process, ev.Info.ExitStatus) || t.closedByUserSince(ev.Process, KindUnexpectedExit, ev.Info) {
 			return nil
 		}
-		return t.openIssue(KindUnexpectedExit, ev.Process, exitMessage(ev.Info.ExitStatus), now)
+		msg := exitMessage(ev.Info.ExitStatus)
+		if ev.Kind == monitor.Added && t.hasOpen(ev.Process, KindUnexpectedExit) {
+			// A new monitor (launch, Reconnect) lists every process as
+			// Added: only an exit after the one the issue holds is a repeat.
+			if at := failedAt(ev.Info); at.After(t.latestOpen(ev.Process, KindUnexpectedExit)) {
+				t.repeat(ev.Process, KindUnexpectedExit, msg, at)
+			}
+			return nil
+		}
+		return t.openIssue(KindUnexpectedExit, ev.Process, msg, now)
 	}
 	return nil
 }
@@ -518,7 +548,7 @@ func (t *Tracker) entered(ev monitor.Event, now time.Time) []Issue {
 // with true a restart may be planned, so it only counts toward a crash
 // loop; with false there is no restart to see.
 func (t *Tracker) restartedBySupervisord(ev monitor.Event, r ExitReason, known bool, now time.Time) []Issue {
-	if t.hasOpen(ev.Process, KindUnexpectedExit) || t.closedByUserSince(ev.Process, KindUnexpectedExit, ev.Info) {
+	if t.closedByUserSince(ev.Process, KindUnexpectedExit, ev.Info) {
 		return nil
 	}
 	msg := restartedByDmn
@@ -628,14 +658,30 @@ func (t *Tracker) hasOpen(proc string, k Kind) bool {
 	return false
 }
 
+// latestOpen is when the open (proc, kind) issue last happened.
+func (t *Tracker) latestOpen(proc string, k Kind) time.Time {
+	for _, i := range t.open {
+		if i.Process == proc && i.Kind == k {
+			return i.Latest()
+		}
+	}
+	return time.Time{}
+}
+
 // openIssue opens an issue unless one is already open for (proc, kind).
 func (t *Tracker) openIssue(k Kind, proc, msg string, now time.Time) []Issue {
 	return t.openIssueAt(k, proc, msg, now, now)
 }
 
-// openIssueAt opens an issue that began at at.
+// openIssueAt opens an issue that began at at. When one is already open
+// for (proc, kind), an unexpected exit counts as a repeat on it
+// instead (see Result.Repeated); other kinds open nothing. A process only
+// goes FATAL again when someone starts it, so fatal never repeats.
 func (t *Tracker) openIssueAt(k Kind, proc, msg string, at, now time.Time) []Issue {
 	if t.hasOpen(proc, k) {
+		if k == KindUnexpectedExit {
+			t.repeat(proc, k, msg, at)
+		}
 		return nil
 	}
 	is := Issue{
@@ -645,6 +691,7 @@ func (t *Tracker) openIssueAt(k Kind, proc, msg string, at, now time.Time) []Iss
 		Message:  msg,
 		OpenedAt: at,
 		Status:   StatusOpen,
+		Count:    1,
 	}
 	if proc != "" && t.progs.ConfigOf != nil {
 		is.Config = t.progs.ConfigOf(proc)
@@ -652,6 +699,21 @@ func (t *Tracker) openIssueAt(k Kind, proc, msg string, at, now time.Time) []Iss
 	_ = t.store.putIssue(is)
 	t.open[is.ID] = &is
 	return []Issue{is}
+}
+
+// repeat counts another occurrence on the open (proc, k) issue, with the
+// latest message. Caller holds mu.
+func (t *Tracker) repeat(proc string, k Kind, msg string, at time.Time) {
+	for _, i := range t.open {
+		if i.Process != proc || i.Kind != k {
+			continue
+		}
+		i.Count = i.Times() + 1
+		i.LastAt, i.Message = at, msg
+		_ = t.store.putIssue(*i)
+		t.repeated = append(t.repeated, *i)
+		return
+	}
 }
 
 func (t *Tracker) closeWhere(match func(*Issue) bool, st Status, note string, now time.Time) []Issue {

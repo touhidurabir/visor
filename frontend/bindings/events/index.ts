@@ -19,6 +19,11 @@ export const VisorIssueOpened = "visor:issue-opened";
 export const VisorLog = "visor:log";
 
 /**
+ * Name of the custom event "visor:notifications".
+ */
+export const VisorNotifications = "visor:notifications";
+
+/**
  * Name of the custom event "visor:overview".
  */
 export const VisorOverview = "visor:overview";

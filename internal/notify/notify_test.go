@@ -145,3 +145,33 @@ func TestLimiterReleaseAfterFailedSend(t *testing.T) {
 		t.Error("a stale release undid the newer turn")
 	}
 }
+
+func TestComposeRepeat(t *testing.T) {
+	t0 := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		count  int
+		after  time.Duration
+		detail string
+	}{
+		{2, 40 * time.Second, "Exited with status 2 · 2nd time in 40 seconds"},
+		{3, 10 * time.Minute, "Exited with status 2 · 3rd time in 10 minutes"},
+		{4, 61 * time.Second, "Exited with status 2 · 4th time in 2 minutes"},
+		{11, 3 * time.Hour, "Exited with status 2 · 11th time in 3 hours"},
+		{22, time.Hour, "Exited with status 2 · 22nd time in 1 hour"},
+	}
+	for _, tt := range tests {
+		is := issues.Issue{ID: "x", Kind: issues.KindUnexpectedExit, Process: "flaky:flaky", Config: "/c/flaky.ini",
+			Message: "Exited with status 2", OpenedAt: t0, LastAt: t0.Add(tt.after), Count: tt.count}
+		m := Compose(is)
+		if m.Detail != tt.detail || m.Body != tt.detail+" · flaky.ini" {
+			t.Errorf("count %d: detail %q body %q", tt.count, m.Detail, m.Body)
+		}
+		if m.ID == is.ID {
+			t.Errorf("count %d: a repeat reuses the issue's notification ID", tt.count)
+		}
+	}
+	once := Compose(issues.Issue{ID: "y", Kind: issues.KindUnexpectedExit, Process: "a:a", Message: "Exited with status 1", Count: 1})
+	if once.Detail != "Exited with status 1" || once.ID != "y" || once.Kind != issues.KindUnexpectedExit {
+		t.Errorf("once = %+v", once)
+	}
+}

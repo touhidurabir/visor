@@ -32,12 +32,16 @@ const (
 	// EventSettings carries a SettingsView after every settings save, so
 	// every window (main, menu-bar popover) applies the new appearance.
 	EventSettings = "visor:settings"
+	// EventNotifications carries a NotificationsView whenever Visor's own
+	// notification list changes.
+	EventNotifications = "visor:notifications"
 )
 
 func init() {
 	application.RegisterEvent[OverviewView](EventOverview)
 	application.RegisterEvent[IssueView](EventIssueOpened)
 	application.RegisterEvent[SettingsView](EventSettings)
+	application.RegisterEvent[NotificationsView](EventNotifications)
 }
 
 const (
@@ -178,6 +182,8 @@ type Runtime struct {
 	limiter  *notify.Limiter
 	sends    sync.WaitGroup
 	sendWait time.Duration
+	// inbox is Visor's own notification list, with read state.
+	inbox *notify.Inbox
 }
 
 // NewRuntime returns a Runtime that does nothing until Start.
@@ -196,6 +202,7 @@ func NewRuntime(o RuntimeOptions) *Runtime {
 	return &Runtime{
 		opts: o, prefs: prefs, watch: newWatchStore(o.StateDir), ctx: context.Background(),
 		limiter: notify.NewLimiter(notifyWindow), sendWait: stopSendWait,
+		inbox: notify.OpenInbox(o.StateDir, time.Now),
 	}
 }
 
@@ -548,36 +555,53 @@ func (r *Runtime) handle(u monitor.Update) {
 	}
 	r.mu.Unlock()
 
-	var opened []issues.Issue
+	var res issues.Result
 	if tracker != nil {
-		opened, _ = tracker.Apply(u) // after the inventory refresh, so configOf sees new files
+		res = tracker.ApplyAll(u) // after the inventory refresh, so configOf sees new files
 		if prune {
 			tracker.CloseAbsent(u.Snapshot.Processes, noteNotHere)
 		}
 	}
 	r.emitOverview()
-	for _, is := range opened {
+	for _, is := range res.Opened {
 		r.opts.Emit(EventIssueOpened, toIssueView(is))
 	}
-	r.notifyOpened(opened, tracker)
+	r.notifyIssues(res, tracker)
 }
 
-// notifyOpened shows a notification for each newly opened issue that the
-// settings and watched configs allow, at most one per process and kind
-// every notifyWindow (one that could not be shown does not count). Sending happens in the background, so a slow
-// notification centre never holds up the poll loop; a sent notification
-// marks its issue Notified and refreshes the overview.
+// notifyOpened is notifyIssues for issues that just opened.
 func (r *Runtime) notifyOpened(opened []issues.Issue, tracker *issues.Tracker) {
-	sender := r.opts.Notifier
-	if sender == nil || len(opened) == 0 {
+	r.notifyIssues(issues.Result{Opened: opened}, tracker)
+}
+
+// notifyIssues turns what one update changed into notifications. Each
+// opened or repeated issue that the settings and watched configs allow
+// goes into Visor's own list (the inbox), always, and is shown as a macOS
+// banner at most once per process and kind every notifyWindow (one that
+// could not be shown does not count). supervisord answering again after
+// being unreachable adds a read note. Sending happens in the background,
+// so a slow notification centre never holds up the poll loop; a shown
+// banner marks its issue Notified and refreshes the overview.
+func (r *Runtime) notifyIssues(res issues.Result, tracker *issues.Tracker) {
+	if len(res.Opened)+len(res.Repeated)+len(res.Closed) == 0 {
 		return
 	}
 	r.mu.Lock()
 	prefs := r.prefs.Notify
 	r.mu.Unlock()
+	sender := r.opts.Notifier
 	now := time.Now()
-	for _, is := range opened {
-		if !notify.ShouldNotify(is, prefs, r.watch.watched(is.Config)) || !r.limiter.Allow(is, now) {
+	changed := false
+	for _, is := range slices.Concat(res.Opened, res.Repeated) {
+		if !notify.ShouldNotify(is, prefs, r.watch.watched(is.Config)) {
+			continue
+		}
+		entry, err := r.inbox.Record(is)
+		if err != nil {
+			log.Printf("visor: %v", err)
+		}
+		changed = true
+		if sender == nil || !r.limiter.Allow(is, now) {
 			continue
 		}
 		msg := notify.Compose(is)
@@ -591,11 +615,30 @@ func (r *Runtime) notifyOpened(opened []issues.Issue, tracker *issues.Tracker) {
 				}
 				return
 			}
+			r.inbox.MarkShown(entry.ID)
+			r.emitNotifications()
 			if tracker != nil && tracker.MarkNotified(is.ID) == nil {
 				r.emitOverview()
 			}
 		}()
 	}
+	for _, is := range res.Closed {
+		if is.Kind != issues.KindUnreachable || !notify.ShouldNotify(is, prefs, true) {
+			continue
+		}
+		if _, err := r.inbox.Recovered(is); err != nil {
+			log.Printf("visor: %v", err)
+		}
+		changed = true
+	}
+	if changed {
+		r.emitNotifications()
+	}
+}
+
+// emitNotifications sends the notification list to the frontend.
+func (r *Runtime) emitNotifications() {
+	r.opts.Emit(EventNotifications, notificationsView(r.inbox))
 }
 
 func (r *Runtime) configOf(process string) string {

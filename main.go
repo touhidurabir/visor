@@ -61,6 +61,7 @@ func main() {
 			// ServerService starts and stops rt with the app.
 			application.NewService(app.NewServerService(rt)),
 			application.NewService(app.NewIssueService(rt)),
+			application.NewService(app.NewInboxService(rt)),
 			application.NewService(app.NewConfigService(rt)),
 			application.NewService(app.NewSettingsService(rt, stateDir, envConfig, keychain, loadErr)),
 			// Log events go to the frontend only; the shell has no use for them.
