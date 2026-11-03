@@ -4,13 +4,19 @@
 import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useOverview } from '../lib/overview'
+import { followMenu } from '../lib/menu'
 import Sidebar from './Sidebar.vue'
 import ToastHost from './ToastHost.vue'
 
 const router = useRouter()
 const { overview } = useOverview()
 
-// ⌘N adds a new config (spec §4.5).
+// Choices from Visor's menu bar (Find, Reload Config, Restart All…).
+followMenu(router)
+
+// ⌘N adds a new config (spec §4.5). In the app the menu bar has it too;
+// this handler takes the key first (and stops it), so it runs once, and it
+// keeps the shortcut in the browser build.
 function onKey(e: KeyboardEvent) {
   if (e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey && e.key === 'n') {
     e.preventDefault()

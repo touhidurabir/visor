@@ -51,4 +51,9 @@ export interface Settings {
      * Appearance is the colour theme: AppearanceSystem, Light or Dark.
      */
     "appearance": string;
+
+    /**
+     * MenuBarCount shows the unread count beside the menu-bar icon.
+     */
+    "menuBarCount": boolean;
 }

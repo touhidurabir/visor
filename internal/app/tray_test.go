@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/touhidurabir/visor/internal/monitor"
+	"github.com/touhidurabir/visor/internal/settings"
 )
 
 func TestParseHealth(t *testing.T) {
@@ -70,4 +71,61 @@ func TestShellEmitNilNext(t *testing.T) {
 	s := NewShell()
 	s.Emit(nil)(EventOverview, OverviewView{Server: ServerView{Health: "ok"}})
 	s.icon.take() // must not panic
+}
+
+func TestTrayLabelShowsUnread(t *testing.T) {
+	for n, want := range map[int]string{0: "", 3: "3", 99: "99", 120: "99+"} {
+		if got := trayLabel(n); got != want {
+			t.Errorf("trayLabel(%d) = %q, want %q", n, got, want)
+		}
+	}
+}
+
+func TestTrayLabelFollowsInbox(t *testing.T) {
+	s := NewShell()
+	emit := s.Emit(nil)
+	emit(EventNotifications, NotificationsView{Unread: 3})
+	if got := s.unreadLabel(); got != "3" {
+		t.Fatalf("after 3 unread: %q", got)
+	}
+	emit(EventNotifications, NotificationsView{Unread: 0}) // Mark all as read
+	if got := s.unreadLabel(); got != "" {
+		t.Fatalf("after mark all read: %q", got)
+	}
+}
+
+func TestMenuBarCountFollowsSettings(t *testing.T) {
+	s := NewShell()
+	emit := s.Emit(nil)
+	emit(EventNotifications, NotificationsView{Unread: 3})
+	if got := s.iconLabel(); got != "3" {
+		t.Fatalf("count on: %q", got)
+	}
+	off := settings.Defaults()
+	off.MenuBarCount = false
+	emit(EventSettings, SettingsView{Settings: off})
+	if got := s.iconLabel(); got != "" {
+		t.Errorf("count off: icon label %q, want none", got)
+	}
+	if got := s.unreadLabel(); got != "3" {
+		t.Errorf("the menu item keeps the count: %q", got)
+	}
+	s.ShowMenuBarCount(true)
+	if got := s.iconLabel(); got != "3" {
+		t.Errorf("count back on: %q", got)
+	}
+}
+
+// The count sent while services start (before ApplicationStarted) must be
+// drawn once the app has started, not wait for the next inbox change.
+func TestUnreadSentAtLaunchIsDrawnWhenStarted(t *testing.T) {
+	s := NewShell()
+	s.Emit(nil)(EventNotifications, NotificationsView{Unread: 3}) // not started: saved only
+	if s.drawnLabel != "" {
+		t.Fatalf("drawn before start: %q", s.drawnLabel)
+	}
+	s.appStarted(func(f func()) { f() })
+	if s.drawnLabel != "3" {
+		t.Errorf("after start the icon label is %q, want 3", s.drawnLabel)
+	}
 }

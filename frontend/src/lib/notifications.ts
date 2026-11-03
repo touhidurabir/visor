@@ -80,3 +80,10 @@ export function noticeRoute(n: NotificationView): RouteLocationRaw {
   if (!n.Config) return '/issues'
   return configRoute(n.Config, n.Process ? { process: n.Process } : {})
 }
+
+/** The word for how serious a notification is ("error", "warning", "info"). */
+export function severityWord(severity: string): string {
+  if (severity === 'error') return 'Error'
+  if (severity === 'warning') return 'Warning'
+  return 'Info'
+}

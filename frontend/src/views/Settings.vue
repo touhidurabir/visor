@@ -4,12 +4,13 @@
 // "Apply", because lowering it deletes history (R27: it asks first).
 // Everything else saves as it changes and applies straight away; Go clamps
 // out-of-range values and the page shows what it kept.
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { NotifyService, ServerService, SettingsService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { ConnectionInput, SettingsView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { Settings } from '../../bindings/github.com/touhidurabir/visor/internal/settings'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import ThemeSwitch from '../components/ThemeSwitch.vue'
+import { loginHint, loginLocked, useLaunchAtLogin } from '../lib/login-item'
 import { describeError } from '../lib/faults'
 import { useOverview } from '../lib/overview'
 import { createSaveQueue } from '../lib/save-queue'
@@ -38,6 +39,9 @@ const warning = ref('')
 
 // Connection draft: edited freely, saved with "Save and reconnect".
 const conn = reactive({ configPath: '', username: '', password: '' })
+// A saved password shows as a status line; Change… swaps in the box.
+const changingPassword = ref(false)
+const passwordBox = ref<HTMLInputElement | null>(null)
 const connBusy = ref(false)
 const connError = ref('')
 
@@ -63,7 +67,7 @@ const connDirty = computed(() => {
   const v = view.value
   if (!v) return false
   const path = envSet.value ? v.Settings.configPath : conn.configPath
-  return path !== v.Settings.configPath || conn.username !== v.Settings.username || conn.password !== ''
+  return path !== v.Settings.configPath || conn.username !== v.Settings.username || conn.password !== '' || changingPassword.value
 })
 
 /** showSaved puts saved values into the fields nobody is typing in. */
@@ -86,6 +90,7 @@ function adopt(v: SettingsView, keepDraft = false) {
     conn.configPath = v.Settings.configPath
     conn.username = v.Settings.username
     conn.password = ''
+    changingPassword.value = false
   }
   showSaved(v.Settings)
 }
@@ -96,6 +101,14 @@ watch(appearance, (a) => {
   if (view.value) view.value.Settings.appearance = a
 })
 
+const login = useLaunchAtLogin()
+onMounted(() => void login.load())
+/** Turn launch at login on or off; the box then shows what is really set. */
+async function setLogin(e: Event) {
+  const box = e.target as HTMLInputElement
+  await login.set(box.checked)
+  box.checked = login.view.value?.On ?? false // unchanged after a refusal, so Vue won't redraw it
+}
 onMounted(async () => {
   window.addEventListener('focus', checkPermission)
   void checkPermission()
@@ -172,6 +185,12 @@ function removePassword() {
     'Password and username removed. Visor uses the config’s credentials.',
     true,
   )
+}
+
+async function changePassword() {
+  changingPassword.value = true
+  await nextTick()
+  passwordBox.value?.focus()
 }
 
 async function reconnect() {
@@ -297,6 +316,10 @@ async function sendRetention(days: number) {
   }
 }
 
+function setMenuBarCount(on: boolean) {
+  save((next) => (next.menuBarCount = on))
+}
+
 function setNotify(key: NotifyKey, on: boolean) {
   notify[key] = on
   save((next) => (next.notify[key] = on))
@@ -314,6 +337,10 @@ async function checkPermission() {
   } catch {
     permission.value = 'unavailable'
   }
+}
+
+function openNotificationSettings() {
+  NotifyService.OpenNotificationSettings().catch((e) => showToast(describeError(e), 'error'))
 }
 
 async function sendTest() {
@@ -424,18 +451,26 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
             <div class="what">
               <label class="name" for="conn-pass">Password</label>
               <p class="hint">
-                Saved in your Keychain, never in a file.<template v-if="view.HasPassword"> Removing it also clears the username, so the config’s credentials apply again.</template>
+                Kept in your Keychain, never in a file.<template v-if="view.HasPassword"> Removing it also clears the username, so the config’s credentials apply again.</template>
               </p>
             </div>
-            <div class="ctl">
+            <div v-if="view.HasPassword && !changingPassword" class="ctl">
+              <span class="pw-saved" data-testid="password-saved">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
+                Saved in your Keychain
+              </span>
+              <button type="button" class="btn" :disabled="connBusy" @click="changePassword">Change…</button>
+              <button type="button" class="btn" :disabled="connBusy" @click="removePassword">Remove password</button>
+            </div>
+            <div v-else class="ctl">
               <input
                 id="conn-pass"
+                ref="passwordBox"
                 v-model="conn.password"
                 type="password"
                 autocomplete="off"
-                :placeholder="view.HasPassword ? 'Saved in your Keychain' : 'Not set'"
+                :placeholder="view.HasPassword ? 'New password' : 'Optional'"
               />
-              <button v-if="view.HasPassword" type="button" class="btn" :disabled="connBusy" @click="removePassword">Remove password</button>
             </div>
           </div>
 
@@ -509,6 +544,18 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
               <button type="button" class="btn" :disabled="testBusy" @click="sendTest">Send a test notification</button>
             </div>
           </div>
+          <div class="row">
+            <div class="what">
+              <span class="name">Keep them on screen</span>
+              <p class="hint">
+                macOS decides how long they stay. Visor asks for Persistent (they stay until you close them) when it first runs; choose
+                Temporary in System Settings → Notifications → Visor to have them slide away.
+              </p>
+            </div>
+            <div class="ctl">
+              <button type="button" class="btn" @click="openNotificationSettings">Open Notification Settings</button>
+            </div>
+          </div>
         </div>
 
           </div>
@@ -558,10 +605,32 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
           <div class="row">
             <div class="what">
               <label class="name" for="login">Launch at login</label>
-              <p class="hint">Coming in this release.</p>
+              <p id="login-hint" class="hint">{{ login.view.value ? loginHint(login.view.value.Status) : '' }}</p>
+              <p v-if="login.view.value?.Status === 'requires_approval'" class="hint">
+                <button type="button" class="btn" @click="login.openLoginItems">Open Login Items</button>
+              </p>
+              <p v-if="login.error.value" class="note" role="alert">{{ login.error.value }}</p>
             </div>
             <div class="ctl">
-              <input id="login" class="switch" type="checkbox" role="switch" disabled />
+              <input
+                id="login"
+                class="switch"
+                type="checkbox"
+                role="switch"
+                aria-describedby="login-hint"
+                :checked="login.view.value?.On ?? false"
+                :disabled="!login.view.value || login.busy.value || loginLocked(login.view.value.Status)"
+                @change="setLogin($event)"
+              />
+            </div>
+          </div>
+          <div class="row">
+            <div class="what">
+              <label class="name" for="menubar-count">Show the unread count in the menu bar</label>
+              <p class="hint">The number beside Visor’s menu-bar icon. The bell and the icon’s menu show it either way.</p>
+            </div>
+            <div class="ctl">
+              <input id="menubar-count" class="switch" type="checkbox" role="switch" :checked="s?.menuBarCount ?? true" @change="setMenuBarCount(($event.target as HTMLInputElement).checked)" />
             </div>
           </div>
           <div class="row">
@@ -618,6 +687,7 @@ h2 { margin: 0; font-size: 14px; font-weight: 650; }
 .btns { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .mono { font-family: var(--font-mono); font-size: 12px; }
 .value { overflow-wrap: anywhere; user-select: text; }
+.pw-saved { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); }
 .unit { color: var(--text-muted); }
 input[type='text'], input[type='password'], input[type='number'] { min-height: 32px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; }
 input[type='text'], input[type='password'] { width: 220px; }

@@ -32,6 +32,11 @@ trap 'exit 143' TERM INT HUP
 "$ROOT/scripts/sandbox.sh" down >/dev/null 2>&1 || true
 "$ROOT/scripts/sandbox.sh" up
 
+# The other specs start past first-run setup; doctor.spec.ts runs its own
+# Visors on fresh state to see Doctor.
+mkdir -p "$VISOR_SANDBOX_DIR/state"
+printf '{"onboarded":true}\n' >"$VISOR_SANDBOX_DIR/state/settings.json"
+
 # Visor's own log goes to a file (uploaded by CI on failure); DEBUG_SERVER=1
 # also shows it live.
 : >"$LOG"

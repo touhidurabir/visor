@@ -5,7 +5,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { NotifyService, type NotificationView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
-import { noticeRoute, noticeTime, useNotifications } from '../lib/notifications'
+import { noticeRoute, noticeTime, useNotifications, severityWord } from '../lib/notifications'
 import { describeError } from '../lib/faults'
 import { showToast } from '../lib/toast'
 
@@ -115,8 +115,9 @@ onBeforeUnmount(() => {
         <li v-for="n in shown" :key="n.ID">
           <button type="button" :class="['item', { unread: !n.Read }]" @click="go(n)">
             <span class="dot" aria-hidden="true" />
+            <span :class="['sev', `sev-${n.Severity || 'info'}`]" aria-hidden="true">{{ n.Severity === 'info' || !n.Severity ? 'i' : '!' }}</span>
             <span class="body">
-              <span class="title">{{ n.Title }}<span v-if="!n.Read" class="sr">, unread</span></span>
+              <span class="title"><span class="sr">{{ severityWord(n.Severity) }}: </span>{{ n.Title }}<span v-if="!n.Read" class="sr">, unread</span></span>
               <span v-if="n.Detail" class="detail">{{ n.Detail }}</span>
               <span class="meta">{{ [n.ConfigName, noticeTime(n.AtMs, nowMs)].filter(Boolean).join(' · ') }}</span>
             </span>
@@ -169,6 +170,11 @@ h2 { margin: 0 auto 0 0; font-size: 15px; }
 .item:hover { background: var(--bg-hover); }
 .item:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .dot { width: 8px; height: 8px; margin-top: 5px; flex: none; border-radius: 50%; }
+/* How serious: colour plus the word for screen readers, never colour alone. */
+.sev { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; font-size: 11px; font-weight: 800; line-height: 1; }
+.sev-error { background: var(--failing-bg); color: var(--failing-fg); }
+.sev-warning { background: var(--warning-bg); color: var(--warning-fg); }
+.sev-info { background: var(--selected-bg); color: var(--accent-text); }
 .item.unread .dot { background: var(--accent); }
 .body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .title { font-weight: 500; }

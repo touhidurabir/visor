@@ -92,6 +92,7 @@ func (n *macNotifier) send(m notify.Message) error {
 	return n.ns.SendNotification(notifications.NotificationOptions{
 		ID:       m.ID,
 		Title:    m.Title,
+		Subtitle: m.Subtitle,
 		Body:     m.Body,
 		Data:     data,
 		ThreadID: "visor-issues",

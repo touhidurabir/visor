@@ -82,8 +82,9 @@ func (s *NotifyService) SendTestNotification() error {
 		return errors.New("notifications are off for Visor. Turn them on in System Settings → Notifications → Visor")
 	}
 	return s.native.send(notify.Message{
-		ID:    fmt.Sprintf("visor-test-%d", time.Now().UnixNano()),
-		Title: "Visor notifications are on",
-		Body:  "You'll get one like this when a process fails.",
+		ID:       fmt.Sprintf("visor-test-%d", time.Now().UnixNano()),
+		Title:    "Visor notifications are on",
+		Subtitle: notify.Info.Label(),
+		Body:     "You'll get one like this when a process fails, marked 🔴 Error or 🟠 Warning.",
 	})
 }

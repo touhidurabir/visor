@@ -29,6 +29,7 @@ type NotificationView struct {
 	Count      int
 	Read       bool
 	Shown      bool
+	Severity   string // "error", "warning" or "info"
 }
 
 func notificationsView(b *notify.Inbox) NotificationsView {
@@ -44,7 +45,7 @@ func notificationsView(b *notify.Inbox) NotificationsView {
 		}
 		v.Items = append(v.Items, NotificationView{
 			ID: e.ID, IssueID: e.IssueID, Kind: string(e.Kind), Process: e.Process, Config: e.Config, ConfigName: name,
-			Title: e.Title, Detail: e.Detail, AtMs: ms(e.At), Count: e.Count, Read: e.Read, Shown: e.Shown,
+			Title: e.Title, Detail: e.Detail, AtMs: ms(e.At), Count: e.Count, Read: e.Read, Shown: e.Shown, Severity: string(e.Level()),
 		})
 	}
 	return v

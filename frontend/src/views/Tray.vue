@@ -1,12 +1,17 @@
 <script setup lang="ts">
 // The menu-bar popover (#/tray): every process grouped by config file, with
-// one-click start/stop/restart, Restart all, a config change check and a way
-// into the main window. Kept live by the visor:overview event.
+// one-click start/stop/restart, each config's Watch switch, Restart all, a
+// config change check and a way into the main window. Kept live by the
+// visor:overview event. The bell shows the unread count (visor:notifications)
+// and opens the notifications, so a failure is noticed even when macOS shows
+// no banner. Laid out as one section per server: this Mac for now; remote
+// servers add sections.
 import { computed, ref } from 'vue'
-import { ServerService, ShellService, type ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ServerService, ShellService, type ConfigView, type ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { errorMessage, useOverview } from '../lib/overview'
 import { useApplyFlow } from '../lib/apply-flow'
 import { formatDuration, shortSince } from '../lib/format'
+import { useNotifications } from '../lib/notifications'
 
 const { overview, error: loadError, reload } = useOverview()
 const flow = useApplyFlow(() => reload())
@@ -20,6 +25,17 @@ const restartingAll = ref(false)
 const notice = ref<{ kind: 'error' | 'info'; text: string } | null>(null)
 
 const server = computed(() => overview.value?.Server)
+
+const { unread } = useNotifications()
+
+// One section per connected server; only this Mac until remote servers.
+const sections = computed(() => [
+  { key: 'local', name: server.value?.Name ?? 'Local', health: server.value?.Health ?? 'unknown', failing: overview.value?.Stats.Failing ?? 0 },
+])
+
+function openNotifications() {
+  void ShellService.OpenNotifications()
+}
 const stats = computed(() => overview.value?.Stats)
 const configs = computed(() => (overview.value?.Configs ?? []).filter((c) => (c.Processes ?? []).length > 0))
 
@@ -81,6 +97,24 @@ async function restartAll() {
   }
 }
 
+// Configs with a Watch change in flight.
+const watching = ref(new Set<string>())
+
+async function toggleWatch(c: ConfigView) {
+  const on = !c.Watched
+  watching.value = new Set(watching.value).add(c.Path)
+  try {
+    await ServerService.SetWatch(c.Path, on)
+    await reload()
+  } catch (e) {
+    notice.value = { kind: 'error', text: `Couldn't ${on ? 'watch' : 'stop watching'} ${c.FileName}: ${errorMessage(e)}` }
+  } finally {
+    const next = new Set(watching.value)
+    next.delete(c.Path)
+    watching.value = next
+  }
+}
+
 function openVisor() {
   void ShellService.OpenVisor()
 }
@@ -88,10 +122,26 @@ function openVisor() {
 
 <template>
   <div class="popover">
-    <header class="head">
+    <header v-for="sec in sections" :key="sec.key" class="head">
       <div class="title-row">
-        <strong class="title">{{ server?.Name ?? 'Visor' }}</strong>
-        <span v-if="stats && stats.Failing > 0" class="failing">{{ stats.Failing }} failing</span>
+        <span class="who">
+          <span :class="['hdot', `h-${sec.health}`]" aria-hidden="true" />
+          <strong class="title">{{ sec.name }}</strong>
+          <span v-if="sec.failing > 0" class="failing">{{ sec.failing }} failing</span>
+        </span>
+        <button
+          type="button"
+          class="bell"
+          data-testid="tray-bell"
+          :aria-label="unread ? `Notifications, ${unread} unread` : 'Notifications'"
+          :title="unread ? `${unread} unread` : 'Notifications'"
+          @click="openNotifications"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+          </svg>
+          <span v-if="unread" class="badge" aria-hidden="true">{{ unread > 99 ? '99+' : unread }}</span>
+        </button>
       </div>
       <span v-if="summary" class="sub">{{ summary }}</span>
     </header>
@@ -110,7 +160,27 @@ function openVisor() {
       </div>
       <p v-else-if="configs.length === 0" class="muted pad">No processes yet.</p>
       <section v-for="c in configs" :key="c.Path || c.FileName" :aria-label="c.FileName">
-        <h2 class="file">{{ c.FileName }}</h2>
+        <div class="file-row">
+          <h2 class="file">{{ c.FileName }}</h2>
+          <button
+            v-if="c.Path"
+            type="button"
+            :class="['watch', { on: c.Watched }]"
+            :aria-pressed="c.Watched"
+            :aria-label="`Watch ${c.FileName}`"
+            :title="c.Watched ? 'Visor notifies you about problems in this file. Click to stop.' : 'Visor stays quiet about this file. Click to watch it.'"
+            :disabled="watching.has(c.Path)"
+            @click="toggleWatch(c)"
+          >
+            <svg v-if="c.Watched" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+            </svg>
+            <svg v-else width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M8.7 3A6 6 0 0 1 18 8c0 2.7.4 4.7.9 6.1" /><path d="M17 17H3s3-2 3-9c0-.5.1-1 .2-1.5" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /><path d="M2 2l20 20" />
+            </svg>
+            {{ c.Watched ? 'Watching' : 'Watch' }}
+          </button>
+        </div>
         <div v-for="p in c.Processes ?? []" :key="p.FullName" class="prow">
           <span :class="['dot', dotClass(p)]" aria-hidden="true" />
           <span class="name mono" :title="p.FullName">{{ label(p) }}</span>
@@ -247,6 +317,41 @@ function openVisor() {
   justify-content: space-between;
 }
 .title { font-size: 14px; }
+.who { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.hdot { width: 8px; height: 8px; border-radius: 50%; background: var(--icon-off); flex-shrink: 0; }
+.h-ok { background: #1e9e63; }
+.h-warning { background: #d98a00; }
+.h-error { background: #e5483b; }
+.bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--icon);
+  cursor: pointer;
+}
+.bell:hover { background: var(--ico-hover); }
+.badge {
+  position: absolute;
+  top: -3px;
+  right: -5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: #c8372b;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
 .failing { color: var(--fail-text); font-weight: 600; font-size: 12px; }
 .sub, .muted { color: var(--sub); font-size: 12px; }
 .list {
@@ -256,13 +361,41 @@ function openVisor() {
   padding: 4px 0;
 }
 .pad { padding: 8px 12px; margin: 0; }
+.file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px 2px;
+}
 .file {
   margin: 0;
-  padding: 8px 12px 2px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
   font-weight: 600;
   color: var(--sub);
 }
+.watch {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border: 1px solid var(--btn-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--sub);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.watch:hover:not(:disabled) { background: var(--ico-hover); }
+.watch.on { border-color: var(--accent); color: var(--accent); }
+.watch:disabled { opacity: 0.55; cursor: default; }
 .prow {
   display: flex;
   align-items: center;
@@ -351,7 +484,7 @@ function openVisor() {
 .pbtn:hover:not(:disabled) { background: var(--btn-hover); }
 .pbtn:disabled { opacity: 0.55; cursor: default; }
 .pbtn.strong { font-weight: 600; }
-.ico:focus-visible, .pbtn:focus-visible {
+.ico:focus-visible, .pbtn:focus-visible, .watch:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }

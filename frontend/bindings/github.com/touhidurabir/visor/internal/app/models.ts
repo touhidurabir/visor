@@ -3,6 +3,9 @@
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as doctor$0 from "../doctor/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as settings$0 from "../settings/models.js";
 
 /**
@@ -80,6 +83,70 @@ export interface ConnectionInput {
     "Username": string;
     "Password": string;
     "SetPassword": boolean;
+}
+
+/**
+ * DoctorView is what the Doctor screen shows: the five checks, the
+ * situation the first failing one leads to, and what first-run setup needs.
+ */
+export interface DoctorView {
+    "Steps": doctor$0.Step[] | null;
+
+    /**
+     * doctor.Situation
+     */
+    "Situation": string;
+    "Version": string;
+    "Processes": number;
+    "Configs": number;
+    "ConfigPath": string;
+    "IncludeDir": string;
+
+    /**
+     * IncludeMissing: IncludeDir doesn't exist yet.
+     */
+    "IncludeMissing": boolean;
+
+    /**
+     * VISOR_CONFIG sets the config path
+     */
+    "Overridden": boolean;
+
+    /**
+     * where Visor looked for the config
+     */
+    "Looked": string[] | null;
+
+    /**
+     * false: running from the disk image or a quarantine copy
+     */
+    "Moved": boolean;
+
+    /**
+     * this Mac's user, for the commands Doctor suggests
+     */
+    "User": string;
+    "Onboarded": boolean;
+
+    /**
+     * notifications are on (the Ready toggle starts from it)
+     */
+    "Notify": boolean;
+
+    /**
+     * StartCommand is the command that starts supervisord ("" when it isn't
+     * stopped, isn't installed, or has no socket to reach). CanStart: Visor
+     * runs it itself (Start supervisord); false for a config that keeps
+     * supervisord in the foreground (Foreground), which launchd should run.
+     */
+    "StartCommand": string;
+    "CanStart": boolean;
+    "Foreground": boolean;
+
+    /**
+     * StartFailure says why the last Start supervisord didn't work.
+     */
+    "StartFailure": StartFailure | null;
 }
 
 /**
@@ -282,6 +349,17 @@ export interface LogChunkView {
 }
 
 /**
+ * LoginItemView is whether Visor opens at login. Status is "enabled",
+ * "disabled", "requires_approval" (macOS wants the user's OK in Login
+ * Items), "not_moved" (running from the disk image or Downloads) or
+ * "unsupported" (not the packaged app).
+ */
+export interface LoginItemView {
+    "Status": string;
+    "On": boolean;
+}
+
+/**
  * MainLogLineView is one entry of the main log. Text may hold several
  * lines (a traceback).
  */
@@ -355,6 +433,11 @@ export interface NotificationView {
     "Count": number;
     "Read": boolean;
     "Shown": boolean;
+
+    /**
+     * "error", "warning" or "info"
+     */
+    "Severity": string;
 }
 
 /**
@@ -525,6 +608,18 @@ export interface SettingsView {
      * be cleared.
      */
     "Warning": string;
+}
+
+/**
+ * StartFailure is what Visor knows when supervisord didn't start: the
+ * command, what it printed, and the end of supervisord's own log.
+ */
+export interface StartFailure {
+    "Command": string;
+    "Output": string;
+    "Error": string;
+    "LogPath": string;
+    "Log": string;
 }
 
 /**
