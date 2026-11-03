@@ -18,6 +18,8 @@ wails3 task dev   # runs Visor against a throwaway sandbox supervisord in /tmp/v
 
 Always develop with `wails3 task dev`. Bare `wails3 dev` connects to your real supervisord, so the buttons stop and restart your real processes.
 
+The other scripts (the sandbox, the packaged app for notifications and launch at login, the `.dmg`) and when to use each: [docs/scripts.md](docs/scripts.md).
+
 ## How the code is laid out
 
 - `internal/supervisor`: XML-RPC client for supervisord (Visor never shells out to `supervisorctl`).

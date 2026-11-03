@@ -37,6 +37,8 @@ wails3 package  # build bin/visor.app
 go test ./...   # Go tests (integration tests start their own temp supervisord)
 ```
 
+Which script or task to run for each kind of local testing (dev, the sandbox supervisord, the packaged app, UI tests, the `.dmg`): [docs/scripts.md](docs/scripts.md).
+
 Tests, including the Playwright UI tests (`wails3 task test:e2e`) and the manual native checklist: [docs/testing.md](docs/testing.md).
 
 Use `wails3 task dev` for development. It starts a sandbox supervisord under

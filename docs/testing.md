@@ -3,6 +3,9 @@
 Visor has four layers of tests. The first three run in CI; the last is a
 checklist for the parts only a real macOS session can show.
 
+How to start each kind of local run (dev, the sandbox, the packaged app, a
+`.dmg`) is in [scripts.md](scripts.md).
+
 ## Go tests
 
 ```sh
@@ -52,6 +55,13 @@ What it covers (`e2e/tests`):
 - `issues-manage.spec.ts`: the stats strip and tabs, kind and date filters, bulk resolve, and deleting one or many resolved issues (each with Cancel leaving things unchanged); works on `flaky`'s issues only.
 - `settings.spec.ts`: config fixed by `VISOR_CONFIG`, polling interval and a notification toggle persist across a reload.
 - `navigation.spec.ts`: sidebar links, unknown routes, no console errors.
+- `config-editor.spec.ts`, `add-new.spec.ts`, `apply-changes.spec.ts`: editing with diff and backup, adding a config by form or by hand, applying changes made on disk, removing and restoring.
+- `supervisord-log.spec.ts`: the supervisord log tab, its level filters, search and Follow.
+- `menus.spec.ts`: process action menus, keyboard use, copying a command.
+- `notifications.spec.ts`, `tray.spec.ts`: the bell and its unread count, the menu-bar popover and its Watch switches.
+- `theme.spec.ts`: System, Light and Dark, in the window and the popover.
+- `connection.spec.ts`: a saved password shows as saved, can be changed and removed.
+- `doctor.spec.ts`: first launch, Start supervisord (it really starts one), a config supervisord refuses, no config, Doctor opening when the first connection fails. It runs its own Visors on ports 8771–8775 with fresh state.
 
 Assertions poll (`expect(...).toHaveText`, `toPass`), never sleep, because
 the sample processes change state on their own (`flaky` dies every 20 s).
@@ -61,7 +71,8 @@ On failure Playwright keeps a trace: `npx --prefix e2e playwright show-trace e2e
 ## Manual native checklist
 
 Server mode has no tray, popover, Dock or native dialogs, so check these by
-hand on a Mac (`wails3 task dev`) before a release:
+hand on a Mac before a release, with `wails3 task dev`, or the packaged app
+(`scripts/sign-check.sh adhoc` then `open`) where an item says so:
 
 - [ ] Menu-bar icon shows OK, warning and error (badge) as processes change (stop one, break a command, let one go FATAL).
 - [ ] Clicking the icon opens the popover; clicking elsewhere closes it; it opens over another Space and over a full-screen app.
@@ -69,7 +80,7 @@ hand on a Mac (`wails3 task dev`) before a release:
 - [ ] Right-click menu: Open Visor, Preferences…, Launch at login, Quit. Launch at login is greyed out in `wails3 task dev` (no app bundle) and works in a packaged build; its check mark matches Settings → General.
 - [ ] Closing the main window hides it and the Dock icon; Visor stays in the menu bar; Open Visor brings both back.
 - [ ] Menu bar (at the top of the screen while the main window is in front): Visor, File, Edit, View, Supervisor, Window, Help. Check each item:
-  - Preferences… (Cmd+,), Doctor (a placeholder page until Doctor is built), New Config… (Cmd+N), Dashboard (Cmd+1) and Issues (Cmd+2) open their pages.
+  - Preferences… (Cmd+,), Doctor, New Config… (Cmd+N), Dashboard (Cmd+1) and Issues (Cmd+2) open their pages.
   - Find (Cmd+F) focuses the dashboard search.
   - Reload Config (Cmd+R) checks for config changes once, never reloads the page; choose it from Issues and the dashboard opens and checks.
   - Restart All… asks first.
