@@ -40,6 +40,18 @@ type Entry struct {
 	Count   int         `json:"count"`
 	Read    bool        `json:"read"`
 	Shown   bool        `json:"shown"`
+	// Severity is set when it differs from the kind's (the recovery note
+	// is good news about an unreachable issue); see Level.
+	Severity Severity `json:"severity,omitempty"`
+}
+
+// Level is how serious the entry is: its own Severity, else its kind's
+// (entries saved before Severity existed).
+func (e Entry) Level() Severity {
+	if e.Severity != "" {
+		return e.Severity
+	}
+	return SeverityOf(e.Kind)
 }
 
 // Inbox is the list of notifications Visor shows in its own window, with
@@ -109,7 +121,7 @@ func (b *Inbox) Recovered(is issues.Issue) (Entry, error) {
 		end = b.now()
 	}
 	return b.add(Entry{IssueID: is.ID, Kind: is.Kind, Title: "supervisord is responding again",
-		Detail: "It was unreachable for " + span(end.Sub(is.OpenedAt)), Read: true})
+		Detail: "It was unreachable for " + span(end.Sub(is.OpenedAt)), Read: true, Severity: Info})
 }
 
 // add stamps e with an ID and the time and puts it first. Caller holds mu.

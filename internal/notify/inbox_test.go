@@ -81,7 +81,7 @@ func TestInboxRecoveredIsRead(t *testing.T) {
 	b := OpenInbox("", c.now)
 	down := issues.Issue{ID: "u", Kind: issues.KindUnreachable, OpenedAt: c.t.Add(-8 * time.Second), ClosedAt: c.t, Status: issues.StatusResolvedAuto}
 	e, _ := b.Recovered(down)
-	if !e.Read || e.Title != "supervisord is responding again" || e.Detail != "It was unreachable for 8 seconds" || b.Unread() != 0 {
+	if !e.Read || e.Title != "supervisord is responding again" || e.Detail != "It was unreachable for 8 seconds" || b.Unread() != 0 || e.Level() != Info {
 		t.Fatalf("Recovered = %+v", e)
 	}
 }
