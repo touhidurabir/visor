@@ -17,8 +17,6 @@
             <string>0.0.1</string>
         <key>CFBundleIconFile</key>
             <string>icons</string>
-        <key>CFBundleIconName</key>
-            <string>appicon</string>
         <key>LSMinimumSystemVersion</key>
             <string>13.0.0</string>
         <key>NSHighResolutionCapable</key>
@@ -30,5 +28,7 @@
             <key>NSAllowsLocalNetworking</key>
             <true/>
         </dict>
+        <key>NSUserNotificationAlertStyle</key>
+            <string>alert</string>
     </dict>
 </plist>
