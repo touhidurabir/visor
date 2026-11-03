@@ -65,9 +65,24 @@ hand on a Mac (`wails3 task dev`) before a release:
 
 - [ ] Menu-bar icon shows OK, warning and error (badge) as processes change (stop one, break a command, let one go FATAL).
 - [ ] Clicking the icon opens the popover; clicking elsewhere closes it; it opens over another Space and over a full-screen app.
-- [ ] Right-click menu: Open Visor, Preferences…, Quit; Launch at login is disabled.
+- [ ] In the popover, each config file shows Watching or Watch; switching it there shows the same on the dashboard, and the bell opens the notifications in the main window.
+- [ ] Right-click menu: Open Visor, Preferences…, Launch at login, Quit. Launch at login is greyed out in `wails3 task dev` (no app bundle) and works in a packaged build; its check mark matches Settings → General.
 - [ ] Closing the main window hides it and the Dock icon; Visor stays in the menu bar; Open Visor brings both back.
+- [ ] Menu bar (at the top of the screen while the main window is in front): Visor, File, Edit, View, Supervisor, Window, Help. Check each item:
+  - Preferences… (Cmd+,), Doctor (a placeholder page until Doctor is built), New Config… (Cmd+N), Dashboard (Cmd+1) and Issues (Cmd+2) open their pages.
+  - Find (Cmd+F) focuses the dashboard search.
+  - Reload Config (Cmd+R) checks for config changes once, never reloads the page; choose it from Issues and the dashboard opens and checks.
+  - Restart All… asks first.
+  - Close Window (Cmd+W) hides the window.
+  - Copy and Paste work in the config editor.
+  - Visor Help and Report an Issue open the browser, not the app window.
+  - There is no "Reload" or "Learn More" anywhere.
 - [ ] Cmd+Q quits and leaves the sandbox supervisord running.
+- [ ] One Visor at a time (packaged app): with Visor running, open it again (`open -n` the same .app): no second menu-bar icon, the window comes forward. Turn launch at login on, then switch Visor off and on in System Settings → General → Login Items: still one Visor.
+- [ ] Doctor, Start supervisord: shut the sandbox's supervisord down from the dashboard, relaunch, click Start supervisord: it starts and every step turns green. Break the config (add `[program:broken]` with no command to a sandbox .ini), shut down, Start supervisord again: "supervisord didn't start" with its error and log; remove the broken lines.
+- [ ] Notifications: a banner shows "🔴 Error" or "🟠 Warning" under the title and stays until closed (Persistent); the bell's list shows the coloured marks.
+- [ ] Doctor, first launch: quit Visor, run it with a fresh state dir (`VISOR_STATE_DIR=/tmp/visor-sandbox/state-fresh`); the window opens on Doctor with no sidebar, the lens animates once, "Open dashboard" opens the app and a relaunch with the same state dir goes straight to the dashboard. In the packaged app, "Open Visor when I log in" is on and turns launch at login on.
+- [ ] Doctor, Choose…: give it a saved path to a missing file, so it never auto-detects this Mac's supervisord: `mkdir -p /tmp/visor-sandbox/state-doc && printf '{"onboarded":true,"configPath":"/tmp/visor-sandbox/missing.conf"}' > /tmp/visor-sandbox/state-doc/settings.json`, then `VISOR_STATE_DIR=/tmp/visor-sandbox/state-doc wails3 dev -config ./build/config.yml` (no `VISOR_CONFIG`). Doctor says "Where is your config?"; Choose… shows the file dialog; picking a file that isn't a supervisord config says why it's refused; picking `/tmp/visor-sandbox/supervisord.conf` turns every step green.
 - [ ] Reveal in Finder and Open in editor open the right file or folder.
 - [ ] Logs tab: Save… shows the save dialog and writes the file.
 - [ ] Settings: Choose… shows the file dialog. `task dev` sets `VISOR_CONFIG`, which disables Choose…, so run `scripts/sandbox.sh up && VISOR_STATE_DIR=/tmp/visor-sandbox/state wails3 dev -config ./build/config.yml` instead and choose `/tmp/visor-sandbox/supervisord.conf` (a saved path wins over auto-detection).
