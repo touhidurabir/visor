@@ -46,6 +46,15 @@ func NotificationSettingsCmd() *exec.Cmd {
 // OpenNotificationSettings opens System Settings at Notifications.
 func OpenNotificationSettings() error { return run(NotificationSettingsCmd()) }
 
+// LoginItemsSettingsCmd opens System Settings at General → Login Items,
+// where macOS asks the user to approve an app that opens at login.
+func LoginItemsSettingsCmd() *exec.Cmd {
+	return exec.Command("open", "x-apple.systempreferences:com.apple.LoginItems-Settings.extension")
+}
+
+// OpenLoginItemsSettings opens System Settings at Login Items.
+func OpenLoginItemsSettings() error { return run(LoginItemsSettingsCmd()) }
+
 // Reveal shows path in Finder.
 func Reveal(path string) error {
 	if err := check(path, false); err != nil {
