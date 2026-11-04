@@ -9,6 +9,11 @@ async function stepStatuses(page: Page): Promise<string[]> {
   return page.getByRole('list', { name: 'What Visor checked' }).getByRole('listitem').evaluateAll((els) => els.map((e) => e.getAttribute('data-status') ?? ''))
 }
 
+// Each check says its status in words beside the mark (board 1).
+async function stepWords(page: Page): Promise<string[]> {
+  return page.getByRole('list', { name: 'What Visor checked' }).getByTestId('step-word').allInnerTexts()
+}
+
 test.describe('Doctor', () => {
   test('first launch: all found, then Open dashboard finishes setup', async ({ page }) => {
     const visor = await startVisor('fresh', 8771, `${SANDBOX}/supervisord.conf`)
@@ -17,6 +22,7 @@ test.describe('Doctor', () => {
       await page.goto(visor.url + '/#/')
       await expect(page.getByRole('heading', { name: 'Your Mac is ready' })).toBeVisible({ timeout: 15_000 })
       expect(await stepStatuses(page)).toEqual(['ok', 'ok', 'ok', 'ok', 'ok'])
+      expect(await stepWords(page)).toEqual(['Done', 'Done', 'Done', 'Done', 'Done'])
       await expect(page.getByText('5 of 5 checks passed')).toBeVisible()
       await expect(page.getByText(/\d+ processes in \d+ configs/)).toBeVisible()
       // No sidebar on first launch.
@@ -45,6 +51,7 @@ test.describe('Doctor', () => {
       await page.goto(visor.url + '/#/')
       await expect(page.getByRole('heading', { name: 'supervisord isn’t running' })).toBeVisible({ timeout: 15_000 })
       expect(await stepStatuses(page)).toEqual(['ok', 'ok', 'bad', 'ok', 'wait'])
+      expect(await stepWords(page)).toEqual(['Done', 'Done', 'Needs attention', 'Done', 'Waiting'])
       await expect(page.getByText('Nothing is listening on s.sock')).toBeVisible()
       await expect(page.getByText('1 thing to fix')).toBeVisible()
       await expect(page.getByText(`supervisord -c ${conf}`)).toBeVisible()
@@ -55,6 +62,7 @@ test.describe('Doctor', () => {
       await page.getByRole('button', { name: 'Start supervisord' }).click()
       await expect(page.getByRole('heading', { name: 'Your Mac is ready' })).toBeVisible({ timeout: 20_000 })
       expect(await stepStatuses(page)).toEqual(['ok', 'ok', 'ok', 'ok', 'ok'])
+      expect(await stepWords(page)).toEqual(['Done', 'Done', 'Done', 'Done', 'Done'])
       expect(errors).toEqual([])
     } finally {
       await visor.stop()
@@ -87,6 +95,7 @@ test.describe('Doctor', () => {
       await page.goto(visor.url + '/#/')
       await expect(page.getByRole('heading', { name: 'Where is your config?' })).toBeVisible({ timeout: 15_000 })
       expect(await stepStatuses(page)).toEqual(['ok', 'bad', 'wait', 'wait', 'wait'])
+      expect(await stepWords(page)).toEqual(['Done', 'Needs attention', 'Waiting', 'Waiting', 'Waiting'])
       await expect(page.getByLabel('Your supervisord.conf')).toHaveValue(missing)
       await expect(page.getByLabel('Your supervisord.conf')).toBeDisabled()
       await expect(page.getByRole('button', { name: 'Choose…' })).toBeDisabled()
@@ -117,6 +126,7 @@ test.describe('Doctor', () => {
     const errors = collectErrors(page)
     await page.goto('/#/doctor')
     await expect(page.getByRole('heading', { name: 'Your Mac is ready' })).toBeVisible()
+    expect(await stepWords(page)).toEqual(['Done', 'Done', 'Done', 'Done', 'Done'])
     await expect(page.getByRole('link', { name: 'Issues' }).first()).toBeVisible()
     // Setup is done, so no first-run toggles.
     await expect(page.getByRole('checkbox')).toHaveCount(0)
