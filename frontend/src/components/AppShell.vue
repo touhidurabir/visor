@@ -29,11 +29,16 @@ const name = computed(() => overview.value?.Server.Name ?? 'Local')
 const health = computed(() => overview.value?.Server.Health ?? 'unknown')
 const failing = computed(() => overview.value?.Stats.Failing ?? 0)
 const openIssues = computed(() => overview.value?.Stats.OpenIssues ?? 0)
+// supervisord isn't running (or can't be reached), once the first poll has said so.
+const down = computed(() => {
+  const server = overview.value?.Server
+  return !!server && server.Health !== 'unknown' && !server.Reachable
+})
 </script>
 
 <template>
   <div class="shell">
-    <Sidebar :name="name" :health="health" :failing="failing" :open-issues="openIssues" />
+    <Sidebar :name="name" :health="health" :failing="failing" :open-issues="openIssues" :down="down" />
     <main class="content"><slot /></main>
     <ToastHost />
   </div>

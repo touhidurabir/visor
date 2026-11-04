@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Appearance switch: System / Light / Dark as a radio group (arrow keys move
-// and choose, one tab stop). Used in the sidebar and in Settings; both read
-// the shared `appearance`, so they stay in sync.
+// and choose, one tab stop). Used in Settings; it reads the shared
+// `appearance`, which the tray popover follows too.
 import { ref } from 'vue'
 import { describeError } from '../lib/faults'
 import { APPEARANCES, type Appearance } from '../lib/theme'

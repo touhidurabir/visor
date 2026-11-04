@@ -2,6 +2,8 @@
 // The visor lens (spec §5.1): an iridescent disc with a ring of one segment
 // per check. On mount the segments light in order and one sweep crosses the
 // glass; reduced motion turns both off. Re-key it to play them again.
+// --lens-inset and --lens-glass-inset resize the disc and its rim, for the
+// small mark in the sidebar (no segments, no text).
 defineProps<{
   segments: string[] // 'ok' | 'bad' | 'wait', one per check
   big: string
@@ -40,14 +42,14 @@ defineProps<{
 .c-wait { stroke: var(--lens-wait, #c9d3df); }
 .lens {
   position: absolute;
-  inset: 9%;
+  inset: var(--lens-inset, 9%);
   border-radius: 50%;
   background: conic-gradient(from 200deg, #19b5c8, #5b7cff, #9b5cff, #e86bb8, #ffb547, #7ee0c3, #19b5c8);
   box-shadow: 0 30px 60px -20px rgba(43, 58, 120, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
 }
 .glass {
   position: absolute;
-  inset: 4.5%;
+  inset: var(--lens-glass-inset, 4.5%);
   border-radius: 50%;
   background:
     radial-gradient(circle at 34% 26%, rgba(255, 255, 255, 0.38) 0, rgba(255, 255, 255, 0) 30%),

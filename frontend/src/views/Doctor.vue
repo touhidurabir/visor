@@ -4,7 +4,6 @@
 // (firstRun) it fills the window until setup is finished; it is also the
 // Doctor page in the sidebar. Visor never runs sudo or installs anything:
 // every fix is a command to copy or a file to choose.
-import '@fontsource-variable/bricolage-grotesque/opsz.css'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { DoctorService, SettingsService, type DoctorView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
