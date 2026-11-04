@@ -4,7 +4,7 @@
 // (later); and Doctor / Settings at the bottom. Appearance lives in Settings.
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import Lens from './Lens.vue'
+import AppMark from './AppMark.vue'
 import NotificationBell from './NotificationBell.vue'
 
 // `connection` is the badge for a connection problem ("Not running", "Not
@@ -40,7 +40,7 @@ const dot = computed(() => {
 <template>
   <nav class="sidebar" aria-label="Servers">
     <div class="brand">
-      <span class="mark" aria-hidden="true"><Lens :segments="[]" big="" small="" /></span>
+      <span class="mark" aria-hidden="true"><AppMark /></span>
       <span class="wordmark">Visor</span>
       <NotificationBell />
     </div>
@@ -122,8 +122,8 @@ const dot = computed(() => {
   color: var(--ink);
 }
 .brand { display: flex; align-items: center; gap: 9px; padding: 0 6px; }
-/* Lens.vue as a 22 px mark: no ring, a thicker iridescent rim. */
-.mark { display: inline-flex; flex: none; --lens-size: 22px; --lens-inset: 0; --lens-glass-inset: 14%; }
+/* The app icon's mark (ring, glass, pulse) at 22 px. */
+.mark { display: inline-flex; flex: none; --mark-size: 22px; }
 .wordmark {
   font-family: var(--display);
   font-optical-sizing: auto;

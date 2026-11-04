@@ -178,7 +178,7 @@ function openSettings() {
 
       <div v-else-if="view" class="layout">
         <div class="lens-col">
-          <Lens :key="runs" :segments="segments" :big="lens.big" :small="lens.small" />
+          <Lens :key="runs" :segments="segments" :big="lens.big" :small="lens.small" :pulse="lens.big === '✓'" />
         </div>
 
         <div class="text-col" :aria-busy="checking">

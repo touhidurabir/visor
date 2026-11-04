@@ -3,11 +3,13 @@
 // per check. On mount the segments light in order and one sweep crosses the
 // glass; reduced motion turns both off. Re-key it to play them again.
 // --lens-inset and --lens-glass-inset resize the disc and its rim, for the
-// small mark in the sidebar (no segments, no text).
+// small mark in the sidebar (no segments, no text). pulse draws the app
+// icon's pulse line in place of the big text (Doctor's all-clear state).
 defineProps<{
   segments: string[] // 'ok' | 'bad' | 'wait', one per check
   big: string
   small: string
+  pulse?: boolean
 }>()
 </script>
 
@@ -20,7 +22,10 @@ defineProps<{
     </svg>
     <div class="lens">
       <div class="glass">
-        <span class="big">{{ big }}</span>
+        <svg v-if="pulse" class="pulse" viewBox="290 420 444 210" aria-hidden="true">
+          <path d="M290 520 H420 L462 430 L522 620 L566 490 L598 520 H734" />
+        </svg>
+        <span :class="['big', { 'sr-only': pulse }]">{{ big }}</span>
         <span class="small">{{ small }}</span>
       </div>
       <div class="sweep" aria-hidden="true" />
@@ -71,6 +76,10 @@ defineProps<{
   line-height: 1;
 }
 .small { max-width: 60%; font-size: 14px; color: #c9d3e3; }
+/* The app icon's pulse line (scripts/appicon), in its mint. */
+.pulse { width: 58%; overflow: visible; }
+.pulse path { fill: none; stroke: #7ee0c3; stroke-width: 26; stroke-linecap: round; stroke-linejoin: round; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .sweep {
   position: absolute;
   inset: 0;
