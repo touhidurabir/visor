@@ -8,7 +8,8 @@ import Lens from './Lens.vue'
 import NotificationBell from './NotificationBell.vue'
 
 // `connection` is the badge for a connection problem ("Not running", "Not
-// connected"; lib/connection.ts connectionBadge), null while connected.
+// answering", "Not connected"; lib/connection.ts connectionBadge), null
+// while connected.
 const props = defineProps<{ name: string; health: string; failing: number; openIssues: number; connection: string | null }>()
 
 // Shortcut hints, as Visor's menu bar shows them (internal/app/appmenu.go).

@@ -15,11 +15,12 @@ type Rename struct {
 }
 
 // CopyDoubt is a setting of a copy that may not do what the person wants,
-// because it is kept as written: a value naming the original program (a log
-// file, say), a group member defined in another file, or a section CopyAs
-// does not rename. Line is the line in the copy (copies keep line numbers);
-// Section is the copy's section name, e.g. "program:mailer-copy"; Name is
-// the name the setting mentions.
+// because it is kept as written: a value naming the original program, a log
+// file the two would share, a group member defined in another file, or a
+// section CopyAs does not rename. Line is the line in the copy (copies keep
+// line numbers), or 0 for the file name; Section is the copy's section name,
+// e.g. "program:mailer-copy"; Name is the name the setting mentions (the
+// program, for a shared log; the file, for the file name).
 type CopyDoubt struct {
 	Line               int
 	Section, Key, Name string
@@ -45,12 +46,17 @@ var otherSectionKinds = []string{"fcgi-program:", "eventlistener:"}
 // programs= list follows its renamed programs. supervisord keeps programs
 // without a group and groups in one process-group namespace, so one taken
 // set covers both. The file name gets the same suffix before its extension
-// and is not in takenFiles (compared ignoring case, as macOS does).
+// and is not in takenFiles (compared ignoring case, as macOS does). When
+// patterns (the include patterns' file names, e.g. "*-svc.ini") are given,
+// it also matches one of them, so supervisord loads the copy: the suffix
+// moves in front of the part the pattern needs (web-copy-svc.ini) if it
+// has to, and a name that can't match any is a doubt.
 //
 // Comments, key order, other settings and spacing are kept line for line.
 // Values that still name the original (other than %(program_name)s, which
-// supervisord expands for the copy) are kept too and listed in Doubts.
-func CopyAs(fileName, content string, taken, takenFiles []string) (Copy, error) {
+// supervisord expands for the copy) are kept too and listed in Doubts, as
+// are log files the copy would share with the original.
+func CopyAs(fileName, content string, taken, takenFiles, patterns []string) (Copy, error) {
 	f, err := ParseINI(strings.NewReader(content), fileName)
 	if err != nil {
 		return Copy{}, fmt.Errorf("can't copy it: %w", err)
@@ -87,7 +93,10 @@ func CopyAs(fileName, content string, taken, takenFiles []string) (Copy, error) 
 	chosen := map[string]string{}   // new name -> kind that took it
 	for _, s := range progs {
 		old := strings.TrimSpace(strings.TrimPrefix(s.Name, "program:"))
-		if _, done := progNew[old]; done {
+		if n, done := progNew[old]; done {
+			// [program:web ] is another section to ParseINI, but the same
+			// program to supervisord: its header gets the same new name.
+			sections[s.Name] = "program:" + n
 			continue
 		}
 		n := free(old, func(c string) bool { return !used[c] && chosen[c] == "" })
@@ -132,30 +141,69 @@ func CopyAs(fileName, content string, taken, takenFiles []string) (Copy, error) 
 			}
 		}
 	}
+	var fits bool
+	c.FileName, fits = copyFileName(filepath.Base(fileName), takenFiles, patterns)
+	if !fits {
+		c.Doubts = append(c.Doubts, CopyDoubt{
+			Name: c.FileName,
+			Message: fmt.Sprintf("%s does not match the include setting (%s), so supervisord would not load it. Rename the file so it matches",
+				c.FileName, strings.Join(patterns, ", ")),
+		})
+	}
 	slices.SortStableFunc(c.Doubts, func(a, b CopyDoubt) int { return a.Line - b.Line })
-
-	c.FileName = copyFileName(filepath.Base(fileName), takenFiles)
 	return c, nil
 }
 
 // copyFileName is base with -copy (-copy-2, …) before its extension, not in
-// takenFiles, ignoring case.
-func copyFileName(base string, takenFiles []string) string {
+// takenFiles (ignoring case) and matching one of patterns, if any. When the
+// end of the name can't take the suffix (web-svc-copy.ini is not *-svc.ini),
+// it goes before each '-', '_' or '.' of the name in turn, from the right
+// (web-copy-svc.ini). fits is false when no such name matches: name is then
+// the plain -copy one.
+func copyFileName(base string, takenFiles, patterns []string) (name string, fits bool) {
 	used := map[string]bool{strings.ToLower(base): true}
 	for _, n := range takenFiles {
 		used[strings.ToLower(n)] = true
 	}
 	ext := filepath.Ext(base)
 	stem := strings.TrimSuffix(base, ext)
-	for i := 1; ; i++ {
-		n := stem + "-copy"
-		if i > 1 {
-			n += "-" + strconv.Itoa(i)
+	matches := func(n string) bool {
+		if len(patterns) == 0 {
+			return true
 		}
-		if !used[strings.ToLower(n+ext)] {
-			return n + ext
+		return slices.ContainsFunc(patterns, func(p string) bool {
+			ok, _ := filepath.Match(p, n)
+			return ok
+		})
+	}
+	// Where the suffix may go: the end of the stem, then before each
+	// separator, right to left.
+	points := []int{len(stem)}
+	for i := len(stem) - 1; i > 0; i-- {
+		if strings.IndexByte("-_.", stem[i]) >= 0 {
+			points = append(points, i)
 		}
 	}
+	// Per point, a free name is among the first len(takenFiles)+1 suffixes.
+	try := func(at int, match func(string) bool) string {
+		for i := 1; i <= len(takenFiles)+1; i++ {
+			n := stem[:at] + "-copy"
+			if i > 1 {
+				n += "-" + strconv.Itoa(i)
+			}
+			n += stem[at:] + ext
+			if !used[strings.ToLower(n)] && match(n) {
+				return n
+			}
+		}
+		return ""
+	}
+	for _, at := range points {
+		if n := try(at, matches); n != "" {
+			return n, true
+		}
+	}
+	return try(len(stem), func(string) bool { return true }), false
 }
 
 // listOf is a group's programs= list, as supervisord's list_of_strings
@@ -240,27 +288,50 @@ func renameList(s string, progNew map[string]string) string {
 var expansionRe = regexp.MustCompile(`%%|%\(\w+\)[0-9]*[sd]`)
 
 // mentionDoubts lists the settings of the copied programs whose value names
-// an original program or group as a whole word.
+// an original program or group as a whole word, and the log files the copy
+// would share with the original.
 func mentionDoubts(f File, sections map[string]string, renames []Rename) []CopyDoubt {
 	var out []CopyDoubt
 	for _, s := range f.SectionsWithPrefix("program:") {
+		prog := strings.TrimSpace(strings.TrimPrefix(s.Name, "program:"))
 		for _, k := range s.Keys {
+			if k.Name == "stdout_logfile" || k.Name == "stderr_logfile" {
+				if sharedLog(k.Value) {
+					out = append(out, CopyDoubt{Line: k.Line, Section: sections[s.Name], Key: k.Name, Name: prog,
+						Message: fmt.Sprintf("%s is a fixed path, so the copy and %s would write to the same log file. Put %%(program_name)s in it, or name another file", k.Name, prog)})
+				}
+				continue
+			}
 			v := expansionRe.ReplaceAllString(k.Value, " ")
 			for _, r := range renames {
 				if !mentions(v, r.From) {
 					continue
 				}
-				msg := fmt.Sprintf("%s still mentions %s: the copy keeps it as written", k.Name, r.From)
-				if strings.HasSuffix(k.Name, "logfile") {
-					msg = fmt.Sprintf("%s still names %s, so the copy and the original would write to the same log file", k.Name, r.From)
-				}
-				out = append(out, CopyDoubt{Line: k.Line, Section: sections[s.Name], Key: k.Name, Name: r.From, Message: msg})
+				out = append(out, CopyDoubt{Line: k.Line, Section: sections[s.Name], Key: k.Name, Name: r.From,
+					Message: fmt.Sprintf("%s still mentions %s: the copy keeps it as written", k.Name, r.From)})
 				break
 			}
 		}
 	}
 	return out
 }
+
+// sharedLog reports whether a stdout_logfile or stderr_logfile value is the
+// same file for the copy as for the original: a path, not AUTO, NONE or
+// syslog (as the checks in internal/validate read them), with nothing
+// supervisord works out per program. %(process_num)s does not count: the
+// copy's processes are numbered as the original's are.
+func sharedLog(v string) bool {
+	v = strings.TrimSpace(v)
+	if v == "" || strings.EqualFold(v, "AUTO") || strings.EqualFold(v, "NONE") || strings.EqualFold(v, "syslog") {
+		return false
+	}
+	return !programExpansionRe.MatchString(v)
+}
+
+// programExpansionRe matches the expansions that differ between a program
+// and its copy.
+var programExpansionRe = regexp.MustCompile(`%\((program_name|group_name)\)[0-9]*s`)
 
 // mentions reports whether name appears in v with no name character
 // (letter, digit, '_' or '-') right before or after it.

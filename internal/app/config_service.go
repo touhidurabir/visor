@@ -456,7 +456,8 @@ func (s *ConfigService) CopyDraft(path string) (CopyDraftView, error) {
 		files = append(files, e.Name())
 	}
 	// The names the checks treat as taken (validateEnv), groups included.
-	c, err := config.CopyAs(name, string(data), s.rt.validateEnv("").Inventory.Names(), files)
+	env := s.rt.validateEnv("")
+	c, err := config.CopyAs(name, string(data), env.Inventory.Names(), files, folderPatterns(env.IncludeGlobs, dir))
 	if err != nil {
 		return CopyDraftView{}, err
 	}
@@ -464,6 +465,18 @@ func (s *ConfigService) CopyDraft(path string) (CopyDraftView, error) {
 		c.Doubts = []config.CopyDoubt{} // [] rather than null for the frontend
 	}
 	return CopyDraftView{FileName: c.FileName, Content: c.Content, Renames: c.Renames, Doubts: c.Doubts}, nil
+}
+
+// folderPatterns is the file-name part of each include glob for the folder
+// dir: the names supervisord loads from it.
+func folderPatterns(globs []string, dir string) []string {
+	var out []string
+	for _, g := range globs {
+		if filepath.Dir(g) == dir {
+			out = append(out, filepath.Base(g))
+		}
+	}
+	return out
 }
 
 // invalidError is ErrInvalidConfig with the first error found.

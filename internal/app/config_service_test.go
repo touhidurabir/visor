@@ -478,3 +478,35 @@ func TestCopyDraft(t *testing.T) {
 		t.Error("CopyDraft of supervisord.conf succeeded")
 	}
 }
+
+// The copy's file name matches the include folder's own pattern, so
+// supervisord loads it.
+func TestCopyDraftMatchesTheIncludePattern(t *testing.T) {
+	dir := t.TempDir()
+	confd := filepath.Join(dir, "conf.d")
+	if err := os.MkdirAll(confd, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	web := filepath.Join(confd, "web-svc.ini")
+	if err := os.WriteFile(web, []byte("[program:web]\ncommand=sleep 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	main := filepath.Join(dir, "supervisord.conf")
+	if err := os.WriteFile(main, []byte("[supervisord]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Another folder's pattern does not count for this one.
+	cs := NewConfigService(offlineRuntime(t, main, filepath.Join(confd, "*-svc.ini"), filepath.Join(dir, "other", "*.ini")))
+	v, err := cs.CopyDraft(web)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.FileName != "web-copy-svc.ini" || len(v.Doubts) != 0 {
+		t.Errorf("CopyDraft = %q, doubts %+v; want web-copy-svc.ini and none", v.FileName, v.Doubts)
+	}
+	for _, c := range cs.Validate(v.FileName, v.Content, "") {
+		if c.Level == validate.Error {
+			t.Errorf("the draft fails a check: %+v", c)
+		}
+	}
+}

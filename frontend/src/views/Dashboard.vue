@@ -355,15 +355,15 @@ function sendSignal(sig: string) {
             >
           </div>
         </div>
-        <dl class="counts" aria-label="Totals">
-          <div v-for="n in healthView.counts" :key="n.label" class="count">
-            <dt class="meta">{{ n.label }}</dt>
-            <dd :class="{ none: n.value === NO_COUNT }">{{ n.value }}</dd>
-          </div>
-          <div class="count issues">
-            <RouterLink to="/issues">{{ openIssuesLabel(overview.Stats.OpenIssues) }}</RouterLink>
-          </div>
-        </dl>
+        <div class="totals">
+          <dl class="counts" aria-label="Totals">
+            <div v-for="n in healthView.counts" :key="n.label" class="count">
+              <dt class="meta">{{ n.label }}</dt>
+              <dd :class="{ none: n.value === NO_COUNT }">{{ n.value }}</dd>
+            </div>
+          </dl>
+          <RouterLink class="issues-link" to="/issues">{{ openIssuesLabel(overview.Stats.OpenIssues) }}</RouterLink>
+        </div>
       </section>
 
       <section aria-labelledby="s2">
@@ -440,14 +440,15 @@ header { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px; }
 .sentence { font-size: 16px; font-weight: 600; }
 .link { padding: 0; border: 0; background: none; color: var(--accent-text); font: inherit; cursor: pointer; }
 .link:hover { text-decoration: underline; }
+/* The counts and the issues link sit in one row, as one group of totals. */
+.totals { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 24px; }
 .counts { display: flex; flex-wrap: wrap; gap: 4px 24px; margin: 0; }
 .count { display: flex; flex-direction: column; }
 .count dt { order: 2; }
 .count dd { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .count dd.none { color: var(--ink3); }
-.count.issues { justify-content: center; }
-.count.issues a { color: var(--accent-text); text-decoration: none; }
-.count.issues a:hover { text-decoration: underline; }
+.issues-link { color: var(--accent-text); text-decoration: none; }
+.issues-link:hover { text-decoration: underline; }
 
 .error { padding: 12px; border: 1px solid var(--failing-dot); border-radius: var(--radius-md); background: var(--failing-bg); color: var(--failing-fg); }
 .error p { margin: 4px 0 8px; user-select: text; }

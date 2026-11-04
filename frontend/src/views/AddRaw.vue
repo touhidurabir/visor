@@ -25,7 +25,8 @@ const editor = ref<InstanceType<typeof IniEditor>>()
 const results = ref<HTMLElement>()
 
 const view = computed(() => n.explained.value)
-const doubts = computed(() => (n.copied.value ? liveDoubts(n.copied.value.doubts, draft.state.content) : []))
+const doubts = computed(() => (n.copied.value ? liveDoubts(n.copied.value.doubts, draft.state, n.copied.value.copy) : []))
+const fileInput = ref<HTMLInputElement>()
 const marks = computed(() => mergeMarks(n.upToDate.value ? explainMarks(view.value) : [], doubtMarks(doubts.value)))
 const blocking = computed(() => (n.upToDate.value ? (view.value?.SaveErrors ?? n.errorCount.value) : 0))
 const reason = computed(() => saveReason(view.value) || fixToSave(blocking.value || n.errorCount.value, errorsOnLines(view.value)))
@@ -40,8 +41,10 @@ const bar = computed<{ tone: 'ok' | 'bad' | 'warn' | 'idle'; status: string }>((
 })
 const cantSave = computed(() => n.busy.value || !draft.state.fileName.trim() || n.hasErrors.value)
 
+// A doubt about the file name (line 0) points at the name field.
 function goto(line: number) {
-  editor.value?.goToLine(line)
+  if (!line) fileInput.value?.focus()
+  else editor.value?.goToLine(line)
 }
 function fix(e: EditView) {
   draft.setContent(applyEdit(draft.state.content, e))
@@ -86,6 +89,7 @@ watch(
           <label for="fname" class="strong">File name</label>
           <input
             id="fname"
+            ref="fileInput"
             class="input mono"
             :value="draft.state.fileName"
             spellcheck="false"
@@ -100,7 +104,7 @@ watch(
             <li v-for="(d, i) in doubts" :key="i">
               <button type="button" class="doubt" @click="goto(d.Line)">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 20h20L12 3zM12 10v4M12 17v.01" /></svg>
-                <span><span class="sr">Warning: </span><strong>Line {{ d.Line }}</strong> · {{ d.Message }}.</span>
+                <span><span class="sr">Warning: </span><strong>{{ d.Line ? `Line ${d.Line}` : 'File name' }}</strong> · {{ d.Message }}.</span>
               </button>
             </li>
           </ul>

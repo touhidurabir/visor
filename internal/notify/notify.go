@@ -14,6 +14,7 @@ import (
 
 	"github.com/touhidurabir/visor/internal/issues"
 	"github.com/touhidurabir/visor/internal/settings"
+	"github.com/touhidurabir/visor/internal/supervisor"
 )
 
 // ErrUnavailable is returned by a Sender that cannot show notifications in
@@ -159,6 +160,9 @@ func Compose(is issues.Issue) Message {
 		m.Headline = name + " keeps restarting"
 	case issues.KindUnreachable:
 		m.Headline = "supervisord isn't responding"
+		if turnedDown(is) {
+			m.Headline = "supervisord wants a password"
+		}
 	default:
 		m.Headline = name + " has a problem"
 	}
@@ -174,8 +178,9 @@ const unreachablePrefix = "supervisord is not responding"
 // "flaky.ini: ". Visor's own wording ("Exited with status 2", "Restarted 5
 // times in 10 minutes") becomes "it exited with status 2", "it was
 // restarted 5 times in 10 minutes"; supervisord not responding becomes
-// "Visor can't reach it" plus the error. supervisord's own reason ("can't
-// find command '/x'") is kept as it is.
+// "Visor can't reach it" plus the error, or, when it answered but turned
+// down the password, says so. supervisord's own reason ("can't find command
+// '/x'") is kept as it is.
 func clause(is issues.Issue) string {
 	msg := strings.TrimSuffix(strings.TrimSpace(is.Message), ".")
 	if msg == "" {
@@ -186,7 +191,11 @@ func clause(is issues.Issue) string {
 		if !ok {
 			return msg
 		}
-		if why := strings.TrimSpace(strings.TrimPrefix(rest, ":")); why != "" {
+		why := strings.TrimSpace(strings.TrimPrefix(rest, ":"))
+		if why == supervisor.ErrUnauthorized.Error() {
+			return "supervisord turned down the username and password Visor used"
+		}
+		if why != "" {
 			return "Visor can't reach it: " + why
 		}
 		return "Visor can't reach it"
@@ -201,6 +210,13 @@ func clause(is issues.Issue) string {
 		}
 	}
 	return msg
+}
+
+// turnedDown reports whether an unreachable issue is supervisord answering
+// with 401: it is running, but turned down Visor's username and password.
+func turnedDown(is issues.Issue) bool {
+	return is.Kind == issues.KindUnreachable &&
+		strings.TrimSuffix(strings.TrimSpace(is.Message), ".") == unreachablePrefix+": "+supervisor.ErrUnauthorized.Error()
 }
 
 // sentence ends s with a full stop, unless it already ends a sentence.

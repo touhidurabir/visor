@@ -38,20 +38,45 @@ describe('renamesNote', () => {
 })
 
 describe('liveDoubts', () => {
+  const made = { fileName: 'mailer-copy.ini', content: copy }
+  const now = (content: string, fileName = 'mailer-copy.ini') => ({ fileName, content })
   it('keeps every doubt while the copy is as Go made it', () => {
-    expect(liveDoubts(doubts, copy)).toEqual(doubts)
+    expect(liveDoubts(doubts, made, made)).toEqual(doubts)
   })
   it('drops a doubt once its value no longer names the original', () => {
     const edited = copy.replace('/var/log/mailer.log', '/var/log/mailer-copy.log').replace('NAME="mailer"', 'NAME="other"')
-    expect(liveDoubts(doubts, edited).map((d) => d.Key)).toEqual(['command', 'programs', ''])
+    expect(liveDoubts(doubts, now(edited), made).map((d) => d.Key)).toEqual(['command', 'programs', ''])
   })
   it('drops a doubt whose line moved or lost its setting', () => {
-    expect(liveDoubts(doubts, `; a new first line\n${copy}`)).toEqual([])
-    expect(liveDoubts([doubt(40, 'command', 'mailer')], copy)).toEqual([])
+    expect(liveDoubts(doubts, now(`; a new first line\n${copy}`), made)).toEqual([])
+    expect(liveDoubts([doubt(40, 'command', 'mailer')], made, made)).toEqual([])
   })
   it('does not count %(program_name)s or a longer name as the original', () => {
-    const text = '[program:mailer-copy]\nstdout_logfile=/var/log/%(program_name)s.log\nstderr_logfile=/var/log/mailer-copy.err\n'
-    expect(liveDoubts([doubt(2, 'stdout_logfile', 'mailer'), doubt(3, 'stderr_logfile', 'mailer')], text)).toEqual([])
+    const text = '[program:mailer-copy]\ncommand=/bin/x --name mailer-copy\nuser=%(program_name)s\n'
+    expect(liveDoubts([doubt(2, 'command', 'mailer'), doubt(3, 'user', 'mailer')], now(text), now('[program:mailer-copy]\ncommand=/bin/x --name mailer\nuser=mailer\n'))).toEqual([])
+  })
+  it('keeps a shared log file until its path changes, even when it doesn’t name the original', () => {
+    const shared = '[program:worker-copy]\nstdout_logfile=/var/log/app.log ; both\nstderr_logfile=/var/log/app.err\n'
+    const logs = [doubt(2, 'stdout_logfile', 'worker'), doubt(3, 'stderr_logfile', 'worker')]
+    const was = now(shared)
+    expect(liveDoubts(logs, was, was)).toEqual(logs)
+    // Only the comment changed: still the same file.
+    expect(liveDoubts(logs, now(shared.replace('; both', '; shared')), was)).toEqual(logs)
+    const fixed = shared.replace('/var/log/app.log', '/var/log/%(program_name)s.log').replace('/var/log/app.err', '/var/log/app-copy.err')
+    expect(liveDoubts(logs, now(fixed), was)).toEqual([])
+  })
+  it('reads a value on past blank and comment lines, as supervisord does', () => {
+    const text = '[program:mailer-copy]\nenvironment=A="1",\n\n  ; the name\n  NAME="mailer"\ncommand=x\n'
+    expect(liveDoubts([doubt(2, 'environment', 'mailer')], now(text), now(text))).toHaveLength(1)
+    // A line that isn't indented ends the value.
+    const ended = '[program:mailer-copy]\nenvironment=A="1",\n\nNAME="mailer"\n'
+    expect(liveDoubts([doubt(2, 'environment', 'mailer')], now(ended), now(ended))).toEqual([])
+  })
+  it('keeps a doubt about the file name until the file is renamed', () => {
+    const file = { Line: 0, Key: '', Name: 'web-copy.ini', Section: '', Message: 'web-copy.ini does not match the include setting' }
+    const was = now('[program:web-copy]\n', 'web-copy.ini')
+    expect(liveDoubts([file], was, was)).toEqual([file])
+    expect(liveDoubts([file], now(was.content, 'web-copy-svc.ini'), was)).toEqual([])
   })
 })
 

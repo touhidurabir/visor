@@ -30,8 +30,8 @@ const name = computed(() => overview.value?.Server.Name ?? 'Local')
 const health = computed(() => overview.value?.Server.Health ?? 'unknown')
 const failing = computed(() => overview.value?.Stats.Failing ?? 0)
 const openIssues = computed(() => overview.value?.Stats.OpenIssues ?? 0)
-// "Not running" or "Not connected" beside the server's name, as the
-// dashboard and popover word the problem; null while connected.
+// "Not running", "Not answering" or "Not connected" beside the server's
+// name, as the dashboard and popover word the problem; null while connected.
 const connection = computed(() => connectionBadge(connectionProblem(overview.value?.Server)))
 </script>
 

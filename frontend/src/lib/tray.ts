@@ -6,7 +6,7 @@
 import type { ConfigView, ProcessView, ServerView, StatsView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { connectionBadge, type ConnectionProblem } from './connection'
 import { formatDuration } from './format'
-import { isFailing } from './health'
+import { isFailing, processLabel } from './health'
 import { stateLabel, stateLook, type StateTone } from './state'
 
 export const NEEDS_ATTENTION = 'Needs attention'
@@ -38,6 +38,15 @@ export function trayGroups(configs: ConfigView[]): TrayGroup[] {
   })
   if (!failing.length) return groups
   return [{ key: 'attention', name: NEEDS_ATTENTION, config: null, processes: failing, moved: 0 }, ...groups]
+}
+
+/**
+ * The name a row shows (and its buttons say). Under its config, the process
+ * name; in Needs attention, where several configs meet, "group:name" when
+ * they differ (processLabel), so two failing workers can be told apart.
+ */
+export function rowName(group: Pick<TrayGroup, 'config'>, p: ProcessView): string {
+  return group.config ? p.Name : processLabel(p)
 }
 
 export type TrayVerb = 'start' | 'stop' | 'restart'

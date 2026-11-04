@@ -30,24 +30,64 @@ function mentions(v: string, name: string): boolean {
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
+/** Cuts at the first ';' that follows whitespace, as Go's stripInlineComment. */
+function stripInlineComment(s: string): string {
+  for (let i = 0; i < s.length; i++) if (s[i] === ';' && (i === 0 || s[i - 1] === ' ' || s[i - 1] === '\t')) return s.slice(0, i)
+  return s
+}
+
 /**
- * The doubts that still hold for the text as it is now: the line still has
- * that setting (or section) and it still names the original. A doubt goes
- * away once the person changes that value; Go's line numbers are the copy's,
- * so a doubt whose line moved away is dropped too.
+ * The value of key on line at (0-based), as Go's ParseINI reads it: without
+ * an inline comment, with its indented continuation lines, which go on past
+ * blank and comment lines. null when that line doesn't set key.
  */
-export function liveDoubts(doubts: CopyDoubt[], content: string): CopyDoubt[] {
-  const lines = content.split('\n')
+function valueAt(lines: string[], at: number, key: string): string | null {
+  const line = lines[at]?.replace(/\r$/, '')
+  if (line === undefined) return null
+  // A setting starts its line; an indented line continues the one above.
+  const m = new RegExp(`^${escape(key)}[ \\t]*[=:]`, 'i').exec(line)
+  if (!m) return null
+  let value = stripInlineComment(line.slice(m[0].length)).trim()
+  for (let i = at + 1; i < lines.length; i++) {
+    const l = lines[i].replace(/\r$/, '')
+    const t = l.trim()
+    if (t === '' || t[0] === ';' || t[0] === '#') continue
+    if (!/^[ \t]/.test(l)) break
+    const part = stripInlineComment(l).trim()
+    if (part) value += '\n' + part
+  }
+  return value
+}
+
+/** Log files: Go flags a fixed path the copy would share with the original. */
+const LOG_KEYS = new Set(['stdout_logfile', 'stderr_logfile'])
+
+export interface Draft {
+  fileName: string
+  content: string
+}
+
+/**
+ * The doubts that still hold for the draft as it is now (now), against the
+ * copy as Go made it (copy). A doubt about a setting goes away once the
+ * person changes it so it no longer names the original, or, for a log file
+ * the two would share, changes its value at all; one about a section once
+ * its header goes; one about the file name (line 0) once the file is
+ * renamed. Go's line numbers are the copy's, so a doubt whose line moved
+ * away is dropped too.
+ */
+export function liveDoubts(doubts: CopyDoubt[], now: Draft, copy: Draft): CopyDoubt[] {
+  const lines = now.content.split('\n')
+  const copyLines = copy.content.split('\n')
   return doubts.filter((d) => {
+    if (!d.Line) return now.fileName === copy.fileName
     const at = d.Line - 1
     const line = lines[at]
     if (line === undefined) return false
     if (!d.Key) return line.trim().startsWith('[') && line.includes(d.Section)
-    const m = new RegExp(`^\\s*${escape(d.Key)}\\s*[=:]`).exec(line)
-    if (!m) return false
-    // The value, with its indented continuation lines.
-    let value = line.slice(m[0].length)
-    for (let i = at + 1; i < lines.length && /^[ \t]/.test(lines[i]) && lines[i].trim(); i++) value += '\n' + lines[i]
+    const value = valueAt(lines, at, d.Key)
+    if (value === null) return false
+    if (LOG_KEYS.has(d.Key)) return value === valueAt(copyLines, at, d.Key)
     return mentions(value.replace(EXPANSION, ' '), d.Name)
   })
 }

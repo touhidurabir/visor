@@ -3,6 +3,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ConfigService, type ApplyResultView, type ExplainView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { CopyDoubt, Rename } from '../../bindings/github.com/touhidurabir/visor/internal/config'
+import type { Draft } from './copy-draft'
 import type { Check } from '../../bindings/github.com/touhidurabir/visor/internal/validate'
 import { createDraft, type TemplateInfo } from './draft'
 import { describeError } from './faults'
@@ -37,6 +38,8 @@ export interface CopiedFrom {
   fileName: string
   renames: Rename[]
   doubts: CopyDoubt[]
+  /** The copy as Go drafted it, which the doubts were raised on. */
+  copy: Draft
 }
 const copied = ref<CopiedFrom | null>(null)
 
@@ -170,7 +173,7 @@ export async function copyFrom(path: string, fileName: string) {
   await start() // so the first template never lands on top of the copy
   const v = await ConfigService.CopyDraft(path)
   draft.loadCopy(v.FileName, v.Content)
-  copied.value = { fileName, renames: v.Renames ?? [], doubts: v.Doubts ?? [] }
+  copied.value = { fileName, renames: v.Renames ?? [], doubts: v.Doubts ?? [], copy: { fileName: v.FileName, content: v.Content } }
 }
 
 /** The draft no longer is the copy (a template was chosen). */

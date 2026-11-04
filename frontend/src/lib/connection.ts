@@ -3,12 +3,14 @@
 // side's text, which stays under "Show details"). The kinds follow Doctor's
 // situations (internal/doctor): a socket that isn't open to this user is
 // "denied", a turned-down password "auth", any other unreachable socket
-// "down"; an error before Visor could even poll (no config, no socket in it,
-// a saved password it couldn't read) is "setup".
+// "down". A poll that connected but got no usable answer (a hung
+// supervisord's timeout, an HTTP error, a dropped connection) is "silent".
+// An error before Visor could even poll (no config, no socket in it, a
+// saved password it couldn't read) is "setup".
 import type { ServerView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { Segment } from './health'
 
-export type ConnectionKind = 'down' | 'denied' | 'auth' | 'password' | 'setup'
+export type ConnectionKind = 'down' | 'denied' | 'auth' | 'silent' | 'password' | 'setup'
 
 export interface ConnectionProblem {
   kind: ConnectionKind
@@ -42,12 +44,17 @@ function addressOf(raw: string): string {
 
 const OUTCOME = 'so Visor can’t show or control processes. Your config files are fine.'
 
+// internal/app's buildOverview starts every failed poll's error with this;
+// setup errors never have it.
+const POLL_ERROR = 'cannot reach supervisord:'
+
 /** The banner's words for a down connection, or null when connected (or not yet known). */
 export function connectionProblem(s: Server | null | undefined): ConnectionProblem | null {
   if (!s || !isDown(s)) return null
   const raw = s.Error ?? ''
   const address = addressOf(raw)
-  const polling = /supervisord: (unreachable|unauthorized)/.test(raw)
+  const polling = raw.startsWith(POLL_ERROR) || /supervisord: (unreachable|unauthorized)/.test(raw)
+  const unreachable = /supervisord: unreachable/.test(raw)
   const base = { address, raw, retrying: polling }
   if (/supervisord: unauthorized/.test(raw)) {
     return {
@@ -58,7 +65,7 @@ export function connectionProblem(s: Server | null | undefined): ConnectionProbl
       reason: 'supervisord turned down Visor’s password',
     }
   }
-  if (polling && /permission denied/i.test(raw)) {
+  if (unreachable && /permission denied/i.test(raw)) {
     return {
       ...base,
       kind: 'denied',
@@ -67,7 +74,7 @@ export function connectionProblem(s: Server | null | undefined): ConnectionProbl
       reason: 'supervisord won’t let Visor in',
     }
   }
-  if (polling) {
+  if (unreachable) {
     return {
       ...base,
       kind: 'down',
@@ -76,6 +83,15 @@ export function connectionProblem(s: Server | null | undefined): ConnectionProbl
         ? [{ text: 'Nothing answers at ' }, { text: address, mono: true }, { text: `, ${OUTCOME}` }]
         : [{ text: `Nothing answers on its socket, ${OUTCOME}` }],
       reason: 'supervisord isn’t running',
+    }
+  }
+  if (polling) {
+    return {
+      ...base,
+      kind: 'silent',
+      title: 'supervisord isn’t answering',
+      line: [{ text: `supervisord didn’t answer Visor’s last check in time, or answered with an error, ${OUTCOME}` }],
+      reason: 'supervisord isn’t answering',
     }
   }
   if (/cannot read the supervisord password/.test(raw)) {
@@ -98,11 +114,12 @@ export function connectionProblem(s: Server | null | undefined): ConnectionProbl
 
 /**
  * The short badge beside the server's name (sidebar, popover header): "Not
- * running" only when supervisord isn't running, "Not connected" for any
- * other problem (a password, a socket closed to this user, the setup), and
- * null while connected.
+ * running" only when supervisord isn't running, "Not answering" when it
+ * didn't answer a check, "Not connected" for any other problem (a password,
+ * a socket closed to this user, the setup), and null while connected.
  */
 export function connectionBadge(problem: Pick<ConnectionProblem, 'kind'> | null | undefined): string | null {
   if (!problem) return null
-  return problem.kind === 'down' ? 'Not running' : 'Not connected'
+  if (problem.kind === 'down') return 'Not running'
+  return problem.kind === 'silent' ? 'Not answering' : 'Not connected'
 }

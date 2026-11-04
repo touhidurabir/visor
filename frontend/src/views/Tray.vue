@@ -14,7 +14,7 @@ import { useApplyFlow } from '../lib/apply-flow'
 import { connectionProblem } from '../lib/connection'
 import { useNotifications } from '../lib/notifications'
 import { stateLabel } from '../lib/state'
-import { VERB_LABEL, downLine, footerReason, rowLook, trayActions, trayGroups, trayHeader, type TrayVerb } from '../lib/tray'
+import { VERB_LABEL, downLine, footerReason, rowLook, rowName, trayActions, trayGroups, trayHeader, type TrayVerb } from '../lib/tray'
 
 const { overview, error: loadError, reload } = useOverview()
 const flow = useApplyFlow(() => reload())
@@ -43,7 +43,7 @@ const sections = computed(() => [
 const groups = computed(() =>
   trayGroups(overview.value?.Configs ?? []).map((g) => ({
     ...g,
-    rows: g.processes.map((p) => ({ p, look: rowLook(p), actions: trayActions(p.State) })),
+    rows: g.processes.map((p) => ({ p, label: rowName(g, p), look: rowLook(p), actions: trayActions(p.State) })),
   })),
 )
 
@@ -59,14 +59,14 @@ const calls: Record<TrayVerb, (name: string) => Promise<void>> = {
   restart: (n) => ServerService.Restart(n),
 }
 
-async function act(verb: TrayVerb, p: ProcessView) {
+async function act(verb: TrayVerb, p: ProcessView, label: string) {
   const name = p.FullName
   busy.value = new Set(busy.value).add(name)
   try {
     await calls[verb](name)
     if (notice.value?.kind === 'error') notice.value = null
   } catch (e) {
-    notice.value = { kind: 'error', text: `Couldn't ${verb} ${p.Name}: ${errorMessage(e)}` }
+    notice.value = { kind: 'error', text: `Couldn't ${verb} ${label}: ${errorMessage(e)}` }
   } finally {
     const next = new Set(busy.value)
     next.delete(name)
@@ -204,9 +204,9 @@ function openVisor() {
           </button>
         </div>
         <p v-if="!g.rows.length && g.moved" class="meta moved">Listed under Needs attention</p>
-        <div v-for="{ p, look, actions } in g.rows" :key="p.FullName" :class="['prow', { bad: look.failing }]" data-testid="tray-row">
+        <div v-for="{ p, label, look, actions } in g.rows" :key="p.FullName" :class="['prow', { bad: look.failing }]" data-testid="tray-row">
           <span :class="['dot', `d-${look.tone}`]" aria-hidden="true" />
-          <span class="name" :title="p.FullName">{{ p.Name }}</span>
+          <span class="name" :title="p.FullName">{{ label }}</span>
           <span :class="['time', look.timeClass]" :title="stateLabel(p.State)" data-testid="tray-time">{{ look.time }}</span>
           <span class="acts-row">
             <button
@@ -214,10 +214,10 @@ function openVisor() {
               :key="v"
               type="button"
               class="btn quiet icon sm act"
-              :aria-label="`${VERB_LABEL[v]} ${p.Name}`"
-              :title="`${VERB_LABEL[v]} ${p.Name}`"
+              :aria-label="`${VERB_LABEL[v]} ${label}`"
+              :title="`${VERB_LABEL[v]} ${label}`"
               :disabled="isBusy(p)"
-              @click="act(v, p)"
+              @click="act(v, p, label)"
             >
               <svg v-if="v === 'start'" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l12.5-7.5z" /></svg>
               <svg v-else-if="v === 'stop'" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5.5" y="5.5" width="13" height="13" rx="2" /></svg>

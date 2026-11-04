@@ -1,11 +1,26 @@
 import { describe, expect, it } from 'vitest'
 import type { ConfigView, ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { connectionProblem } from './connection'
-import { NEEDS_ATTENTION, downLine, footerReason, rowLook, trayActions, trayGroups, trayHeader } from './tray'
+import { NEEDS_ATTENTION, downLine, footerReason, rowLook, rowName, trayActions, trayGroups, trayHeader } from './tray'
 
 const p = (Name: string, Status: string, State = 'RUNNING', Since = '') => ({ FullName: `${Name}:${Name}`, Name, Group: Name, Status, State, Since }) as ProcessView
 const cfg = (FileName: string, ...Processes: ProcessView[]) => ({ FileName, Path: `/c/${FileName}`, Processes }) as ConfigView
 const shape = (configs: ConfigView[]) => trayGroups(configs).map((g) => [g.name, g.processes.map((x) => x.Name), g.moved])
+
+describe('rowName', () => {
+  it('tells two failing processes of the same name apart under Needs attention', () => {
+    const inGroup = (Group: string, Name: string) => ({ FullName: `${Group}:${Name}`, Name, Group, Status: 'failing', State: 'FATAL', Since: '' }) as ProcessView
+    const groups = trayGroups([cfg('shop.ini', inGroup('shop', 'worker')), cfg('mail.ini', inGroup('mail', 'worker'))])
+    expect(groups[0].name).toBe(NEEDS_ATTENTION)
+    expect(groups[0].processes.map((x) => rowName(groups[0], x))).toEqual(['shop:worker', 'mail:worker'])
+  })
+  it('is the plain name when the group is the program, and under a config', () => {
+    const groups = trayGroups([cfg('a.ini', p('flaky', 'failing', 'EXITED'), p('ok', 'running'))])
+    expect(rowName(groups[0], groups[0].processes[0])).toBe('flaky')
+    const under = { config: cfg('m.ini') }
+    expect(rowName(under, { FullName: 'mail:worker', Name: 'worker', Group: 'mail' } as ProcessView)).toBe('worker')
+  })
+})
 
 describe('trayGroups', () => {
   it('puts the failing processes first, in Needs attention, and the rest by config', () => {

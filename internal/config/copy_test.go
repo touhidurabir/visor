@@ -13,6 +13,7 @@ func TestCopyAs(t *testing.T) {
 		name              string
 		file, content     string
 		taken, takenFiles []string
+		patterns          []string
 		wantFile, want    string
 		wantRenames       []Rename
 		wantDoubts        []string // "line key name"
@@ -123,11 +124,60 @@ func TestCopyAs(t *testing.T) {
 			wantRenames: []Rename{{"program", "w", "w-copy"}},
 			wantDoubts:  []string{"2 command w", "3 directory w", "5  watch"},
 		},
+		{
+			// The log is shared even though its path doesn't name worker.
+			name: "a fixed log path is shared, AUTO and expansions are not",
+			file: "app.ini",
+			content: "[program:worker]\ncommand=x\nstdout_logfile=/var/log/app.log\nstderr_logfile=AUTO\n" +
+				"[program:api]\ncommand=y\nstdout_logfile=/var/log/%(program_name)s.log\nstderr_logfile = syslog\n" +
+				"[program:cron]\ncommand=z\nstdout_logfile=NONE\nstderr_logfile=/var/log/%(group_name)s-%(process_num)02d.err\n" +
+				"[program:jobs]\ncommand=j\nstderr_logfile=/var/log/jobs-%(process_num)02d.err\n",
+			wantFile: "app-copy.ini",
+			want: "[program:worker-copy]\ncommand=x\nstdout_logfile=/var/log/app.log\nstderr_logfile=AUTO\n" +
+				"[program:api-copy]\ncommand=y\nstdout_logfile=/var/log/%(program_name)s.log\nstderr_logfile = syslog\n" +
+				"[program:cron-copy]\ncommand=z\nstdout_logfile=NONE\nstderr_logfile=/var/log/%(group_name)s-%(process_num)02d.err\n" +
+				"[program:jobs-copy]\ncommand=j\nstderr_logfile=/var/log/jobs-%(process_num)02d.err\n",
+			wantRenames: []Rename{
+				{"program", "worker", "worker-copy"}, {"program", "api", "api-copy"},
+				{"program", "cron", "cron-copy"}, {"program", "jobs", "jobs-copy"},
+			},
+			// jobs: %(process_num) numbers the copy's processes as the original's.
+			wantDoubts: []string{"3 stdout_logfile worker", "15 stderr_logfile jobs"},
+		},
+		{
+			name:        "a header with a space inside is the same program, renamed the same",
+			file:        "web.ini",
+			content:     "[program:web]\ncommand=a\n\n[program:web ]\nautostart=false\n",
+			taken:       []string{"web"},
+			wantFile:    "web-copy.ini",
+			want:        "[program:web-copy]\ncommand=a\n\n[program:web-copy]\nautostart=false\n",
+			wantRenames: []Rename{{"program", "web", "web-copy"}},
+		},
+		{
+			name:        "file name kept inside the include pattern",
+			file:        "web-svc.ini",
+			content:     "[program:web]\ncommand=a\n",
+			takenFiles:  []string{"web-copy-svc.ini"},
+			patterns:    []string{"*-svc.ini"},
+			wantFile:    "web-copy-2-svc.ini",
+			want:        "[program:web-copy]\ncommand=a\n",
+			wantRenames: []Rename{{"program", "web", "web-copy"}},
+		},
+		{
+			name:        "file name with no name in the pattern is a doubt",
+			file:        "web.ini",
+			content:     "[program:web]\ncommand=a\n",
+			patterns:    []string{"web.ini", "*.conf"},
+			wantFile:    "web-copy.ini",
+			want:        "[program:web-copy]\ncommand=a\n",
+			wantRenames: []Rename{{"program", "web", "web-copy"}},
+			wantDoubts:  []string{"0  web-copy.ini"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := CopyAs(tt.file, tt.content, tt.taken, tt.takenFiles)
+			got, err := CopyAs(tt.file, tt.content, tt.taken, tt.takenFiles, tt.patterns)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -151,7 +201,7 @@ func TestCopyAs(t *testing.T) {
 				t.Errorf("doubts = %q, want %q (%+v)", doubts, tt.wantDoubts, got.Doubts)
 			}
 			// The copy parses, and its programs are the new names.
-			if _, err := CopyAs(got.FileName, got.Content, nil, nil); err != nil {
+			if _, err := CopyAs(got.FileName, got.Content, nil, nil, nil); err != nil {
 				t.Errorf("the copy does not copy again: %v", err)
 			}
 		})
@@ -165,7 +215,7 @@ func TestCopyAsErrors(t *testing.T) {
 		"no programs": "; nothing\n[group:g]\nprograms=a\n",
 		"empty":       "",
 	} {
-		if _, err := CopyAs("x.ini", content, nil, nil); err == nil {
+		if _, err := CopyAs("x.ini", content, nil, nil, nil); err == nil {
 			t.Errorf("%s: no error", name)
 		}
 	}

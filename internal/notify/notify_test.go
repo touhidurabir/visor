@@ -112,6 +112,12 @@ func TestCompose(t *testing.T) {
 			"supervisord isn't responding", DaemonThread,
 		},
 		{
+			"supervisord turned down the password",
+			issues.Issue{ID: "8a", Kind: issues.KindUnreachable, Message: "supervisord is not responding: supervisord: unauthorized"},
+			"🔴 supervisord wants a password", "supervisord turned down the username and password Visor used.", "supervisord turned down the username and password Visor used.",
+			"supervisord wants a password", DaemonThread,
+		},
+		{
 			"supervisord down, other wording kept",
 			issues.Issue{ID: "9", Kind: issues.KindUnreachable, Message: "supervisord said no"},
 			"🔴 supervisord isn't responding", "supervisord said no.", "supervisord said no.",

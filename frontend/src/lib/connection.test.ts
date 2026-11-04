@@ -10,6 +10,11 @@ const NOT_RUNNING =
 const REFUSED = 'cannot reach supervisord: supervisord: unreachable: Post "http://127.0.0.1:9001/RPC2": dial tcp 127.0.0.1:9001: connect: connection refused'
 const DENIED = 'cannot reach supervisord: supervisord: unreachable: Post "http://localhost/RPC2": dial unix /opt/homebrew/var/run/supervisor.sock: connect: permission denied'
 const AUTH = 'cannot reach supervisord: supervisord: unauthorized'
+// A poll that connected but got no usable answer (internal/supervisor's do):
+// a hung supervisord's timeout, an HTTP error, a connection dropped mid-call.
+const TIMEOUT = 'cannot reach supervisord: supervisor.getState: context deadline exceeded'
+const HTTP_ERROR = 'cannot reach supervisord: supervisor.getState: HTTP 500 Internal Server Error'
+const EOF = 'cannot reach supervisord: supervisor.getAllProcessInfo: Post "http://localhost/RPC2": EOF'
 
 describe('isDown', () => {
   it('is the sidebar’s test: unreachable once the first poll has said so', () => {
@@ -41,9 +46,19 @@ describe('connectionProblem', () => {
 
   it('names a TCP address too, and copes with an error that names none', () => {
     expect(connectionProblem(server({ Error: REFUSED }))).toMatchObject({ kind: 'down', address: '127.0.0.1:9001' })
-    const bare = 'cannot reach supervisord: supervisord: unreachable: context deadline exceeded'
+    // net.Dial("unix", "") says no address.
+    const bare = 'cannot reach supervisord: supervisord: unreachable: Post "http://localhost/RPC2": dial unix: missing address'
     expect(connectionProblem(server({ Error: bare }))).toMatchObject({ kind: 'down', address: '' })
     expect(line({ Error: bare })).toBe('Nothing answers on its socket, so Visor can’t show or control processes. Your config files are fine.')
+  })
+
+  it('says supervisord isn’t answering when a check timed out or got no usable answer, and keeps checking', () => {
+    for (const e of [TIMEOUT, HTTP_ERROR, EOF]) {
+      const p = connectionProblem(server({ Error: e }))!
+      expect(p).toMatchObject({ kind: 'silent', title: 'supervisord isn’t answering', reason: 'supervisord isn’t answering', retrying: true, raw: e })
+      expect(p.title).not.toMatch(/isn’t running/)
+    }
+    expect(line({ Error: TIMEOUT })).toBe('supervisord didn’t answer Visor’s last check in time, or answered with an error, so Visor can’t show or control processes. Your config files are fine.')
   })
 
   it('never says “isn’t running” for a socket it may not open or a turned-down password', () => {
@@ -66,6 +81,9 @@ describe('connectionBadge', () => {
   it('says Not running only when supervisord isn’t running', () => {
     expect(connectionBadge(connectionProblem(server({ Error: NOT_RUNNING })))).toBe('Not running')
     expect(connectionBadge(connectionProblem(server({ Error: REFUSED })))).toBe('Not running')
+  })
+  it('says Not answering when a check got no answer', () => {
+    for (const e of [TIMEOUT, HTTP_ERROR, EOF]) expect(connectionBadge(connectionProblem(server({ Error: e })))).toBe('Not answering')
   })
   it('says Not connected for a password, a closed socket or the setup', () => {
     expect(connectionBadge(connectionProblem(server({ Error: AUTH })))).toBe('Not connected')
