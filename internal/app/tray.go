@@ -10,6 +10,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/services/dock"
 
 	"github.com/touhidurabir/visor/internal/monitor"
+	"github.com/touhidurabir/visor/internal/platform"
 	"github.com/touhidurabir/visor/internal/trayicon"
 )
 
@@ -45,11 +46,40 @@ type Shell struct {
 	dock    *dock.DockService
 	started bool // the app is running, so the tray may be changed
 
+	unread     int                   // unread notifications, shown beside the icon
+	countOff   bool                  // Settings: no count beside the icon
+	drawnLabel string                // what drawUnread last put beside the icon
+	notifItem  *application.MenuItem // the tray menu's "Notifications (N)"
+
+	login     platform.LoginItem    // nil: the tray's "Launch at login" stays disabled
+	loginItem *application.MenuItem // that check item
+	trayMenu  *application.Menu
+
 	quitting atomic.Bool
 }
 
 // NewShell returns a Shell that tracks health until Setup.
 func NewShell() *Shell { return &Shell{} }
+
+// UseLoginItem gives the tray menu's "Launch at login" its switch. Call it
+// before Setup.
+func (s *Shell) UseLoginItem(li platform.LoginItem) { s.login = li }
+
+// ShowLoginStatus updates the tray's check mark (after Settings or Doctor
+// changed launch at login).
+func (s *Shell) ShowLoginStatus(st platform.LoginItemStatus) {
+	s.mu.Lock()
+	item, menu := s.loginItem, s.trayMenu
+	s.mu.Unlock()
+	if item == nil {
+		return
+	}
+	item.SetChecked(loginView(st).On)
+	item.SetEnabled(st != platform.LoginUnsupported)
+	if menu != nil {
+		menu.Update()
+	}
+}
 
 // Emit wraps next (the function that sends events to the frontend) so that
 // every overview also updates the menu-bar icon. A nil next only updates
@@ -58,6 +88,24 @@ func (s *Shell) Emit(next func(name string, data any)) func(name string, data an
 	return func(name string, data any) {
 		if next != nil {
 			next(name, data)
+		}
+		if name == EventSettings {
+			if v, ok := data.(SettingsView); ok {
+				s.ShowMenuBarCount(v.Settings.MenuBarCount)
+			}
+			return
+		}
+		if name == EventNotifications {
+			if v, ok := data.(NotificationsView); ok {
+				s.mu.Lock()
+				s.unread = v.Unread
+				started := s.started
+				s.mu.Unlock()
+				if started {
+					application.InvokeAsync(s.drawUnread)
+				}
+			}
+			return
 		}
 		if name != EventOverview {
 			return
@@ -74,6 +122,70 @@ func (s *Shell) Emit(next func(name string, data any)) func(name string, data an
 			// Never block the Runtime on the main thread: it may be
 			// waiting for the Runtime to stop.
 			application.InvokeAsync(s.drawIcon)
+		}
+	}
+}
+
+// trayLabel is the text beside the menu-bar icon: the unread count.
+func trayLabel(unread int) string {
+	switch {
+	case unread <= 0:
+		return ""
+	case unread > 99:
+		return "99+"
+	}
+	return strconv.Itoa(unread)
+}
+
+func (s *Shell) unreadLabel() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return trayLabel(s.unread)
+}
+
+// iconLabel is the text beside the menu-bar icon: the unread count,
+// unless Settings turned it off.
+func (s *Shell) iconLabel() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.countOff {
+		return ""
+	}
+	return trayLabel(s.unread)
+}
+
+// ShowMenuBarCount turns the count beside the menu-bar icon on or off (the
+// right-click menu's "Notifications (N)" keeps it either way).
+func (s *Shell) ShowMenuBarCount(on bool) {
+	s.mu.Lock()
+	changed := s.countOff == on
+	s.countOff = !on
+	started := s.started
+	s.mu.Unlock()
+	if changed && started {
+		application.InvokeAsync(s.drawUnread)
+	}
+}
+
+// drawUnread shows the unread count beside the icon and in the tray menu.
+// Main thread only.
+func (s *Shell) drawUnread() {
+	label, icon := s.unreadLabel(), s.iconLabel()
+	s.mu.Lock()
+	tray, item, menu := s.tray, s.notifItem, s.trayMenu
+	s.drawnLabel = icon
+	s.mu.Unlock()
+	if tray != nil {
+		tray.SetLabel(icon)
+	}
+	if item != nil {
+		text := "Notifications"
+		if label != "" {
+			text += " (" + label + ")"
+		}
+		item.SetLabel(text)
+		if menu != nil {
+			menu.Update()
 		}
 	}
 }
@@ -110,9 +222,26 @@ func (s *Shell) Setup(a *application.App, main *application.WebviewWindow, d *do
 	menu := a.NewMenu()
 	menu.Add("Open Visor").OnClick(func(*application.Context) { s.ShowMain("") })
 	menu.Add("Preferences…").OnClick(func(*application.Context) { s.ShowMain(RouteSettings) })
+	notifItem := menu.Add("Notifications").OnClick(func(*application.Context) {
+		s.ShowMain("")
+		WailsEmit(EventMenu, "notifications") // the bell opens its panel
+	})
 	menu.AddSeparator()
-	// Wired up in Task 27 (launch at login).
-	menu.AddCheckbox("Launch at login", false).SetEnabled(false)
+	loginItem := menu.AddCheckbox("Launch at login", false)
+	if li := s.login; li != nil {
+		loginItem.OnClick(func(ctx *application.Context) {
+			err := li.Set(ctx.ClickedMenuItem().Checked())
+			st := li.Status()
+			s.ShowLoginStatus(st)
+			WailsEmit(EventLoginItem, loginView(st)) // an open Settings page follows
+			if err != nil {
+				// Settings says why (e.g. move Visor to Applications first).
+				s.ShowMain(RouteSettings)
+			}
+		})
+	} else {
+		loginItem.SetEnabled(false)
+	}
 	menu.AddSeparator()
 	menu.Add("Quit").OnClick(func(*application.Context) { a.Quit() })
 
@@ -125,7 +254,12 @@ func (s *Shell) Setup(a *application.App, main *application.WebviewWindow, d *do
 
 	s.mu.Lock()
 	s.app, s.tray, s.popover, s.main, s.dock = a, tray, popover, main, d
+	s.loginItem, s.trayMenu, s.notifItem = loginItem, menu, notifItem
 	s.mu.Unlock()
+	s.drawUnread()
+	if s.login != nil {
+		s.ShowLoginStatus(s.login.Status())
+	}
 
 	a.OnShutdown(func() { s.quitting.Store(true) })
 	hideOnClose := func(w *application.WebviewWindow, hideDock bool) {
@@ -152,10 +286,20 @@ func (s *Shell) Setup(a *application.App, main *application.WebviewWindow, d *do
 	})
 
 	a.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
-		s.mu.Lock()
-		s.started = true
-		s.mu.Unlock()
-		application.InvokeAsync(s.drawIcon) // health may have changed while starting
+		s.appStarted(application.InvokeAsync)
+	})
+}
+
+// appStarted lets events draw from now on and draws what arrived while the
+// app was starting (services start before ApplicationStarted, so the
+// health and the unread count sent at launch weren't drawn yet).
+func (s *Shell) appStarted(onMain func(func())) {
+	s.mu.Lock()
+	s.started = true
+	s.mu.Unlock()
+	onMain(func() {
+		s.drawIcon()
+		s.drawUnread()
 	})
 }
 
@@ -210,6 +354,12 @@ func NewShellService(s *Shell) *ShellService { return &ShellService{shell: s} }
 // OpenVisor shows the main window (and the Dock icon) and hides the
 // menu-bar popover.
 func (s *ShellService) OpenVisor() { s.shell.ShowMain("") }
+
+// OpenNotifications shows the main window with its notification list open.
+func (s *ShellService) OpenNotifications() {
+	s.shell.ShowMain("")
+	WailsEmit(EventMenu, "notifications")
+}
 
 // healthIcon remembers the latest health and the one last drawn, because
 // trayicon.Template renders a fresh image on every call. The zero value

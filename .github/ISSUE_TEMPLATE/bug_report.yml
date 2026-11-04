@@ -1,0 +1,42 @@
+name: Bug report
+description: Something in Visor doesn't work as it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead. Screenshots help.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen again
+      placeholder: |
+        1. …
+        2. …
+  - type: input
+    id: visor
+    attributes:
+      label: Visor version
+      description: Visor → About Visor
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+    validations:
+      required: true
+  - type: input
+    id: supervisord
+    attributes:
+      label: supervisord version
+      description: "`supervisord --version`"
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant config
+      description: The program's config file, if it matters. Remove passwords and private paths first.
+      render: ini

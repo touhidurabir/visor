@@ -1,0 +1,82 @@
+// Doctor's words (board 1 · First launch / setup): the headline and lede
+// for each situation, the lens text, and the commands it suggests. The view
+// (views/Doctor.vue) only lays them out.
+import type { DoctorView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+
+export type Situation = 'ready' | 'noconf' | 'nosup' | 'down' | 'denied' | 'auth' | 'notwritable'
+
+const copy: Record<Situation, [headline: string, lede: string]> = {
+  ready: ['Your Mac is ready', 'Visor found supervisord and everything it runs. From here you can start, stop and watch every process.'],
+  noconf: ['Where is your config?', 'supervisord is installed, but its config file is not in any of the usual places. Point Visor to it once and it will remember.'],
+  nosup: ['supervisord isn’t installed yet', 'Visor manages supervisord, so it needs to be on this Mac first. Homebrew installs it in about a minute.'],
+  down: ['supervisord isn’t running', 'Everything is in place, but supervisord itself is stopped, so there is nothing to connect to yet.'],
+  denied: ['supervisord won’t let Visor in', 'supervisord is running, but its socket belongs to root, so your user can’t connect to it. This usually means it was started with sudo.'],
+  auth: ['supervisord wants a password', 'supervisord is running, but it turned down the username and password Visor used. Enter the ones from your supervisord.conf in Settings, then check again.'],
+  notwritable: ['Visor can watch, but not edit', 'supervisord is running and Visor can control it. The folder your programs live in isn’t writable for you, so adding and editing configs is off.'],
+}
+
+/** The headline and lede for a situation; anything unknown reads as ready. */
+export function situationCopy(s: string): { headline: string; lede: string } {
+  const [headline, lede] = copy[s as Situation] ?? copy.ready
+  return { headline, lede }
+}
+
+/** The lens centre: a tick and "5 of 5 checks passed", or "!" and how many to fix. */
+export function lensText(v: Pick<DoctorView, 'Steps'>): { big: string; small: string } {
+  const steps = v.Steps ?? []
+  const bad = steps.filter((s) => s.Status === 'bad').length
+  if (bad === 0) return { big: '✓', small: `${steps.length} of ${steps.length} checks passed` }
+  return { big: '!', small: `${bad} ${bad === 1 ? 'thing' : 'things'} to fix` }
+}
+
+export const installCommands = ['brew install supervisor', 'brew services start supervisor']
+export const startCommand = 'brew services start supervisor'
+
+/** What usually stops supervisord from starting, shown under its output. */
+export const startTips = [
+  'A config mistake: supervisord names the file and line it can’t use, above.',
+  'Another supervisord already uses the socket or port: stop that one, or check with Check again whether it’s the one you want.',
+  'A socket or pid file left from a crash: if nothing is running, delete the file the log names and start again.',
+  'It was started with sudo before: see “supervisord runs as root?” below.',
+]
+
+/** The command that gives this user the config folder ("" when it isn't known). */
+export function chownCommand(dir: string): string {
+  return dir ? `sudo chown -R $(whoami) ${shellQuote(dir)}` : ''
+}
+
+/** The command that creates a config folder that isn't there yet. */
+export function mkdirCommand(dir: string): string {
+  return dir ? `mkdir -p ${shellQuote(dir)}` : ''
+}
+
+function shellQuote(s: string): string {
+  return /^[\w./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`
+}
+
+export interface Fix {
+  title: string
+  why: string
+  commands: string[]
+}
+
+/** The three ways out of a root-owned socket (brief §7), the first one open. */
+export function rootFixes(user: string): Fix[] {
+  return [
+    {
+      title: 'Run supervisord as yourself (recommended)',
+      why: 'Stop the copy root started and start it again as your user. The socket is then yours and nothing else changes.',
+      commands: ['sudo brew services stop supervisor', 'brew services start supervisor'],
+    },
+    {
+      title: 'Open the socket to your user',
+      why: 'Keep supervisord as root but let your user use the socket. Add these lines under [unix_http_server] in supervisord.conf, then restart supervisord.',
+      commands: [`chown=${user || 'you'}:staff`, 'chmod=0770'],
+    },
+    {
+      title: 'Use a local port with a password',
+      why: 'Have supervisord listen on this Mac only, with a username and password. Add an [inet_http_server] section, restart supervisord, and enter the password in Settings.',
+      commands: ['[inet_http_server]\nport=127.0.0.1:9001\nusername=visor\npassword=choose-one'],
+    },
+  ]
+}

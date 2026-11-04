@@ -195,3 +195,11 @@ func TestNotificationSettingsCmdArgs(t *testing.T) {
 		t.Fatalf("args = %q, want %q", got, want)
 	}
 }
+
+func TestLoginItemsSettingsCmdArgs(t *testing.T) {
+	got := LoginItemsSettingsCmd().Args
+	want := []string{"open", "x-apple.systempreferences:com.apple.LoginItems-Settings.extension"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("args = %q", got)
+	}
+}

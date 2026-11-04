@@ -219,6 +219,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 	r.started, r.parent = true, ctx
 	r.openStore()
 	r.connect()
+	r.emitNotifications() // the menu-bar count from launch on
 	return nil
 }
 

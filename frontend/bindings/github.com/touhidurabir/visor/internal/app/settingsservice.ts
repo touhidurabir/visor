@@ -40,6 +40,14 @@ export function ChooseConfig(): $CancellablePromise<string> {
 }
 
 /**
+ * FinishSetup records that first-run setup (Doctor) is done, with the
+ * notification master switch the person left on or off.
+ */
+export function FinishSetup(notify: boolean): $CancellablePromise<$models.SettingsView> {
+    return $Call.ByID(3868174624, notify);
+}
+
+/**
  * Get returns the settings in use.
  */
 export function Get(): $CancellablePromise<$models.SettingsView> {

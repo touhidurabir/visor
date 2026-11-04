@@ -29,14 +29,49 @@ var ErrNotAllowed = errors.New("notifications are not allowed for Visor")
 // ID, plus the count for a repeat); IssueID, Kind, Process and Config say
 // what it is about. Body is Detail plus the config file's name.
 type Message struct {
-	ID      string
-	Title   string
-	Body    string
-	Detail  string
-	IssueID string
-	Kind    issues.Kind
-	Process string
-	Config  string
+	ID       string
+	Title    string
+	Subtitle string // how serious, e.g. "🔴 Error" (macOS can't colour a banner)
+	Body     string
+	Detail   string
+	IssueID  string
+	Kind     issues.Kind
+	Process  string
+	Config   string
+}
+
+// Severity is how serious a notification is: Error (a process can't run,
+// keeps crashing, or supervisord doesn't answer), Warning (it crashed and
+// supervisord restarted it) or Info.
+type Severity string
+
+const (
+	Error   Severity = "error"
+	Warning Severity = "warning"
+	Info    Severity = "info"
+)
+
+// SeverityOf is how serious an issue of kind k is.
+func SeverityOf(k issues.Kind) Severity {
+	switch k {
+	case issues.KindFatal, issues.KindCrashLoop, issues.KindUnreachable:
+		return Error
+	case issues.KindUnexpectedExit:
+		return Warning
+	}
+	return Info
+}
+
+// Label is the severity as a notification shows it. The coloured circle is
+// the only colour a macOS banner can carry.
+func (s Severity) Label() string {
+	switch s {
+	case Error:
+		return "🔴 Error"
+	case Warning:
+		return "🟠 Warning"
+	}
+	return "🔵 Info"
 }
 
 // Sender shows a notification.
@@ -81,6 +116,7 @@ func Compose(is issues.Issue) Message {
 		}
 	}
 	m.Body = m.Detail
+	m.Subtitle = SeverityOf(is.Kind).Label()
 	name := DisplayName(is.Process)
 	switch is.Kind {
 	case issues.KindFatal:

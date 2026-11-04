@@ -175,3 +175,26 @@ func TestComposeRepeat(t *testing.T) {
 		t.Errorf("once = %+v", once)
 	}
 }
+
+func TestComposeSaysHowSerious(t *testing.T) {
+	for kind, want := range map[issues.Kind]string{
+		issues.KindFatal:          "🔴 Error",
+		issues.KindCrashLoop:      "🔴 Error",
+		issues.KindUnreachable:    "🔴 Error",
+		issues.KindUnexpectedExit: "🟠 Warning",
+		"something_new":           "🔵 Info",
+	} {
+		if got := Compose(issues.Issue{ID: "x", Kind: kind, Process: "a:a"}).Subtitle; got != want {
+			t.Errorf("%s: subtitle %q, want %q", kind, got, want)
+		}
+	}
+}
+
+func TestEntrySeverity(t *testing.T) {
+	if s := (Entry{Kind: issues.KindUnexpectedExit}).Level(); s != Warning {
+		t.Errorf("old entry by kind = %s", s)
+	}
+	if s := (Entry{Kind: issues.KindUnreachable, Severity: Info}).Level(); s != Info {
+		t.Errorf("recovery note = %s, want info", s)
+	}
+}

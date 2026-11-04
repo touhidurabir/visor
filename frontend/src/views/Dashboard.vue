@@ -24,6 +24,7 @@ import { useOverview } from '../lib/overview'
 import { copyText } from '../lib/clipboard'
 import { configRoute } from '../lib/links'
 import { showToast } from '../lib/toast'
+import { onMenu, takePendingMenu } from '../lib/menu'
 
 const router = useRouter()
 const { overview, error: loadError, reload } = useOverview()
@@ -42,21 +43,44 @@ const signalFor = ref<ProcessView | null>(null)
 const checking = ref(false)
 
 let tick: ReturnType<typeof setInterval>
+// Visor's menu bar: Find, Reload Config and Restart All… act here. A
+// choice made on another page waits for the dashboard's data.
+const menuOffs: Array<() => void> = []
+function whenLoaded(run: () => void) {
+  if (overview.value) return run()
+  const stop = watch(overview, (v) => {
+    if (!v) return
+    stop()
+    run()
+  })
+}
 onMounted(() => {
   tick = setInterval(() => (nowMs.value = Date.now()), 10_000)
   window.addEventListener('keydown', onKey)
+  menuOffs.push(
+    onMenu('find', focusSearch),
+    onMenu('reload', () => void checkForChanges()),
+    onMenu('restart-all', () => bulk('restart')),
+  )
+  if (takePendingMenu('reload')) whenLoaded(() => void checkForChanges())
+  if (takePendingMenu('restart-all')) whenLoaded(() => bulk('restart'))
 })
 onBeforeUnmount(() => {
   clearInterval(tick)
   window.removeEventListener('keydown', onKey)
+  menuOffs.forEach((off) => off())
 })
+
+function focusSearch() {
+  search.value?.focus()
+  search.value?.select()
+}
 
 function onKey(e: KeyboardEvent) {
   if (!e.metaKey || e.altKey || e.ctrlKey || e.shiftKey) return
   if (e.key === 'f') {
     e.preventDefault()
-    search.value?.focus()
-    search.value?.select()
+    focusSearch()
   } else if (e.key === 'r') {
     e.preventDefault() // never reload the webview
     void checkForChanges()

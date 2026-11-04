@@ -1,0 +1,16 @@
+name: Idea
+description: Something Visor could do better or do next
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you're trying to do
+      description: The situation you're in and what gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: How you'd like Visor to handle it, if you have an idea.

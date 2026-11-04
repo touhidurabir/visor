@@ -2,8 +2,10 @@ package config
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/touhidurabir/visor/internal/supervisor"
@@ -125,5 +127,52 @@ func TestResolveOverride(t *testing.T) {
 	// An override that doesn't exist must not fall back to DefaultPaths.
 	if _, err := Resolve(td("nope.conf")); !errors.Is(err, ErrNoConfig) {
 		t.Errorf("err = %v, want ErrNoConfig", err)
+	}
+}
+
+func TestDiscoverRefusesAFileThatIsNotASupervisordConfig(t *testing.T) {
+	t.Parallel()
+	p := filepath.Join(t.TempDir(), "php.ini")
+	if err := os.WriteFile(p, []byte("[PHP]\nmemory_limit=128M\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Resolve(p)
+	if !errors.Is(err, ErrNotSupervisord) {
+		t.Fatalf("err = %v, want ErrNotSupervisord", err)
+	}
+	if !strings.Contains(err.Error(), "php.ini") {
+		t.Errorf("err %q should name the file", err)
+	}
+}
+
+func TestDiscoverLogFile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	p := filepath.Join(dir, "supervisord.conf")
+	if err := os.WriteFile(p, []byte("[supervisord]\nlogfile=%(here)s/logs/supervisord.log\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d, err := Resolve(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(dir, "logs", "supervisord.log"); d.LogFile != want {
+		t.Errorf("LogFile = %q, want %q", d.LogFile, want)
+	}
+	if d, _ := Discover([]string{td("relative.conf")}); d.LogFile != "" {
+		t.Errorf("no logfile= gave %q", d.LogFile)
+	}
+}
+
+func TestDiscoverNoDaemon(t *testing.T) {
+	t.Parallel()
+	for body, want := range map[string]bool{"nodaemon=true": true, "nodaemon = Yes": true, "nodaemon=false": false, "": false} {
+		p := filepath.Join(t.TempDir(), "supervisord.conf")
+		if err := os.WriteFile(p, []byte("[supervisord]\n"+body+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if d, err := Resolve(p); err != nil || d.NoDaemon != want {
+			t.Errorf("%q: NoDaemon = %v (%v), want %v", body, d.NoDaemon, err, want)
+		}
 	}
 }

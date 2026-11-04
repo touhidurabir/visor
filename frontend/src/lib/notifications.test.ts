@@ -14,11 +14,11 @@ vi.mock('../../bindings/github.com/touhidurabir/visor/internal/app', () => ({
   InboxService: { Notifications: () => list(), MarkRead: (id: string) => markRead(id), MarkAllRead: () => markAll() },
 }))
 
-const { useNotifications, resetNotifications, noticeTime, noticeRoute } = await import('./notifications')
+const { useNotifications, resetNotifications, noticeTime, noticeRoute, severityWord } = await import('./notifications')
 
 const n = (over: Partial<NotificationView> = {}): NotificationView => ({
   ID: 'n1', IssueID: 'i1', Kind: 'unexpected_exit', Process: 'flaky:flaky', Config: '/c/flaky.ini', ConfigName: 'flaky.ini',
-  Title: 'flaky exited unexpectedly', Detail: 'Exited with status 2', AtMs: 0, Count: 1, Read: false, Shown: false, ...over,
+  Title: 'flaky exited unexpectedly', Detail: 'Exited with status 2', AtMs: 0, Count: 1, Read: false, Shown: false, Severity: 'warning', ...over,
 })
 const flush = () => new Promise((r) => setTimeout(r, 0))
 
@@ -76,5 +76,11 @@ describe('noticeRoute', () => {
   })
   it('opens Issues for supervisord itself', () => {
     expect(noticeRoute(n({ Config: '', Process: '' }))).toBe('/issues')
+  })
+})
+
+describe('severityWord', () => {
+  it('names each level, and anything else as info', () => {
+    expect([severityWord('error'), severityWord('warning'), severityWord('info'), severityWord('')]).toEqual(['Error', 'Warning', 'Info', 'Info'])
   })
 })

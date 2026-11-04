@@ -143,3 +143,36 @@ func TestInboxServiceMarksRead(t *testing.T) {
 		t.Errorf("last event = %+v", got[len(got)-1])
 	}
 }
+
+// The menu-bar count needs the unread number from launch, before anything
+// new arrives.
+func TestStartSendsTheInbox(t *testing.T) {
+	rt, rec := inboxRuntime(t, &fakeSender{}, allNotify())
+	if err := rt.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Stop()
+	if got := rec.inboxes(); len(got) == 0 {
+		t.Fatal("Start sent no visor:notifications")
+	}
+}
+
+func TestNotificationsViewSaysHowSerious(t *testing.T) {
+	b := notify.OpenInbox("", time.Now)
+	if _, err := b.Record(issues.Issue{ID: "f", Kind: issues.KindFatal, Process: "a:a"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Record(issues.Issue{ID: "x", Kind: issues.KindUnexpectedExit, Process: "b:b"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Recovered(issues.Issue{ID: "u", Kind: issues.KindUnreachable, OpenedAt: time.Now().Add(-time.Second)}); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, n := range notificationsView(b).Items {
+		got[n.IssueID] = n.Severity
+	}
+	if got["f"] != "error" || got["x"] != "warning" || got["u"] != "info" {
+		t.Errorf("severities = %v", got)
+	}
+}

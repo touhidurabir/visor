@@ -1,13 +1,17 @@
 <script setup lang="ts">
 // The bell at the top of the sidebar: how many notifications are unread,
 // and the list itself (NotificationPanel) when clicked.
-import { ref } from 'vue'
+import { onBeforeUnmount, ref } from 'vue'
+import { onMenu } from '../lib/menu'
 import { useNotifications } from '../lib/notifications'
 import NotificationPanel from './NotificationPanel.vue'
 
 const { unread } = useNotifications()
 const open = ref(false)
 const bell = ref<HTMLButtonElement>()
+// The tray menu's "Notifications" and the popover's bell open the list here.
+const offMenu = onMenu('notifications', () => (open.value = true))
+onBeforeUnmount(offMenu)
 
 function close(refocus: boolean) {
   open.value = false

@@ -43,6 +43,8 @@ type Settings struct {
 	Onboarded     bool           `json:"onboarded"`
 	// Appearance is the colour theme: AppearanceSystem, Light or Dark.
 	Appearance string `json:"appearance"`
+	// MenuBarCount shows the unread count beside the menu-bar icon.
+	MenuBarCount bool `json:"menuBarCount"`
 }
 
 // Appearance values.
@@ -76,6 +78,7 @@ func Defaults() Settings {
 		CrashLoop:     CrashLoopRules{Restarts: 5, Window: 10 * time.Minute},
 		RetentionDays: 90,
 		Appearance:    AppearanceSystem,
+		MenuBarCount:  true,
 	}
 }
 

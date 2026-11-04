@@ -18,6 +18,8 @@ type Discovery struct {
 	Username, Password string
 	IncludeGlobs       []string // absolute
 	PidFile            string   // [supervisord] pidfile=, absolute; "" if unset
+	LogFile            string   // [supervisord] logfile=, absolute; "" if unset (or syslog)
+	NoDaemon           bool     // [supervisord] nodaemon=true: it runs in the foreground
 }
 
 // DefaultPaths are the usual supervisord.conf locations, in search order.
@@ -30,6 +32,14 @@ var DefaultPaths = []string{
 
 // ErrNoConfig means none of the candidate paths could be read.
 var ErrNoConfig = errors.New("no supervisord config found")
+
+// ErrNotSupervisord means a file was read but has none of the sections a
+// supervisord.conf has (e.g. someone picked the wrong .ini).
+var ErrNotSupervisord = errors.New("not a supervisord config")
+
+// mainSections are the sections that mark a file as a supervisord.conf.
+// [supervisord] alone isn't required: it may come from an included file.
+var mainSections = []string{"supervisord", "unix_http_server", "inet_http_server", "supervisorctl", "include"}
 
 // Discover reads the first readable path in paths. A file that exists but
 // doesn't parse is an error, not a reason to try the next path.
@@ -57,6 +67,9 @@ func fromConfig(path, src string) (Discovery, error) {
 	f, err := ParseINI(strings.NewReader(src), path)
 	if err != nil {
 		return Discovery{}, err
+	}
+	if !hasAnySection(f, mainSections) {
+		return Discovery{}, fmt.Errorf("%s: %w (it has no [supervisord], [unix_http_server], [inet_http_server], [supervisorctl] or [include] section)", path, ErrNotSupervisord)
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -87,6 +100,13 @@ func fromConfig(path, src string) (Discovery, error) {
 	if p := get("supervisord", "pidfile"); p != "" {
 		d.PidFile = absolute(p)
 	}
+	if p := get("supervisord", "logfile"); p != "" && !strings.EqualFold(p, "syslog") {
+		d.LogFile = absolute(p)
+	}
+	switch strings.ToLower(strings.TrimSpace(get("supervisord", "nodaemon"))) {
+	case "true", "yes", "on", "1":
+		d.NoDaemon = true
+	}
 	for _, g := range strings.Fields(get("include", "files")) {
 		d.IncludeGlobs = append(d.IncludeGlobs, absolute(g))
 	}
@@ -116,4 +136,13 @@ func inetAddr(port string) string {
 		host = "127.0.0.1"
 	}
 	return host + ":" + p
+}
+
+func hasAnySection(f File, names []string) bool {
+	for _, n := range names {
+		if _, ok := f.Section(n); ok {
+			return true
+		}
+	}
+	return false
 }

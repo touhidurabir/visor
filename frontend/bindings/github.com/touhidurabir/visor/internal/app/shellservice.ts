@@ -11,6 +11,13 @@
 import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wailsio/runtime";
 
 /**
+ * OpenNotifications shows the main window with its notification list open.
+ */
+export function OpenNotifications(): $CancellablePromise<void> {
+    return $Call.ByID(3909305765);
+}
+
+/**
  * OpenVisor shows the main window (and the Dock icon) and hides the
  * menu-bar popover.
  */

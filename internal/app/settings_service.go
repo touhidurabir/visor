@@ -125,7 +125,18 @@ func (s *SettingsService) Save(in settings.Settings) (SettingsView, error) {
 	// launch without the person confirming it.
 	in.ConfigPath, in.Username, in.RetentionDays = cur.ConfigPath, cur.Username, cur.RetentionDays
 	in.Appearance = cur.Appearance
+	in.Onboarded = cur.Onboarded // only FinishSetup changes it
 	return s.saveAndTell(in)
+}
+
+// FinishSetup records that first-run setup (Doctor) is done, with the
+// notification master switch the person left on or off.
+func (s *SettingsService) FinishSetup(notify bool) (SettingsView, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := s.rt.Settings()
+	next.Onboarded, next.Notify.Enabled = true, notify
+	return s.saveAndTell(next)
 }
 
 // SetAppearance saves the colour theme ("system", "light" or "dark";

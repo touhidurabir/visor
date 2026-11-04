@@ -282,3 +282,24 @@ func TestAppearanceDefaultsToSystem(t *testing.T) {
 		t.Errorf("appearance = %q, want %q", got.Appearance, AppearanceSystem)
 	}
 }
+
+func TestMenuBarCountIsOnUnlessTurnedOff(t *testing.T) {
+	if !Defaults().MenuBarCount {
+		t.Fatal("the unread count beside the menu-bar icon should be on by default")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, fileName), []byte(`{"onboarded":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Load(dir); !got.MenuBarCount {
+		t.Error("a settings.json from before the switch turned the count off")
+	}
+	s := Defaults()
+	s.MenuBarCount = false
+	if err := Save(dir, s); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Load(dir); got.MenuBarCount {
+		t.Error("turning it off didn't stick")
+	}
+}

@@ -6,6 +6,10 @@ includes:
 vars:
   # Docker image for cross-compilation (used when building on non-macOS)
   CROSS_IMAGE: wails-cross
+  # The one signing switch. "-" is an ad-hoc signature (no Apple Developer
+  # ID: see docs). Pass a keychain identity name to sign with it instead,
+  # e.g. `wails3 task darwin:package SIGN_IDENTITY="Visor Self-Signed"`.
+  SIGN_IDENTITY: '{{.SIGN_IDENTITY | default "-"}}'
 
 tasks:
   build:
@@ -171,14 +175,14 @@ tasks:
         fi
       - cp "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/MacOS"
       - cp build/darwin/Info.plist "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents"
-      - task: '{{if eq OS "darwin"}}codesign:adhoc{{else}}codesign:skip{{end}}'
+      - task: '{{if eq OS "darwin"}}codesign{{else}}codesign:skip{{end}}'
 
-  codesign:adhoc:
-    summary: Ad-hoc signs the app bundle (macOS only)
+  codesign:
+    summary: Signs the app bundle with SIGN_IDENTITY ("-" = ad-hoc; macOS only)
     internal: true
     cmds:
       - xattr -cr "{{.BIN_DIR}}/{{.APP_NAME}}.app"
-      - codesign --force --deep --sign - "{{.BIN_DIR}}/{{.APP_NAME}}.app"
+      - codesign --force --deep --sign "{{.SIGN_IDENTITY}}" "{{.BIN_DIR}}/{{.APP_NAME}}.app"
       - codesign --verify --deep --strict "{{.BIN_DIR}}/{{.APP_NAME}}.app"
 
   codesign:skip:
