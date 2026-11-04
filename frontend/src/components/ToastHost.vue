@@ -1,14 +1,16 @@
 <script setup lang="ts">
 // Renders the toast queue from lib/toast.ts. Errors use role="alert" so a
-// screen reader announces them; info toasts are polite.
-import { dismissToast, toasts } from '../lib/toast'
+// screen reader announces them; info toasts are polite. A toast's action is
+// a quiet button; using it dismisses the toast.
+import { dismissToast, runToastAction, toasts } from '../lib/toast'
 </script>
 
 <template>
   <div class="toasts">
     <div v-for="t in toasts" :key="t.id" :class="['toast', t.kind]" :role="t.kind === 'error' ? 'alert' : 'status'">
-      <span>{{ t.text }}</span>
-      <button type="button" aria-label="Dismiss message" @click="dismissToast(t.id)">×</button>
+      <span class="text">{{ t.text }}</span>
+      <button v-if="t.action" type="button" class="btn quiet sm act" @click="runToastAction(t.id)">{{ t.action.label }}</button>
+      <button type="button" class="x" aria-label="Dismiss message" @click="dismissToast(t.id)">×</button>
     </div>
   </div>
 </template>
@@ -29,6 +31,9 @@ import { dismissToast, toasts } from '../lib/toast'
   user-select: text;
 }
 .toast.error { background: var(--failing-bg); color: var(--failing-fg); border-color: var(--failing-dot); }
-.toast span { flex: 1; }
-.toast button { border: 0; background: transparent; color: inherit; font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.text { flex: 1; }
+/* The action sits on the text's first line. */
+.act { flex: none; margin: -4px 0; color: var(--accent-text); }
+.act:hover:not(:disabled) { color: var(--accent-text); }
+.x { border: 0; background: transparent; color: inherit; font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px; }
 </style>

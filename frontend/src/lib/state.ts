@@ -1,6 +1,6 @@
 // How a supervisord state reads on screen: a sentence-case word, the tone of
-// its dot (and badge tint), and whether the word itself is emphasised. The
-// word is always shown, so colour is never the only signal. `status` is the
+// its dot, word colour (and badge tint), and whether the word is emphasised.
+// The word is always shown, so colour is never the only signal. `status` is the
 // Go side's classification (ProcessView.Status: "running", "failing",
 // "stopped" or "other"); it tells an EXITED that wasn't expected (failing)
 // from one that was (stopped). Without it the state name decides.
@@ -10,7 +10,7 @@ export type StateTone = 'ok' | 'warn' | 'bad' | 'idle'
 export interface StateLook {
   label: string
   tone: StateTone
-  /** A failing state: the word is coloured and semibold. */
+  /** A failing state: the word is semibold as well as coloured. */
   alert: boolean
 }
 
@@ -29,4 +29,13 @@ function stateTone(state: string, status?: string): StateTone {
 export function stateLook(state: string, status?: string): StateLook {
   const tone = stateTone(state, status)
   return { label: stateLabel(state), tone, alert: tone === 'bad' || state === 'BACKOFF' }
+}
+
+/**
+ * The classes for a state's word in tables and lists (StateText): always
+ * its tone's colour (green Running, grey Stopped), plus `alert` (semibold)
+ * for a failing state, so bad rows stand out and healthy ones stay quiet.
+ */
+export function stateTextClass(look: StateLook): string[] {
+  return look.alert ? [`t-${look.tone}`, 'alert'] : [`t-${look.tone}`]
 }

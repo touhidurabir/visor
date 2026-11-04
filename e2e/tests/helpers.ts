@@ -1,4 +1,7 @@
+import { spawn, type ChildProcess } from 'node:child_process'
+import fs from 'node:fs'
 import http from 'node:http'
+import path from 'node:path'
 import { expect, type Locator, type Page } from '@playwright/test'
 
 /** Fails the test on console errors and uncaught page errors. Call before goto. */
@@ -121,4 +124,103 @@ export async function restoreConfig(page: Page, path: string, original: string, 
   await expect(confirm.or(nothing)).toBeVisible()
   if (await confirm.isVisible()) await confirm.click()
   await expect(banner).toBeHidden()
+}
+
+const ROOT = path.resolve(import.meta.dirname, '../..')
+const BIN = path.join(ROOT, 'bin/visor-e2e')
+export const SANDBOX = '/tmp/visor-e2e'
+
+export interface Visor {
+  url: string
+  stop: () => Promise<void>
+}
+
+/**
+ * Starts a server-mode Visor of its own beside the shared one, on a fresh
+ * state folder under the e2e sandbox (which serve.sh removes); stop() ends
+ * it by its own process handle.
+ */
+export async function startVisor(name: string, port: number, config: string, onboarded = false): Promise<Visor> {
+  const dir = path.join(SANDBOX, `doctor-${name}`)
+  fs.rmSync(dir, { recursive: true, force: true })
+  fs.mkdirSync(path.join(dir, 'state'), { recursive: true })
+  if (onboarded) fs.writeFileSync(path.join(dir, 'state', 'settings.json'), '{"onboarded":true}\n')
+  const child: ChildProcess = spawn(BIN, [], {
+    env: {
+      ...process.env,
+      VISOR_CONFIG: config,
+      VISOR_STATE_DIR: path.join(dir, 'state'),
+      WAILS_SERVER_HOST: '127.0.0.1',
+      WAILS_SERVER_PORT: String(port),
+    },
+    stdio: 'ignore',
+  })
+  const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()))
+  const url = `http://127.0.0.1:${port}`
+  await expect(async () => {
+    const res = await fetch(url)
+    expect(res.ok).toBe(true)
+  }).toPass({ timeout: 20_000 })
+  return {
+    url,
+    stop: async () => {
+      child.kill('SIGTERM')
+      await exited
+    },
+  }
+}
+
+/**
+ * A config whose supervisord isn't running (nothing listens on its socket).
+ * Start supervisord in Doctor really starts it, as a daemon in this folder;
+ * stopSupervisord stops it by the PID in its pid file. `extra` is added to
+ * the config (e.g. a broken program, so it fails to start).
+ */
+export function downConfig(name = 'doctor-down-conf', extra = ''): string {
+  const dir = path.join(SANDBOX, name)
+  fs.rmSync(dir, { recursive: true, force: true })
+  fs.mkdirSync(path.join(dir, 'conf.d'), { recursive: true })
+  const conf = path.join(dir, 'supervisord.conf')
+  fs.writeFileSync(
+    conf,
+    [
+      '[unix_http_server]',
+      `file=${dir}/s.sock`,
+      '',
+      '[supervisord]',
+      `pidfile=${dir}/supervisord.pid`,
+      `logfile=${dir}/supervisord.log`,
+      `childlogdir=${dir}`,
+      '',
+      '[rpcinterface:supervisor]',
+      'supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface',
+      '',
+      '[include]',
+      `files=${dir}/conf.d/*.ini`,
+      extra,
+    ].join('\n'),
+  )
+  return conf
+}
+
+/** Stops a supervisord Doctor started, by its own PID, and waits for it to go. */
+export async function stopSupervisord(conf: string) {
+  const pidFile = path.join(path.dirname(conf), 'supervisord.pid')
+  if (!fs.existsSync(pidFile)) return
+  const pid = Number(fs.readFileSync(pidFile, 'utf8').trim())
+  if (!pid) return
+  try {
+    process.kill(pid, 'SIGTERM')
+  } catch {
+    return // already gone
+  }
+  await expect(() => {
+    let alive = true
+    try {
+      process.kill(pid, 0)
+    } catch {
+      alive = false
+    }
+    expect(alive).toBe(false)
+  }).toPass({ timeout: 15_000 })
 }

@@ -95,7 +95,7 @@ export function serverMenu(): MenuItem[] {
     }),
     item('shutdown', 'Shut down supervisord', 'supervisorctl shutdown', false, {
       danger: true,
-      confirm: 'Shutting down supervisord stops every process. Visor cannot start it again; you start it from a terminal.',
+      confirm: 'Shutting down supervisord stops every process. You can start it again from Doctor.',
     }),
     item('settings', 'Server settings', ''),
   ]

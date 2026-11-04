@@ -14,7 +14,8 @@ import type { MenuItem } from '../lib/menus'
 import { showToast } from '../lib/toast'
 import ConfirmDialog from './ConfirmDialog.vue'
 
-const props = defineProps<{ items: MenuItem[]; label: string; heading?: string }>()
+// `small` gives the 26 px trigger for table rows.
+const props = defineProps<{ items: MenuItem[]; label: string; heading?: string; small?: boolean }>()
 const emit = defineEmits<{ select: [id: string] }>()
 
 const open = ref(false)
@@ -184,7 +185,7 @@ function cancelled() {
     <button
       ref="trigger"
       type="button"
-      class="btn quiet icon trigger"
+      :class="['btn quiet icon trigger', { sm: props.small }]"
       aria-haspopup="menu"
       :aria-expanded="open"
       :aria-label="props.label"

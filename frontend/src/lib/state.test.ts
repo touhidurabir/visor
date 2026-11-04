@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { stateLabel, stateLook } from './state'
+import { stateLabel, stateLook, stateTextClass } from './state'
 
 describe('stateLabel', () => {
   it.each([
@@ -39,5 +39,22 @@ describe('stateLook', () => {
     expect(stateLook('BACKOFF')).toMatchObject({ tone: 'warn', alert: true })
     expect(stateLook('EXITED')).toMatchObject({ tone: 'idle', alert: false })
     expect(stateLook('STOPPED')).toMatchObject({ tone: 'idle', alert: false })
+  })
+})
+
+describe('stateTextClass', () => {
+  it.each([
+    // Running is green in regular weight; failing is coloured and semibold;
+    // idle states are grey; Starting and Stopping are amber, regular.
+    ['RUNNING', 'running', ['t-ok']],
+    ['FATAL', 'failing', ['t-bad', 'alert']],
+    ['BACKOFF', 'failing', ['t-warn', 'alert']],
+    ['EXITED', 'failing', ['t-bad', 'alert']],
+    ['EXITED', 'stopped', ['t-idle']],
+    ['STOPPED', 'stopped', ['t-idle']],
+    ['STARTING', 'other', ['t-warn']],
+    ['UNKNOWN', 'other', ['t-idle']],
+  ])('%s (%s) → %j', (state, status, want) => {
+    expect(stateTextClass(stateLook(state, status))).toEqual(want)
   })
 })
