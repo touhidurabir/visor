@@ -13,7 +13,7 @@ defineProps<{
   <div class="lens-wrap">
     <svg viewBox="0 0 340 340" class="ring" aria-hidden="true">
       <g transform="rotate(-90 170 170)">
-        <circle v-for="(s, i) in segments" :key="i" cx="170" cy="170" r="160" :class="['seg', `seg-${i}`, `c-${s}`]" />
+        <circle v-for="(s, i) in segments" :key="i" cx="170" cy="170" r="160" :class="['arc', `arc-${i}`, `c-${s}`]" />
       </g>
     </svg>
     <div class="lens">
@@ -29,12 +29,12 @@ defineProps<{
 <style scoped>
 .lens-wrap { position: relative; width: var(--lens-size, 340px); max-width: 100%; aspect-ratio: 1 / 1; }
 .ring { position: absolute; inset: 0; width: 100%; height: 100%; }
-.seg { fill: none; stroke-width: 9; stroke-linecap: round; stroke-dasharray: 187 818; animation: light 0.45s ease-out both; }
-.seg-0 { stroke-dashoffset: -7px; animation-delay: 0.15s; }
-.seg-1 { stroke-dashoffset: -208px; animation-delay: 0.5s; }
-.seg-2 { stroke-dashoffset: -409px; animation-delay: 0.85s; }
-.seg-3 { stroke-dashoffset: -610px; animation-delay: 1.2s; }
-.seg-4 { stroke-dashoffset: -811px; animation-delay: 1.55s; }
+.arc { fill: none; stroke-width: 9; stroke-linecap: round; stroke-dasharray: 187 818; animation: light 0.45s ease-out both; }
+.arc-0 { stroke-dashoffset: -7px; animation-delay: 0.15s; }
+.arc-1 { stroke-dashoffset: -208px; animation-delay: 0.5s; }
+.arc-2 { stroke-dashoffset: -409px; animation-delay: 0.85s; }
+.arc-3 { stroke-dashoffset: -610px; animation-delay: 1.2s; }
+.arc-4 { stroke-dashoffset: -811px; animation-delay: 1.55s; }
 .c-ok { stroke: var(--lens-ok, #1e9e63); }
 .c-bad { stroke: var(--lens-bad, #d92d20); }
 .c-wait { stroke: var(--lens-wait, #c9d3df); }
@@ -82,7 +82,7 @@ defineProps<{
 @keyframes fade { to { opacity: 0; } }
 @keyframes light { from { stroke: var(--lens-wait, #c9d3df); opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) {
-  .seg, .sweep { animation: none; }
+  .arc, .sweep { animation: none; }
   .sweep { opacity: 0; }
 }
 </style>

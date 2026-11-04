@@ -45,8 +45,6 @@ const tone = computed(() => (props.error.State === 'BACKOFF' ? 'warning' : 'fail
 .card { border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
 .error-card { border-color: var(--error-card-border); background: var(--error-card-bg); }
 .head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
-.badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
-.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .failing { background: var(--failing-bg); color: var(--failing-fg); }
 .failing .dot { background: var(--failing-dot); }
 .warning { background: var(--warning-bg); color: var(--warning-fg); }
@@ -69,9 +67,4 @@ const tone = computed(() => (props.error.State === 'BACKOFF' ? 'warning' : 'fail
 .acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .cause { margin-left: 4px; color: var(--text-muted); }
 .link { padding: 0; border: 0; background: none; color: var(--accent-text); font: inherit; text-decoration: underline; cursor: pointer; }
-.btn { display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; white-space: nowrap; cursor: pointer; }
-.btn:hover:not(:disabled) { background: var(--bg-hover); }
-.btn:disabled { color: var(--text-faint); cursor: default; }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
 </style>

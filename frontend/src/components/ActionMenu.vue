@@ -184,7 +184,7 @@ function cancelled() {
     <button
       ref="trigger"
       type="button"
-      class="trigger"
+      class="btn quiet icon trigger"
       aria-haspopup="menu"
       :aria-expanded="open"
       :aria-label="props.label"
@@ -240,19 +240,9 @@ function cancelled() {
 
 <style scoped>
 .action-menu { position: relative; display: inline-block; }
-.trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--stopped-fg);
-  cursor: pointer;
-}
-.trigger:hover, .trigger[aria-expanded='true'] { background: var(--bg-hover); }
+/* The trigger is the shared borderless icon button (.btn.quiet.icon); it
+   stays lit while its menu is open. */
+.trigger[aria-expanded='true'] { background: var(--hover); color: var(--ink); }
 .menu {
   position: fixed;
   z-index: 20;

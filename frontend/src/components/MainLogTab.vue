@@ -217,16 +217,10 @@ onBeforeUnmount(() => {
 <style scoped>
 .logtab { display: flex; flex-direction: column; gap: 14px; }
 .tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.seg { display: flex; gap: 3px; padding: 3px; background: var(--seg-bg); border-radius: 8px; }
-.seg button { min-height: 28px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; font: inherit; color: var(--stopped-fg); cursor: pointer; }
-.seg button.on { background: var(--seg-on); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
-input[type='date'], input[type='search'] { min-height: 32px; box-sizing: border-box; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; }
+input[type='date'], input[type='search'] { min-height: var(--control); box-sizing: border-box; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; }
 input[type='search'] { width: 200px; padding: 0 10px; }
 .follow { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .muted { color: var(--text-muted); }
-.btn { display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; white-space: nowrap; cursor: pointer; }
-.btn:hover:not(:disabled) { background: var(--bg-hover); }
-.btn:disabled { color: var(--text-faint); cursor: default; }
 .box { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .scroll { max-height: calc(100vh - 300px); min-height: 240px; overflow: auto; background: var(--bg); }
 .line { display: grid; grid-template-columns: 148px 64px minmax(0, 1fr); gap: 16px; align-items: baseline; padding: 8px 16px; border-top: 1px solid var(--line); font-family: var(--font-mono); font-size: 13px; line-height: 1.6; }

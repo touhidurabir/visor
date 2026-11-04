@@ -179,12 +179,12 @@ onBeforeUnmount(() => {
   <div class="logs">
     <div class="bar">
       <span class="mono name">{{ process }}</span>
-      <div class="seg-group" role="group" aria-label="Log stream">
+      <div class="seg" role="group" aria-label="Log stream">
         <button
           v-for="s in (['stdout', 'stderr'] as const)"
           :key="s"
           type="button"
-          :class="['seg', { on: stream === s }]"
+          :class="{ on: stream === s }"
           :aria-pressed="stream === s"
           @click="stream = s"
         >
@@ -265,15 +265,9 @@ onBeforeUnmount(() => {
 .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .mono { font-family: var(--font-mono); font-size: 12px; }
 .name { font-weight: 600; }
-.seg-group { display: flex; gap: 3px; padding: 3px; background: var(--seg-bg); border-radius: 8px; }
-.seg { min-height: 28px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; font: inherit; font-size: 12px; color: var(--stopped-fg); cursor: pointer; }
-.seg.on { background: var(--seg-on); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
-input[type='search'] { min-height: 32px; flex: 1 1 180px; max-width: 260px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; }
+input[type='search'] { min-height: var(--control); flex: 1 1 180px; max-width: 260px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; }
 .count { color: var(--text-muted); font-size: 12px; }
 .spacer { flex: 1; }
-.btn { display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; white-space: nowrap; cursor: pointer; }
-.btn:hover:not(:disabled) { background: var(--bg-hover); }
-.btn:disabled { color: var(--text-faint); cursor: default; }
 .log {
   margin: 0;
   min-height: 300px;

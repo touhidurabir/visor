@@ -8,18 +8,18 @@ test.describe('process actions', () => {
     if ((await supervisorStates())['reports-export:reports-export'] === 'RUNNING') {
       await processAction(page, 'reports-export', 'Stop')
     }
-    await expectState(page, 'reports-export', 'STOPPED')
+    await expectState(page, 'reports-export', 'Stopped')
 
     await processAction(page, 'reports-export', 'Start')
-    await expectState(page, 'reports-export', 'RUNNING')
+    await expectState(page, 'reports-export', 'Running')
 
     await processAction(page, 'reports-export', 'Stop')
-    await expectState(page, 'reports-export', 'STOPPED')
+    await expectState(page, 'reports-export', 'Stopped')
   })
 
   test('Stop all asks first, and Cancel stops nothing', async ({ page }) => {
     await waitForDashboard(page)
-    await expectState(page, 'shop-scheduler', 'RUNNING')
+    await expectState(page, 'shop-scheduler', 'Running')
     const before = await supervisorStates()
     // flaky dies on its own, so it is left out.
     const running = Object.entries(before).filter(([n, s]) => s === 'RUNNING' && !n.startsWith('flaky')).map(([n]) => n)
@@ -38,7 +38,7 @@ test.describe('process actions', () => {
     const after = await supervisorStates()
     for (const name of running) expect(after[name], name).toBe('RUNNING')
 
-    await expectState(page, 'shop-scheduler', 'RUNNING')
-    await expectState(page, 'mailer-worker:mailer-worker_00', 'RUNNING')
+    await expectState(page, 'shop-scheduler', 'Running')
+    await expectState(page, 'mailer-worker:mailer-worker_00', 'Running')
   })
 })

@@ -31,8 +31,8 @@ watch(
     <header>
       <h1>Issues</h1>
       <nav class="tabs" aria-label="Issues sections">
-        <RouterLink :to="{ path: '/issues', query: lastQuery.issues }" class="tab" exact-active-class="on">Issues</RouterLink>
-        <RouterLink :to="{ path: '/issues/log', query: lastQuery['issues-log'] }" class="tab" exact-active-class="on">supervisord log</RouterLink>
+        <RouterLink :to="{ path: '/issues', query: lastQuery.issues }" exact-active-class="on">Issues</RouterLink>
+        <RouterLink :to="{ path: '/issues/log', query: lastQuery['issues-log'] }" exact-active-class="on">supervisord log</RouterLink>
       </nav>
     </header>
     <div v-if="onLog" role="region" aria-label="supervisord log">
@@ -46,8 +46,4 @@ watch(
 .page { display: flex; flex-direction: column; gap: 14px; }
 header { display: flex; flex-direction: column; gap: 10px; }
 h1 { margin: 0; font-size: 22px; font-weight: 650; }
-.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
-.tab { padding: 8px 14px; margin-bottom: -1px; border-bottom: 2px solid transparent; color: var(--text-muted); text-decoration: none; }
-.tab:hover { color: var(--text); }
-.tab.on { border-bottom-color: var(--accent-text); color: var(--text); font-weight: 600; }
 </style>

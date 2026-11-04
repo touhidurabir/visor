@@ -29,7 +29,7 @@ export function processRow(page: Page, fullName: string): Locator {
   return page.locator('.row.proc').filter({ has: page.getByRole('button', { name: `Actions for ${fullName}` }) })
 }
 
-/** Waits until a process shows the given supervisord state on the dashboard. */
+/** Waits until a process shows the given state on the dashboard, as its word reads there ("Running"). */
 export async function expectState(page: Page, fullName: string, state: string | RegExp, timeout = 15_000) {
   await expect(processRow(page, fullName)).toContainText(state, { timeout })
 }

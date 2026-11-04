@@ -314,7 +314,7 @@ const empty = computed(() => {
     <div v-if="selected.size" class="bulk" role="region" aria-label="Selected issues">
       <span>{{ selected.size }} selected</span>
       <button type="button" class="btn" :disabled="!actions.resolve.length || busy" @click="askResolve">Resolve {{ actions.resolve.length }}</button>
-      <button type="button" class="btn danger-text" :disabled="!actions.remove.length || busy" @click="askDelete(actions.remove)">Delete {{ actions.remove.length }}</button>
+      <button type="button" class="btn danger" :disabled="!actions.remove.length || busy" @click="askDelete(actions.remove)">Delete {{ actions.remove.length }}</button>
       <button type="button" class="btn" @click="clearSelection">Clear selection</button>
     </div>
 
@@ -386,20 +386,16 @@ const empty = computed(() => {
 .tile { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
 .tile dt { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
 .tile dd { margin: 2px 0 0; font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
-input[type='date'] { min-height: 32px; box-sizing: border-box; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; }
+input[type='date'] { min-height: var(--control); box-sizing: border-box; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; }
 .bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--watch-on-border); border-radius: 10px; background: var(--selected-bg); }
 .bulk > span { margin-right: 6px; font-weight: 600; }
-.danger-text { color: var(--failing-fg); }
 .pick { display: flex; align-items: center; }
 .check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .picked { background: var(--selected-bg); }
 .status .notified { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-muted); }
 .intro { margin: 0; max-width: 640px; color: var(--text-muted); }
 .tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.seg { display: flex; gap: 3px; padding: 3px; background: var(--seg-bg); border-radius: 8px; }
-.seg button { min-height: 28px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; font: inherit; color: var(--stopped-fg); cursor: pointer; }
-.seg button.on { background: var(--seg-on); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
-input[type='search'] { min-height: 32px; width: 200px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; }
+input[type='search'] { min-height: var(--control); width: 200px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; }
 .box { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .scroll { overflow-x: auto; }
 /* Columns (24 + 120 + 200 + 130 + 90 + 130 + 150), 6 gaps and the padding: 950px. */
@@ -416,11 +412,6 @@ input[type='search'] { min-height: 32px; width: 200px; box-sizing: border-box; p
 .none { margin: 0; padding: 14px; border-top: 1px solid var(--line); color: var(--text-muted); }
 .acts { display: flex; gap: 6px; justify-content: flex-end; }
 .foot { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-top: 1px solid var(--line); color: var(--text-muted); }
-.btn { display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; text-decoration: none; white-space: nowrap; cursor: pointer; }
-.btn:hover:not(:disabled) { background: var(--bg-hover); }
-.btn:disabled { color: var(--text-faint); cursor: default; }
-.badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
-.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .failing { background: var(--failing-bg); color: var(--failing-fg); }
 .failing .dot { background: var(--failing-dot); }
 .warning { background: var(--warning-bg); color: var(--warning-fg); }

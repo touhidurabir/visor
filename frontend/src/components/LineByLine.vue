@@ -179,9 +179,6 @@ function tag(p: LinePathView): { text: string; cls: string } {
 h2 { margin: 0; font-size: 15px; }
 .muted { color: var(--text-muted); }
 .pad { margin: 0; padding: 16px 18px; }
-.seg { display: flex; gap: 3px; padding: 3px; border-radius: 8px; background: var(--seg-bg); }
-.seg button { padding: 3px 11px; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); font: inherit; cursor: pointer; white-space: nowrap; }
-.seg button[aria-pressed='true'] { background: var(--seg-on); color: var(--text); font-weight: 600; }
 .file-problems { list-style: none; margin: 0; padding: 12px 18px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid var(--line); }
 .group-head { margin: 0; padding: 8px 18px; background: var(--bg-subtle); color: var(--text-muted); font-size: 12px; font-weight: 600; border-bottom: 1px solid var(--line); }
 .group + .group .group-head { border-top: 1px solid var(--line); }
@@ -217,13 +214,6 @@ code.new { align-self: flex-start; padding: 2px 7px; border-radius: 5px; backgro
 .tag.ok { background: var(--running-bg); color: var(--running-fg); }
 .tag.bad { background: var(--failing-bg); color: var(--failing-fg); }
 .tag.auto { background: var(--stopped-bg); color: var(--stopped-fg); }
-.btn { display: inline-flex; align-items: center; min-height: 30px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; white-space: nowrap; cursor: pointer; box-sizing: border-box; }
-.btn.sm { min-height: 26px; padding: 0 10px; font-size: 12px; }
-.btn:hover:not(:disabled) { background: var(--bg-hover); }
-.btn:disabled { color: var(--text-faint); cursor: default; }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
-.btn.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
-.btn.primary:disabled { opacity: 0.55; color: var(--on-accent); }
 .link { padding: 0; border: 0; background: none; color: var(--accent-text); font: inherit; font-size: 12px; cursor: pointer; }
 .link:hover { text-decoration: underline; }
 @media (max-width: 760px) {

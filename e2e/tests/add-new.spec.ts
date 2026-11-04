@@ -70,7 +70,7 @@ test.describe('add new config', () => {
     await expect(page.getByRole('button', { name: /Watching/ })).toHaveAttribute('aria-pressed', 'true')
     await openApp(page, '/')
     await waitForDashboard(page)
-    await expectState(page, 'e2e-task:e2e-task', 'RUNNING')
+    await expectState(page, 'e2e-task:e2e-task', 'Running')
     const row = page.locator('.cfg-row').filter({ has: page.getByRole('link', { name: 'e2e-task.ini' }) })
     await expect(row.getByRole('button', { name: 'Watching' })).toBeVisible()
     expect(errors).toEqual([])

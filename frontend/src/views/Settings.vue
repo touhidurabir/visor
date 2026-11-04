@@ -689,7 +689,7 @@ h2 { margin: 0; font-size: 14px; font-weight: 650; }
 .value { overflow-wrap: anywhere; user-select: text; }
 .pw-saved { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); }
 .unit { color: var(--text-muted); }
-input[type='text'], input[type='password'], input[type='number'] { min-height: 32px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; }
+input[type='text'], input[type='password'], input[type='number'] { min-height: var(--control); box-sizing: border-box; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; }
 input[type='text'], input[type='password'] { width: 220px; }
 input.mono { font-family: var(--font-mono); font-size: 12px; }
 input[readonly] { background: var(--bg-subtle); }
@@ -705,14 +705,7 @@ input.num { width: 72px; text-align: right; }
 .check { display: flex; align-items: center; gap: 8px; }
 .check input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); }
 .foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 10px; border-top: 1px solid var(--stopped-bg); }
-.btn { display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; white-space: nowrap; cursor: pointer; }
-.btn:hover:not(:disabled) { background: var(--bg-hover); }
-.btn:disabled { color: var(--text-faint); cursor: default; }
-.btn.primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
-.btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
-.badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
-.badge.wrap { white-space: normal; }
-.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.badge.wrap { height: auto; min-height: 22px; padding: 2px 8px; white-space: normal; }
 .running { background: var(--running-bg); color: var(--running-fg); }
 .running .dot { background: var(--running-dot); }
 .failing { background: var(--failing-bg); color: var(--failing-fg); }

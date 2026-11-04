@@ -118,15 +118,9 @@ function add(after: number, lines: string[]) {
 .strong { font-weight: 600; }
 .muted { color: var(--text-muted); }
 .mono { font-family: var(--font-mono); font-size: 12px; }
-.inp { min-height: 32px; width: 200px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); box-sizing: border-box; }
+.inp { min-height: var(--control); width: 200px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); box-sizing: border-box; }
 .inp:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: flex-end; }
 .buttons .muted { margin-right: auto; }
-.btn { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; text-decoration: none; white-space: nowrap; cursor: pointer; box-sizing: border-box; }
-.btn:hover:not(:disabled) { background: var(--bg-hover); }
-.btn:disabled { color: var(--text-faint); cursor: default; }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
-.btn.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
-.btn.primary:disabled { opacity: 0.55; color: var(--on-accent); }
 .alert { margin: 0; padding: 12px; border: 1px solid var(--failing-dot); border-radius: var(--radius-md); background: var(--failing-bg); color: var(--failing-fg); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; user-select: text; }
 </style>

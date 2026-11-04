@@ -47,6 +47,6 @@ test.describe('config detail', () => {
   test('history tab renders', async ({ page }) => {
     await page.goto('/#/config/' + encodeURIComponent('/tmp/visor-e2e/conf.d/shop-api.ini') + '?tab=history&process=shop-scheduler')
     await expect(page.getByRole('tab', { name: 'History' })).toHaveAttribute('aria-selected', 'true')
-    await expect(page.getByRole('tabpanel')).toContainText(/RUNNING/, { timeout: 15_000 })
+    await expect(page.getByRole('tabpanel')).toContainText(/Running/, { timeout: 15_000 })
   })
 })

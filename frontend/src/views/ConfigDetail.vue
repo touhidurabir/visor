@@ -293,7 +293,7 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
           ref="tabEls"
           type="button"
           role="tab"
-          :class="['tab', { on: tab === t.id }]"
+          :class="{ on: tab === t.id }"
           :aria-selected="tab === t.id"
           :aria-controls="`panel-${t.id}`"
           :tabindex="tab === t.id ? 0 : -1"
@@ -394,12 +394,8 @@ h1 { margin: 0; font-size: 22px; font-weight: 650; }
 .muted { margin: 0; color: var(--text-muted); }
 .small { font-size: 12px; }
 .tools { display: flex; flex-wrap: wrap; gap: 8px; }
-.btn { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; text-decoration: none; white-space: nowrap; cursor: pointer; box-sizing: border-box; }
-.btn:hover:not(:disabled) { background: var(--bg-hover); }
-.btn:disabled { color: var(--text-faint); cursor: default; }
 .btn.watch-on, .btn.watch-on:hover { background: var(--selected-bg); border-color: var(--watch-on-border); color: var(--watch-on-fg); }
-.badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
-.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; background: var(--stopped-dot); }
+.dot { background: var(--stopped-dot); }
 .badge.failing { background: var(--failing-bg); color: var(--failing-fg); }
 .badge.running { background: var(--running-bg); color: var(--running-fg); }
 .badge.warning { background: var(--warning-bg); color: var(--warning-fg); }
@@ -413,9 +409,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 650; }
 .chip:hover { background: var(--bg-hover); }
 .chip.on, .chip.on:hover { border-color: var(--accent-text); background: var(--selected-bg); }
 .since { color: var(--text-muted); }
-.tabs { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
-.tab { min-height: 36px; padding: 0 4px; margin-right: 18px; border: 0; border-bottom: 2px solid transparent; background: transparent; font: inherit; color: var(--stopped-fg); cursor: pointer; }
-.tab.on { border-bottom-color: var(--accent-text); color: var(--text); font-weight: 600; }
+.tabs { flex-wrap: wrap; }
 .overview { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .card { border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
 .card-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }

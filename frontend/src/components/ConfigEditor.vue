@@ -518,12 +518,6 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
 .dirty { color: var(--warning-fg); font-weight: 600; }
 .note { margin: 0; color: var(--text-muted); }
 .lead { margin: 0; line-height: 1.45; }
-.btn { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; text-decoration: none; white-space: nowrap; cursor: pointer; box-sizing: border-box; }
-.btn:hover:not(:disabled) { background: var(--bg-hover); }
-.btn:disabled { color: var(--text-faint); cursor: default; }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
-.btn.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
-.btn.primary:disabled { opacity: 0.55; color: var(--on-accent); }
 .link { border: 0; background: transparent; color: var(--accent-text); font: inherit; cursor: pointer; padding: 0; }
 .link:hover { text-decoration: underline; }
 .card { border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }

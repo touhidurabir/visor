@@ -1,125 +1,174 @@
-/* Design tokens (spec §9). Light values are the wireframes' exact colours;
-   the dark set is the builder's call and keeps text at >= 4.5:1 against its
-   own background. State colours are always paired with a text label.
-   Light is the default; theme.ts sets data-theme="dark" on <html> (the
-   early script in index.html does it before first paint), from Settings
-   or the OS. */
+/* Design tokens: the UI polish canvas's set (2026-11-02 review, project/
+   tokens.css). Every text pair is 4.5:1 or better against the surface it
+   sits on; state colours always come with a word (dot + word, never colour
+   alone). Light is the default; theme.ts sets data-theme="dark" on <html>
+   (the early script in index.html does it before first paint), from
+   Settings or the OS.
+
+   The canvas names are the source of truth. The older names further down
+   are aliases, so screens not yet restyled keep working; each screen moves
+   to the canvas names as it is polished. Old -> new:
+     --text -> --ink            --text-muted -> --ink2     --text-faint -> --ink3
+     --bg-sidebar -> --side     --bg-hover -> --hover      --bg-subtle -> --sunken
+     --line-strong -> --line2   --focus -> --accent        --selected-bg -> --accent-soft
+     --running-fg/bg/dot -> --ok / --ok-soft / --ok-dot
+     --failing-fg/bg/dot -> --bad / --bad-soft / --bad-dot
+     --warning-fg/bg/dot -> --warn / --warn-soft / --warn-dot
+     --stopped-fg/bg/dot -> --idle / --idle-soft / --idle-dot
+     --seg-bg -> --hover        --seg-on -> --raised       --watch-on-fg -> --accent-text
+     --error-card-bg -> --bad-soft                         --menu-bg -> --raised
+     --menu-shadow -> --shadow  --log-fg -> --log-ink      --log-muted -> --log-dim
+     --font-sans -> --font      --font-mono -> --mono
+   Same name on both: --bg, --line, --accent, --accent-text, --log-bg.
+   Not on the canvas, kept with values in its palette: --bg-active,
+   --on-accent, --danger-bg, --watch-on-border,
+   --error-card-border, --log-mark-*, --menu-cmd-hover, --scrim,
+   --select-chevron, --radius-*. */
 :root {
   color-scheme: light;
 
-  --text: #1d1d1f;
-  --text-muted: #5e5e66;
-  --text-faint: #6e6e76;
+  /* Surfaces */
   --bg: #ffffff;
-  --bg-sidebar: #f3f3f5;
-  --bg-hover: #e6e6ea;
-  --bg-active: #dcdce2;
-  --bg-subtle: #fafafb;
-  --line: #e2e2e6;
-  --line-strong: #d2d2d7;
+  --side: #f4f5f8;
+  --raised: #ffffff;
+  --sunken: #f5f7fa;
+  --hover: #eef1f5;
+  --bg-active: #e3e7ed;
 
-  --accent: #0a5fcc;
-  --accent-hover: #084a9f;
-  --accent-text: #0a5fcc;
-  --on-accent: #ffffff;
-  --focus: #0a5fcc;
-  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%235e5e66' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* Text and lines */
+  --ink: #14202e;
+  --ink2: #4b5868;
+  --ink3: #5f6b7b;
+  --line: #e3e7ed;
+  --line2: #cbd3dd;
 
-  --running-fg: #146c2e;
-  --running-bg: #e7f5ec;
-  --running-dot: #2da44e;
-  --failing-fg: #b42318;
-  --failing-bg: #fdecea;
-  --failing-dot: #d92d20;
-  --danger-bg: #d92d20; /* white text 5.6:1 */
-  --warning-fg: #8a5300;
-  --warning-bg: #fff4de;
-  --warning-dot: #e8a21a;
-  --stopped-fg: #45454c;
-  --stopped-bg: #efeff2;
-  --stopped-dot: #8e8e96;
+  /* Accent */
+  --accent: #0a62d0;
+  --accent-soft: #e8f1fd;
+  --accent-text: #0a56b8;
+  --on-accent: #ffffff; /* on --accent 5.7:1, on --danger-bg 6.6:1 */
 
-  --selected-bg: #eaf1fc;
+  /* States: text colour, dot, soft tint */
+  --ok: #17784a;
+  --ok-dot: #22a75a;
+  --ok-soft: #e4f4eb;
+  --bad: #b42318;
+  --bad-dot: #e5483a;
+  --bad-soft: #fdedeb;
+  --warn: #8a5300;
+  --warn-dot: #e09b1b;
+  --warn-soft: #fcf3e0;
+  --idle: #5f6b7b;
+  --idle-dot: #9aa4b2;
+  --idle-soft: #eef1f5;
+  --danger-bg: #b42318; /* filled destructive button */
   --watch-on-border: #a9c5ee;
-  --watch-on-fg: #0a4fa8;
-  --seg-bg: #e4e4e8;
-  --seg-on: #ffffff;
   --error-card-border: #f3b4ae;
-  --error-card-bg: #fff8f7;
+
   /* Log panes stay dark in both themes, like a terminal. */
-  --log-bg: #1d1d1f;
-  --log-fg: #e8e8ec;
-  --log-muted: #8e8e96;
+  --log-bg: #17202c;
+  --log-ink: #e6eaf0;
+  --log-dim: #8592a3;
   --log-mark-bg: #f5c26b;
-  --log-mark-fg: #1d1d1f;
+  --log-mark-fg: #14202e;
 
-  --menu-bg: #ffffff;
-  --menu-shadow: 0 10px 30px rgba(0, 0, 0, 0.14);
+  /* Elevation */
+  --shadow: 0 1px 2px rgba(20, 32, 46, 0.06), 0 8px 24px rgba(20, 32, 46, 0.08);
   --menu-cmd-hover: #dce8fa;
-  --scrim: rgba(0, 0, 0, 0.3);
+  --scrim: rgba(20, 32, 46, 0.3);
 
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%234b5868' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+  /* Shape and size: controls are 30 px, 26 px small, never under 24 px. */
+  --control: 30px;
+  --control-sm: 26px;
   --radius-sm: 7px;
   --radius-md: 9px;
   --radius-lg: 12px;
 
-  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', system-ui, sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  /* Type */
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', system-ui, sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --display: 'Bricolage Grotesque Variable', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+
+  /* Old names (aliases, see the mapping above). Declared once: they follow
+     the dark values through var(). */
+  --text: var(--ink);
+  --text-muted: var(--ink2);
+  --text-faint: var(--ink3);
+  --bg-sidebar: var(--side);
+  --bg-hover: var(--hover);
+  --bg-subtle: var(--sunken);
+  --line-strong: var(--line2);
+  --focus: var(--accent);
+  --selected-bg: var(--accent-soft);
+  --running-fg: var(--ok);
+  --running-bg: var(--ok-soft);
+  --running-dot: var(--ok-dot);
+  --failing-fg: var(--bad);
+  --failing-bg: var(--bad-soft);
+  --failing-dot: var(--bad-dot);
+  --warning-fg: var(--warn);
+  --warning-bg: var(--warn-soft);
+  --warning-dot: var(--warn-dot);
+  --stopped-fg: var(--idle);
+  --stopped-bg: var(--idle-soft);
+  --stopped-dot: var(--idle-dot);
+  --seg-bg: var(--hover);
+  --seg-on: var(--raised);
+  --watch-on-fg: var(--accent-text);
+  --error-card-bg: var(--bad-soft);
+  --menu-bg: var(--raised);
+  --menu-shadow: var(--shadow);
+  --log-fg: var(--log-ink);
+  --log-muted: var(--log-dim);
+  --font-sans: var(--font);
+  --font-mono: var(--mono);
 }
 
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --text: #f5f5f7;
-  --text-muted: #a1a1a6;
-  --text-faint: #98989f;
-  --bg: #1e1e20;
-  --bg-sidebar: #28282b;
-  --bg-hover: #36363a;
-  --bg-active: #44444a;
-  --bg-subtle: #242427;
-  --line: #38383c;
-  --line-strong: #505056;
 
-  --accent: #0a5fcc;
-  --accent-hover: #2a77de;
-  --accent-text: #6ca6f5;
-  --on-accent: #ffffff;
-  --focus: #6ca6f5;
-  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23a1a1a6' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --bg: #1b1d22;
+  --side: #212328;
+  --raised: #25282e;
+  --sunken: #202227;
+  --hover: #2c3037;
+  --bg-active: #383c44;
 
-  --running-fg: #6fd08c;
-  --running-bg: #123220;
-  --running-dot: #3fb865;
-  --failing-fg: #ff9c92;
-  --failing-bg: #3f1613;
-  --failing-dot: #f0544a;
-  --danger-bg: #c8372b; /* white text 5.2:1; --failing-dot is too light */
-  --warning-fg: #f5c26b;
-  --warning-bg: #3a2a0a;
-  --warning-dot: #e8a21a;
-  --stopped-fg: #c7c7ce;
-  --stopped-bg: #323237;
-  --stopped-dot: #8e8e96;
+  --ink: #eceff3;
+  --ink2: #b5bdc8;
+  --ink3: #99a3b0;
+  --line: #31353c;
+  --line2: #454b54;
 
-  --selected-bg: #16263d;
+  --accent: #2f6fd8;
+  --accent-soft: rgba(76, 141, 246, 0.16);
+  --accent-text: #86b4ff;
+  --on-accent: #ffffff; /* on --accent 4.8:1, on --danger-bg 5.2:1 */
+
+  --ok: #62d294;
+  --ok-dot: #3fb96f;
+  --ok-soft: rgba(63, 185, 111, 0.14);
+  --bad: #ff8f84;
+  --bad-dot: #f0544a;
+  --bad-soft: rgba(240, 84, 74, 0.15);
+  --warn: #f4bc5a;
+  --warn-dot: #e8a33a;
+  --warn-soft: rgba(232, 163, 58, 0.14);
+  --idle: #a3acb8;
+  --idle-dot: #7d8794;
+  --idle-soft: rgba(154, 164, 178, 0.14);
+  --danger-bg: #c8372b; /* --bad is too light for white text here */
   --watch-on-border: #2f5a94;
-  --watch-on-fg: #9cc3f7;
-  --seg-bg: #323237;
-  --seg-on: #55555c;
   --error-card-border: #6b2a24;
-  --error-card-bg: #2a1513;
-  --log-bg: #111113;
-  --log-fg: #e8e8ec;
-  --log-muted: #8e8e96;
-  --log-mark-bg: #f5c26b;
-  --log-mark-fg: #1d1d1f;
 
-  --menu-bg: #2c2c30;
-  --menu-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-  --menu-cmd-hover: #dce8fa;
+  --log-bg: #121519;
+  --log-ink: #e6eaf0;
+  --log-dim: #7c8796;
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 28px rgba(0, 0, 0, 0.35);
   --scrim: rgba(0, 0, 0, 0.55);
-}
 
-:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23b5bdc8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }

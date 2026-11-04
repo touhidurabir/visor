@@ -226,7 +226,7 @@ legend { padding: 0 6px; font-weight: 650; }
 .field.wide { grid-column: 1 / -1; }
 .flabel { font-weight: 600; }
 .key { font-weight: 400; color: var(--text-faint); }
-.inp { min-height: 32px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); font: inherit; background-color: var(--bg); color: var(--text); box-sizing: border-box; width: 100%; }
+.inp { min-height: var(--control); padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); font: inherit; background-color: var(--bg); color: var(--text); box-sizing: border-box; width: 100%; }
 select.inp { padding-right: 28px; }
 .inp.mono { font-family: var(--font-mono); font-size: 12px; }
 .inp.err { border-color: var(--failing-dot); }
@@ -243,14 +243,8 @@ select.inp { padding-right: 28px; }
 .small { font-size: 12px; }
 .ini { margin: 0; padding: 12px; background: var(--bg-subtle); border: 1px solid var(--line); border-radius: var(--radius-sm); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 .problems { margin: 0; padding-left: 18px; color: var(--failing-fg); }
-a { color: var(--accent-text); }
+a:not(.btn) { color: var(--accent-text); }
 .banner { margin: 0; padding: 10px 14px; border-radius: var(--radius-md); background: var(--warning-bg); color: var(--warning-fg); }
 .buttons { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
-.btn { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; text-decoration: none; white-space: nowrap; cursor: pointer; box-sizing: border-box; }
-.btn:hover:not(:disabled) { background: var(--bg-hover); }
-.btn:disabled { color: var(--text-faint); cursor: default; }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
-.btn.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
-.btn.primary:disabled { opacity: 0.55; color: var(--on-accent); }
 .alert { margin: 0; padding: 12px; border: 1px solid var(--failing-dot); border-radius: var(--radius-md); background: var(--failing-bg); color: var(--failing-fg); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; user-select: text; }
 </style>

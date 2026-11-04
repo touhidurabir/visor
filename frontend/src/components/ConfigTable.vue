@@ -123,7 +123,7 @@ function procName(p: ProcessView) {
 .file-link { font-weight: 600; color: var(--text); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 a.file-link:hover { text-decoration: underline; }
 .chip { padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--warning-bg); color: var(--warning-fg); }
-.icon { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--stopped-fg); cursor: pointer; }
+.icon { display: inline-flex; align-items: center; justify-content: center; width: var(--control); height: var(--control); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--stopped-fg); cursor: pointer; }
 .icon.small { width: 24px; height: 24px; }
 .icon:hover { background: var(--bg-hover); }
 .icon svg { transition: transform 0.12s; }

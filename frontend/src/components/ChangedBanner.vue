@@ -51,14 +51,4 @@ const detail = computed(() =>
 }
 .msg { flex: 1 1 300px; }
 a { color: inherit; font-weight: 600; }
-.btn {
-  min-height: 32px;
-  padding: 0 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--line-strong);
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-}
-.btn:disabled { color: var(--text-faint); cursor: default; }
 </style>

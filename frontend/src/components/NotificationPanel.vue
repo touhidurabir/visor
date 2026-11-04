@@ -92,7 +92,7 @@ onBeforeUnmount(() => {
         </RouterLink>
       </header>
 
-      <div class="tabs">
+      <div class="seg kinds">
         <button type="button" :aria-pressed="tab === 'unread'" @click="tab = 'unread'">Unread · {{ unread }}</button>
         <button type="button" :aria-pressed="tab === 'all'" @click="tab = 'all'">All</button>
       </div>
@@ -157,9 +157,8 @@ h2 { margin: 0 auto 0 0; font-size: 15px; }
 .link:hover:not(:disabled) { text-decoration: underline; }
 .gear { display: inline-flex; padding: 5px; border-radius: var(--radius-sm); color: var(--text-muted); }
 .gear:hover { background: var(--bg-hover); color: var(--text); }
-.tabs { display: flex; gap: 3px; margin: 0 14px 10px; padding: 3px; border-radius: 8px; background: var(--seg-bg); }
-.tabs button { flex: 1; padding: 4px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); font: inherit; cursor: pointer; }
-.tabs button[aria-pressed='true'] { background: var(--seg-on); color: var(--text); font-weight: 600; }
+.kinds { display: flex; margin: 0 14px 10px; }
+.kinds > button { flex: 1; }
 .strip { margin: 0 14px 10px; padding: 9px 11px; border-radius: var(--radius-sm); line-height: 1.4; }
 .strip.warn { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; background: var(--warning-bg); color: var(--warning-fg); }
 .strip.warn .link { color: inherit; font-weight: 600; text-decoration: underline; }
