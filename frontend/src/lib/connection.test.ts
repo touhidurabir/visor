@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ServerView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
-import { connectionProblem, isDown } from './connection'
+import { connectionBadge, connectionProblem, isDown } from './connection'
 
 const server = (s: Partial<ServerView>) => ({ Reachable: false, Health: 'error', Error: '', ...s }) as ServerView
 const line = (s: Partial<ServerView>) => connectionProblem(server(s))!.line.map((x) => x.text).join('')
@@ -59,5 +59,22 @@ describe('connectionProblem', () => {
     const noSocket = '/etc/supervisord.conf defines no socket or port: add an [unix_http_server] section with file= set'
     expect(connectionProblem(server({ Error: noSocket }))).toMatchObject({ kind: 'setup', title: 'Visor can’t connect to supervisord', retrying: false, raw: noSocket })
     expect(connectionProblem(server({ Error: '' }))).toMatchObject({ kind: 'setup', raw: '' })
+  })
+})
+
+describe('connectionBadge', () => {
+  it('says Not running only when supervisord isn’t running', () => {
+    expect(connectionBadge(connectionProblem(server({ Error: NOT_RUNNING })))).toBe('Not running')
+    expect(connectionBadge(connectionProblem(server({ Error: REFUSED })))).toBe('Not running')
+  })
+  it('says Not connected for a password, a closed socket or the setup', () => {
+    expect(connectionBadge(connectionProblem(server({ Error: AUTH })))).toBe('Not connected')
+    expect(connectionBadge(connectionProblem(server({ Error: DENIED })))).toBe('Not connected')
+    expect(connectionBadge(connectionProblem(server({ Error: 'no socket in /x/supervisord.conf' })))).toBe('Not connected')
+  })
+  it('is empty while connected or not yet known', () => {
+    expect(connectionBadge(connectionProblem(server({ Reachable: true, Health: 'ok' })))).toBeNull()
+    expect(connectionBadge(connectionProblem(server({ Health: 'unknown' })))).toBeNull()
+    expect(connectionBadge(null)).toBeNull()
   })
 })

@@ -8,13 +8,10 @@
 // so a failure is noticed even when macOS shows no banner. Laid out as one
 // section per server: this Mac for now; remote servers add sections.
 import { computed, ref } from 'vue'
-import { Events } from '@wailsio/runtime'
 import { ServerService, ShellService, type ConfigView, type ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
-import { VisorMenu } from '../../bindings/events'
 import { errorMessage, useOverview } from '../lib/overview'
 import { useApplyFlow } from '../lib/apply-flow'
 import { connectionProblem } from '../lib/connection'
-import { DOCTOR_MENU } from '../lib/menu'
 import { useNotifications } from '../lib/notifications'
 import { stateLabel } from '../lib/state'
 import { VERB_LABEL, downLine, footerReason, rowLook, trayActions, trayGroups, trayHeader, type TrayVerb } from '../lib/tray'
@@ -124,11 +121,10 @@ async function tryAgain() {
   }
 }
 
-/** Shows the main window, then asks it to go to Doctor (lib/menu.ts). */
+/** Shows the main window at Doctor (Go's ShellService.OpenDoctor). */
 async function openDoctor() {
   try {
-    await ShellService.OpenVisor()
-    await Events.Emit(VisorMenu, DOCTOR_MENU)
+    await ShellService.OpenDoctor()
   } catch (e) {
     notice.value = { kind: 'error', text: `Couldn't open Doctor: ${errorMessage(e)}` }
   }

@@ -4,7 +4,7 @@
 // (lib/health.ts isFailing), the same one the dashboard sorts by. Each row
 // offers only the actions that apply to its state.
 import type { ConfigView, ProcessView, ServerView, StatsView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
-import type { ConnectionProblem } from './connection'
+import { connectionBadge, type ConnectionProblem } from './connection'
 import { formatDuration } from './format'
 import { isFailing } from './health'
 import { stateLabel, stateLook, type StateTone } from './state'
@@ -96,8 +96,8 @@ export function trayHeader(
   problem: ConnectionProblem | null,
 ): TrayHeader {
   if (problem) {
-    const down = problem.kind === 'down'
-    return { tone: 'bad', badge: down ? 'Not running' : 'Not connected', meta: down ? 'Can’t reach supervisord' : problem.reason }
+    const meta = problem.kind === 'down' ? 'Can’t reach supervisord' : problem.reason
+    return { tone: 'bad', badge: connectionBadge(problem), meta }
   }
   const tone = HEALTH_TONE[server?.Health ?? ''] ?? 'idle'
   if (!stats) return { tone, badge: null, meta: '' }

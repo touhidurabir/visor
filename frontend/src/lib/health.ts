@@ -35,6 +35,16 @@ export const NAMED = 3
 
 export const isFailing = (p: ProcessView) => p.Status === 'failing'
 
+/**
+ * The colour of a process's reason line (ProcessView.Detail) on the
+ * dashboard: red when it is failing, and red on a running process too,
+ * whose only reason line is an open crash loop (Go's sinceAndDetail), an
+ * error like everywhere else Visor shows one; grey otherwise.
+ */
+export function reasonClass(p: Pick<ProcessView, 'Status'>): string {
+  return p.Status === 'failing' || p.Status === 'running' ? 't-bad' : 'meta'
+}
+
 /** A process's name as the dashboard shows it: "flaky", or "group:name" in a group. */
 export function processLabel(p: ProcessView): string {
   return p.Group === p.Name ? p.Name : p.FullName

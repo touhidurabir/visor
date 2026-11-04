@@ -129,3 +129,21 @@ func TestUnreadSentAtLaunchIsDrawnWhenStarted(t *testing.T) {
 		t.Errorf("after start the icon label is %q, want 3", s.drawnLabel)
 	}
 }
+
+func TestOpenDoctorShowsTheMainWindowThere(t *testing.T) {
+	var shown, emitted []string
+	show := func(r string) { shown = append(shown, r) }
+	emit := func(n string) { emitted = append(emitted, n) }
+
+	openDoctor(false, show, emit)
+	if len(shown) != 1 || shown[0] != "#/doctor" || len(emitted) != 0 {
+		t.Fatalf("app: shown %q, emitted %q; want shown [#/doctor], nothing emitted", shown, emitted)
+	}
+
+	// The server build has no window, so the open pages go there themselves.
+	shown, emitted = nil, nil
+	openDoctor(true, show, emit)
+	if len(shown) != 0 || len(emitted) != 1 || emitted[0] != "doctor" {
+		t.Fatalf("server: shown %q, emitted %q; want nothing shown, emitted [doctor]", shown, emitted)
+	}
+}

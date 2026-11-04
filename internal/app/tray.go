@@ -355,6 +355,26 @@ func NewShellService(s *Shell) *ShellService { return &ShellService{shell: s} }
 // menu-bar popover.
 func (s *ShellService) OpenVisor() { s.shell.ShowMain("") }
 
+// OpenDoctor shows the main window at Doctor (and the Dock icon) and hides
+// the menu-bar popover: the popover's Open Doctor.
+func (s *ShellService) OpenDoctor() {
+	openDoctor(application.System.IsServer(), s.shell.ShowMain, func(name string) { WailsEmit(EventMenu, name) })
+}
+
+// menuDoctor is the EventMenu choice that takes the open pages to Doctor
+// (lib/menu.ts DOCTOR_MENU).
+const menuDoctor = "doctor"
+
+// openDoctor shows the main window at Doctor. The server build (UI tests)
+// has no window to show, so it asks the open pages to go there instead.
+func openDoctor(server bool, show func(route string), emit func(name string)) {
+	if server {
+		emit(menuDoctor)
+		return
+	}
+	show(routeDoc)
+}
+
 // OpenNotifications shows the main window with its notification list open.
 func (s *ShellService) OpenNotifications() {
 	s.shell.ShowMain("")

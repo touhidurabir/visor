@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { IssueView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
-import { KIND_ICONS, issueKind, lasted, statusLabel } from './issue-status'
+import { KIND_ICONS, KIND_SEVERITY, issueKind, lasted, statusLabel } from './issue-status'
 
 const issue = (over: Partial<IssueView> = {}): IssueView => ({
   ID: 'i1', Kind: 'fatal', Process: 'web:web', Config: '/etc/web.conf', Message: 'm',
@@ -42,8 +42,15 @@ describe('issueKind', () => {
   it('maps kinds to an icon, a sentence-case word and a colour class', () => {
     expect(issueKind('fatal')).toEqual({ label: "Can't start", cls: 't-bad', icon: KIND_ICONS.fatal })
     expect(issueKind('unexpected_exit')).toEqual({ label: 'Exited', cls: 't-warn', icon: KIND_ICONS.exit })
-    expect(issueKind('crash_loop')).toEqual({ label: 'Crash loop', cls: 't-warn', icon: KIND_ICONS.loop })
+    expect(issueKind('crash_loop')).toEqual({ label: 'Crash loop', cls: 't-bad', icon: KIND_ICONS.loop })
     expect(issueKind('unreachable')).toEqual({ label: 'Unreachable', cls: 't-bad', icon: KIND_ICONS.down })
+  })
+  it('colours a kind by its severity, as the bell does (Go notify.SeverityOf)', () => {
+    // A crash loop is an error in Go, so it is red here as it is in the bell.
+    expect(KIND_SEVERITY).toEqual({ fatal: 'error', crash_loop: 'error', unreachable: 'error', unexpected_exit: 'warning' })
+    for (const [kind, level] of Object.entries(KIND_SEVERITY)) {
+      expect(issueKind(kind).cls).toBe(level === 'error' ? 't-bad' : 't-warn')
+    }
   })
   it('shows an unknown kind as a plain word', () => {
     expect(issueKind('weird_thing')).toEqual({ label: 'Weird thing', cls: 't-idle', icon: KIND_ICONS.other })

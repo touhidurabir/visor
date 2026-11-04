@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ConfigView, ProcessView, StatsView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
-import { disconnectedHealth, firstFailing, health, healthSentence, NO_COUNT, openIssuesLabel, processLabel, summaryParts } from './health'
+import { disconnectedHealth, firstFailing, health, healthSentence, NO_COUNT, openIssuesLabel, processLabel, reasonClass, summaryParts } from './health'
 
 const stats = (s: Partial<StatsView>) => ({ Configs: 5, Processes: 12, Running: 0, Failing: 0, Stopped: 0, OpenIssues: 0, ...s }) as StatsView
 const p = (FullName: string, Status: string, Group = FullName) => ({ FullName, Name: FullName.split(':').pop()!, Group, Status }) as ProcessView
@@ -128,5 +128,18 @@ describe('openIssuesLabel', () => {
     [3, '3 open issues'],
   ])('%i → %s', (n, want) => {
     expect(openIssuesLabel(n)).toBe(want)
+  })
+})
+
+describe('reasonClass', () => {
+  it('is red for a failing process', () => {
+    expect(reasonClass({ Status: 'failing' })).toBe('t-bad')
+  })
+  it('is red for a running process, whose reason line is a crash loop (an error, as in the bell)', () => {
+    expect(reasonClass({ Status: 'running' })).toBe('t-bad')
+  })
+  it('is grey otherwise', () => {
+    expect(reasonClass({ Status: 'stopped' })).toBe('meta')
+    expect(reasonClass({ Status: 'other' })).toBe('meta')
   })
 })

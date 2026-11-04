@@ -1,6 +1,7 @@
 // Labels for the Issues page and dashboard list, as pure functions.
 import type { IssueView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { formatDuration } from './format'
+import type { SeverityLevel } from './notifications'
 
 /** Stroke icons (24-unit viewBox) for each kind of issue, as the canvas draws them. */
 export const KIND_ICONS = {
@@ -11,21 +12,36 @@ export const KIND_ICONS = {
   other: 'M12 8v5M12 16v.01',
 } as const
 
-const KINDS: Record<string, { label: string; cls: string; icon: string }> = {
-  fatal: { label: "Can't start", cls: 't-bad', icon: KIND_ICONS.fatal },
-  unexpected_exit: { label: 'Exited', cls: 't-warn', icon: KIND_ICONS.exit },
-  crash_loop: { label: 'Crash loop', cls: 't-warn', icon: KIND_ICONS.loop },
-  unreachable: { label: 'Unreachable', cls: 't-bad', icon: KIND_ICONS.down },
+/**
+ * How serious each kind is, the same as Go's notify.SeverityOf, which rates
+ * the bell's notifications and the banners: the Issues page colours a kind
+ * the way the bell colours its notification. Any other kind is info.
+ */
+export const KIND_SEVERITY: Record<string, SeverityLevel> = {
+  fatal: 'error',
+  crash_loop: 'error',
+  unreachable: 'error',
+  unexpected_exit: 'warning',
+}
+
+const SEVERITY_CLASS: Record<SeverityLevel, string> = { error: 't-bad', warning: 't-warn', info: 't-idle' }
+
+const KINDS: Record<string, { label: string; icon: string }> = {
+  fatal: { label: "Can't start", icon: KIND_ICONS.fatal },
+  unexpected_exit: { label: 'Exited', icon: KIND_ICONS.exit },
+  crash_loop: { label: 'Crash loop', icon: KIND_ICONS.loop },
+  unreachable: { label: 'Unreachable', icon: KIND_ICONS.down },
 }
 
 /**
  * issueKind is how a kind shows: an icon (an SVG path) plus a sentence-case
- * word, and the t-* colour class for both.
+ * word, and the t-* colour class for both, from the kind's severity.
  */
 export function issueKind(kind: string): { label: string; cls: string; icon: string } {
-  if (KINDS[kind]) return KINDS[kind]
+  const cls = SEVERITY_CLASS[KIND_SEVERITY[kind] ?? 'info']
+  if (KINDS[kind]) return { ...KINDS[kind], cls }
   const word = kind.replace(/_/g, ' ')
-  return { label: word.charAt(0).toUpperCase() + word.slice(1), cls: 't-idle', icon: KIND_ICONS.other }
+  return { label: word.charAt(0).toUpperCase() + word.slice(1), cls, icon: KIND_ICONS.other }
 }
 
 /**

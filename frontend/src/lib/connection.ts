@@ -28,8 +28,8 @@ export interface ConnectionProblem {
 type Server = Pick<ServerView, 'Reachable' | 'Health' | 'Error'>
 
 /**
- * The same test as the sidebar's "Not running" badge: no answer from
- * supervisord, once the first poll (or the failed setup) has said so.
+ * No answer from supervisord, once the first poll (or the failed setup) has
+ * said so: when the sidebar and the popover show a connection badge.
  */
 export function isDown(s: Server | null | undefined): boolean {
   return !!s && s.Health !== 'unknown' && !s.Reachable
@@ -94,4 +94,15 @@ export function connectionProblem(s: Server | null | undefined): ConnectionProbl
     line: [{ text: `Something in the setup stops Visor from connecting, ${OUTCOME} Doctor says what to fix.` }],
     reason: 'Visor isn’t connected to supervisord',
   }
+}
+
+/**
+ * The short badge beside the server's name (sidebar, popover header): "Not
+ * running" only when supervisord isn't running, "Not connected" for any
+ * other problem (a password, a socket closed to this user, the setup), and
+ * null while connected.
+ */
+export function connectionBadge(problem: Pick<ConnectionProblem, 'kind'> | null | undefined): string | null {
+  if (!problem) return null
+  return problem.kind === 'down' ? 'Not running' : 'Not connected'
 }

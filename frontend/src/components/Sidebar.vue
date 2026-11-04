@@ -7,7 +7,9 @@ import { RouterLink, useRoute } from 'vue-router'
 import Lens from './Lens.vue'
 import NotificationBell from './NotificationBell.vue'
 
-const props = defineProps<{ name: string; health: string; failing: number; openIssues: number; down: boolean }>()
+// `connection` is the badge for a connection problem ("Not running", "Not
+// connected"; lib/connection.ts connectionBadge), null while connected.
+const props = defineProps<{ name: string; health: string; failing: number; openIssues: number; connection: string | null }>()
 
 // Shortcut hints, as Visor's menu bar shows them (internal/app/appmenu.go).
 // Kept in one place so the platform helper (M6) can take them over.
@@ -29,7 +31,7 @@ const sections: Record<string, string[]> = {
 const on = (key: string) => ({ on: sections[key].includes(String(route.name)) })
 
 const dot = computed(() => {
-  if (props.down) return 'd-bad'
+  if (props.connection) return 'd-bad'
   return { ok: 'd-ok', warning: 'd-warn', error: 'd-bad' }[props.health] ?? 'd-idle'
 })
 </script>
@@ -48,7 +50,7 @@ const dot = computed(() => {
         <span :class="['dot', dot]" aria-hidden="true" />
         <span class="server-name">{{ name }}</span>
         <span class="sr-only">health {{ health }}</span>
-        <span v-if="down" class="badge b-bad state">Not running</span>
+        <span v-if="connection" class="badge b-bad state">{{ connection }}</span>
         <span v-else-if="failing > 0" class="badge b-bad state">{{ failing }} failing</span>
       </div>
       <div class="sub">

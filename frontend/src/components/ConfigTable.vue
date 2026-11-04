@@ -9,7 +9,7 @@ import { nextTick, reactive, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { ConfigView, ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { sinceLabel } from '../lib/format'
-import { isFailing, summaryParts } from '../lib/health'
+import { isFailing, reasonClass, summaryParts } from '../lib/health'
 import { configMenu, processMenu, withoutSupervisord, type MenuItem } from '../lib/menus'
 import { configRoute } from '../lib/links'
 import ActionMenu from './ActionMenu.vue'
@@ -32,12 +32,6 @@ const root = ref<HTMLElement>()
 
 /** How many of the file's processes share p's group, for the short supervisorctl name. */
 const groupSize = (c: ConfigView, p: ProcessView) => (c.Processes ?? []).filter((q) => q.Group === p.Group).length
-
-/** The reason line's colour: red when failing, amber on a running process (a crash note), grey otherwise. */
-function whyClass(p: ProcessView) {
-  if (isFailing(p)) return 't-bad'
-  return p.Status === 'running' ? 't-warn' : 'meta'
-}
 
 /** Expands the process's config, scrolls its row into view and focuses it. */
 async function focusProcess(fullName: string) {
@@ -114,7 +108,7 @@ defineExpose({ focusProcess })
                 :to="configRoute(c.Path, { process: p.FullName })"
                 class="pname" :title="p.FullName"
               ><span v-if="p.Group !== p.Name" class="grp">{{ p.Group }}:</span>{{ p.Name }}</component>
-              <span v-if="p.Detail" :class="['why', whyClass(p)]">{{ p.Detail }}</span>
+              <span v-if="p.Detail" :class="['why', reasonClass(p)]">{{ p.Detail }}</span>
             </div>
             <span><StateText :state="p.State" :status="p.Status" /></span>
             <span class="meta">{{ sinceLabel(p, nowMs) }}</span>
