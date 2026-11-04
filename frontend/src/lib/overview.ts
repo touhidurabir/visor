@@ -3,8 +3,9 @@
 // frontend never polls supervisord itself.
 import { getCurrentScope, onScopeDispose, ref, type Ref } from 'vue'
 import { Events } from '@wailsio/runtime'
-import { ServerService, type OverviewView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ServerService, type ExplainView, type OverviewView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { VisorOverview } from '../../bindings/events'
+import { isProblem } from './explain'
 
 export function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
@@ -44,4 +45,17 @@ export function useOverview(): {
   void reload()
 
   return { overview, error, reload }
+}
+
+/**
+ * opensOnProblems is where a config's Overview starts its "Line by line"
+ * (flow 2, approved 2026-11-04): on "Only problems" when the file has an
+ * error, a warning or a suggestion, so what needs you is first; on "All
+ * lines" when it has none, or before it has loaded, or when it can't be
+ * read (that error shows instead of the lines). The user can still switch.
+ */
+export function opensOnProblems(view: ExplainView | null): boolean {
+  if (!view || view.ParseError) return false
+  if (view.Errors + view.Suggestions > 0 || (view.FileProblems?.length ?? 0) > 0) return true
+  return (view.Sections ?? []).some((s) => (s.Lines ?? []).some(isProblem))
 }

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { effectScope, nextTick } from 'vue'
-import type { OverviewView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import type { ExplainLineView, ExplainView, OverviewView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 
 // The Wails event source and the generated bindings, mocked: tests drive
 // the overview by calling the captured event handler.
@@ -24,7 +24,7 @@ vi.mock('../../bindings/github.com/touhidurabir/visor/internal/app', () => ({
   ServerService: { Overview: () => overviewCall() },
 }))
 
-const { useOverview } = await import('./overview')
+const { opensOnProblems, useOverview } = await import('./overview')
 
 function view(health: string, running: number): OverviewView {
   return {
@@ -91,5 +91,32 @@ describe('useOverview', () => {
     expect(error.value).toBeNull()
     expect(overview.value?.Stats.Running).toBe(1)
     scope.stop()
+  })
+})
+
+describe('opensOnProblems', () => {
+  const line = (Level: string): ExplainLineView => ({ Line: 1, Text: 'x=1', Key: 'x', Kind: 'key', Meaning: '', Level, Problems: null, Suggest: '', Add: null, Paths: null })
+  const explain = (o: Partial<ExplainView> = {}): ExplainView => ({
+    Summary: '', Errors: 0, SaveErrors: 0, Suggestions: 0, Settings: 1, Paths: 0, ParseError: null, FileProblems: null,
+    Sections: [{ Name: 'program:a', Program: 'a', Lines: [line('')] }],
+    ...o,
+  })
+
+  it('opens on "All lines" for a file with no problems', () => {
+    expect(opensOnProblems(explain())).toBe(false)
+  })
+  it('opens on "Only problems" for an error or a suggestion', () => {
+    expect(opensOnProblems(explain({ Errors: 1 }))).toBe(true)
+    expect(opensOnProblems(explain({ Suggestions: 2 }))).toBe(true)
+  })
+  it('opens on "Only problems" for a problem that is not on a line', () => {
+    expect(opensOnProblems(explain({ FileProblems: [{ Level: 'warning', Live: false, Line: 0, Message: 'm', Fix: '', Edit: null }] }))).toBe(true)
+  })
+  it('opens on "Only problems" when a line is flagged, whatever the counts say', () => {
+    expect(opensOnProblems(explain({ Sections: [{ Name: 'program:a', Program: 'a', Lines: [line(''), line('suggestion')] }] }))).toBe(true)
+  })
+  it('opens on "All lines" before the explanation loads, or when the file cannot be read', () => {
+    expect(opensOnProblems(null)).toBe(false)
+    expect(opensOnProblems(explain({ Errors: 1, ParseError: { Level: 'error', Live: false, Line: 3, Message: 'bad', Fix: '', Edit: null } }))).toBe(false)
   })
 })

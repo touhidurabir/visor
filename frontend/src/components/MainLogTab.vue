@@ -180,13 +180,13 @@ onBeforeUnmount(() => {
       </select>
       <template v-if="datePreset === 'custom'">
         <label for="ldf" class="sr-only">From date</label>
-        <input id="ldf" v-model="fromDay" type="date" :max="toDay || undefined" />
+        <input id="ldf" v-model="fromDay" class="input" type="date" :max="toDay || undefined" />
         <span class="muted" aria-hidden="true">to</span>
         <label for="ldt" class="sr-only">To date</label>
-        <input id="ldt" v-model="toDay" type="date" :min="fromDay || undefined" />
+        <input id="ldt" v-model="toDay" class="input" type="date" :min="fromDay || undefined" />
       </template>
       <label for="lq" class="sr-only">Search the log</label>
-      <input id="lq" v-model="typed" type="search" placeholder="Search the log" autocomplete="off" />
+      <input id="lq" v-model="typed" class="input" type="search" placeholder="Search the log" autocomplete="off" />
       <button type="button" class="btn" :disabled="fetching > 0" @click="load()">Refresh</button>
       <label class="follow"><input v-model="follow" type="checkbox" /> Follow</label>
     </div>
@@ -217,16 +217,17 @@ onBeforeUnmount(() => {
 <style scoped>
 .logtab { display: flex; flex-direction: column; gap: 14px; }
 .tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-input[type='date'], input[type='search'] { min-height: var(--control); box-sizing: border-box; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; }
-input[type='search'] { width: 200px; padding: 0 10px; }
+input[type='date'] { padding: 0 8px; }
+input[type='search'] { width: 220px; }
 .follow { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .muted { color: var(--text-muted); }
-.box { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-.scroll { max-height: calc(100vh - 300px); min-height: 240px; overflow: auto; background: var(--bg); }
+.box { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--raised); }
+/* Fills the window below the filters; the lines scroll inside. */
+.scroll { height: max(240px, calc(100vh - 300px)); overflow: auto; }
 .line { display: grid; grid-template-columns: 148px 64px minmax(0, 1fr); gap: 16px; align-items: baseline; padding: 8px 16px; border-top: 1px solid var(--line); font-family: var(--font-mono); font-size: 13px; line-height: 1.6; }
 .line:hover { background: var(--bg-hover); }
 .line:first-child { border-top: 0; }
-.at { color: var(--text-muted); white-space: nowrap; }
+.at { color: var(--ink3); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .text { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 .lvl { justify-self: start; min-width: 44px; box-sizing: border-box; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; text-align: center; }
 .lvl.err { background: var(--failing-bg); color: var(--failing-fg); }

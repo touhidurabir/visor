@@ -1,5 +1,6 @@
 // Display helpers shared by views.
 import type { ProcessView, TransitionView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { stateLabel } from './state'
 
 /**
  * formatDuration uses the two largest units, like the Go side's labels:
@@ -46,6 +47,20 @@ export function sinceLabel(p: ProcessView, nowMs: number): string {
     return `${p.Status} ${duration(nowMs - p.StopMs)}`
   }
   return p.Since
+}
+
+/**
+ * chipSince is the word beside a process chip on a config's page. A failing
+ * process says its state and how long ago it stopped ("Fatal · 3m"), so the
+ * one chip that needs you reads on its own; the others keep sinceLabel's
+ * quiet "up 4m" (or their state when there is no time to show).
+ */
+export function chipSince(p: ProcessView, nowMs: number): string {
+  if (p.Status === 'failing') {
+    const state = stateLabel(p.State)
+    return p.StopMs > 0 ? `${state} · ${duration(nowMs - p.StopMs)}` : state
+  }
+  return sinceLabel(p, nowMs) || stateLabel(p.State)
 }
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']

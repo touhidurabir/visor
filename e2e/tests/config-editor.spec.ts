@@ -141,6 +141,8 @@ test.describe('config editor', () => {
     await openApp(page, `/config/${encodeURIComponent(FILE)}`)
     await expect(page.getByRole('region', { name: 'What this config does' })).toContainText('notes-indexer')
     const lines = page.getByRole('region', { name: 'Line by line' })
+    // notes.ini has a suggestion, so the Overview opens on Only problems.
+    await lines.getByRole('button', { name: 'All lines' }).click()
     await expect(lines).toContainText('[program:notes-indexer]')
     await expect(lines).toContainText('What it runs')
     // A missing setting shows the default that applies.

@@ -4,67 +4,68 @@
 // the config line it comes from when Visor can tell.
 import { computed } from 'vue'
 import type { LastErrorView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { stateLabel } from '../lib/state'
 
 const props = defineProps<{ error: LastErrorView; busy?: boolean }>()
 const emit = defineEmits<{ restart: []; openStderr: []; openConfig: []; showLine: [line: number] }>()
 
 const name = computed(() => props.error.Process.split(':').pop() ?? props.error.Process)
-const badge = computed(() => (props.error.Since ? `${props.error.State} for ${props.error.Since}` : props.error.State))
+const badge = computed(() => (props.error.Since ? `${stateLabel(props.error.State)} for ${props.error.Since}` : stateLabel(props.error.State)))
 // Colour plus text: BACKOFF is still retrying, so it warns; FATAL and EXITED fail.
-const tone = computed(() => (props.error.State === 'BACKOFF' ? 'warning' : 'failing'))
+const tone = computed(() => (props.error.State === 'BACKOFF' ? 'warn' : 'bad'))
 </script>
 
 <template>
-  <section class="card error-card" aria-labelledby="last-error-title">
+  <section :class="['card', `tone-${tone}`]" aria-labelledby="last-error-title">
     <div class="head">
-      <strong id="last-error-title">Last error · <span class="mono" :title="error.Process">{{ name }}</span></strong>
-      <span :class="['badge', tone]"><span class="dot" aria-hidden="true" />{{ badge }}</span>
+      <h2 id="last-error-title">Last error · <span class="mono name" :title="error.Process">{{ name }}</span></h2>
+      <span :class="['badge', `b-${tone}`]"><span :class="['dot', `d-${tone}`]" aria-hidden="true" />{{ badge }}</span>
     </div>
-    <div>{{ error.Message }}</div>
+    <p class="msg">{{ error.Message }}</p>
     <pre v-if="error.StderrTail" class="tail" tabindex="0" aria-label="Last lines of stderr">{{ error.StderrTail }}</pre>
     <div class="acts">
       <button type="button" class="btn primary" :disabled="busy" @click="emit('restart')">Restart</button>
       <button
         type="button"
-        class="btn"
+        class="btn quiet"
         :disabled="!error.StderrLog"
         :title="error.StderrLog || 'This process has no stderr log file'"
         @click="emit('openStderr')"
       >
         Open stderr log
       </button>
-      <button type="button" class="btn" @click="emit('openConfig')">Open in editor</button>
+      <button type="button" class="btn quiet" @click="emit('openConfig')">Open in editor</button>
       <span v-if="error.Line" class="cause">
-        Caused by <button type="button" class="link" @click="emit('showLine', error.Line)">line {{ error.Line }}</button>, see the fix below.
+        Caused by <button type="button" class="link" @click="emit('showLine', error.Line)">line {{ error.Line }}</button>; the fix is below.
       </span>
     </div>
   </section>
 </template>
 
 <style scoped>
-.card { border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-.error-card { border-color: var(--error-card-border); background: var(--error-card-bg); }
-.head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
-.failing { background: var(--failing-bg); color: var(--failing-fg); }
-.failing .dot { background: var(--failing-dot); }
-.warning { background: var(--warning-bg); color: var(--warning-fg); }
-.warning .dot { background: var(--warning-dot); }
-.mono { font-family: var(--font-mono); font-size: 12px; }
+.card { display: flex; flex-direction: column; gap: 10px; padding: 16px 18px; border: 1px solid var(--bad-dot); border-radius: 10px; background: var(--raised); }
+.card.tone-warn { border-color: var(--warn-dot); }
+.head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 10px; }
+h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.name { font-family: var(--mono); font-size: 14px; }
+.msg { margin: 0; user-select: text; }
 .tail {
   margin: 0;
-  padding: 10px;
+  padding: 10px 14px;
   max-height: 260px;
   overflow: auto;
   background: var(--log-bg);
-  color: var(--log-fg);
-  border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-  font-size: 12px;
+  color: var(--log-ink);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
   user-select: text;
 }
 .acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.cause { margin-left: 4px; color: var(--text-muted); }
-.link { padding: 0; border: 0; background: none; color: var(--accent-text); font: inherit; text-decoration: underline; cursor: pointer; }
+.cause { margin-left: 6px; color: var(--ink3); font-size: 12.5px; }
+.link { padding: 0; border: 0; background: none; color: var(--accent-text); font: inherit; cursor: pointer; }
+.link:hover { text-decoration: underline; }
 </style>

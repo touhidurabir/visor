@@ -1,5 +1,23 @@
-import { expect, test } from '@playwright/test'
-import { waitForDashboard } from './helpers'
+import { unlinkSync, writeFileSync } from 'node:fs'
+import { expect, test, type Page } from '@playwright/test'
+import { SANDBOX, openApp, waitForDashboard } from './helpers'
+
+const configPage = (file: string, query = '') => `/config/${encodeURIComponent(`${SANDBOX}/conf.d/${file}`)}${query}`
+
+/** The computed colour of a design token, as getComputedStyle reports colours. */
+async function token(page: Page, name: string, prop: 'color' | 'backgroundColor' = 'color'): Promise<string> {
+  return page.evaluate(
+    ([n, p]) => {
+      const el = document.createElement('div')
+      el.style[p as 'color'] = `var(${n})`
+      document.body.append(el)
+      const c = getComputedStyle(el)[p as 'color']
+      el.remove()
+      return c
+    },
+    [name, prop],
+  )
+}
 
 test.describe('config detail', () => {
   test('overview flags a missing command', async ({ page }) => {
@@ -41,7 +59,73 @@ test.describe('config detail', () => {
     await page.getByRole('tab', { name: 'Logs' }).click()
     const log = page.getByLabel('stdout log of shop-scheduler')
     await expect(log).toContainText('tick', { timeout: 15_000 })
-    await expect(page.getByText('Following live.')).toBeVisible()
+
+    // "Following live" sits in the log toolbar, so it stays in view while the log scrolls.
+    const bar = page.locator('.logs .bar')
+    const follow = bar.getByRole('status')
+    await expect(follow).toHaveText('Following live')
+    await bar.getByRole('button', { name: 'Pause' }).click()
+    await expect(follow).toHaveText(/^Paused/)
+    await bar.getByRole('button', { name: 'Resume' }).click()
+    await expect(follow).toHaveText('Following live')
+
+    // Clear empties the log, so it is red (a running process's logs can be cleared).
+    const clear = bar.getByRole('button', { name: 'Clear', exact: true })
+    await expect(clear).toBeEnabled()
+    await expect(clear).toHaveClass(/\bdanger\b/)
+    expect(await clear.evaluate((el) => getComputedStyle(el).color)).toBe(await token(page, '--bad'))
+  })
+
+  test('the header puts Watching first, then a quiet group, and the failing chip is tinted and labelled', async ({ page }) => {
+    await openApp(page, configPage('mailer.ini'))
+    await expect(page.getByRole('heading', { level: 1, name: 'mailer.ini' })).toBeVisible()
+    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveText(/Local\s*\/\s*mailer\.ini/)
+    await expect(page.getByRole('button', { name: /^Watch(ing)?$/ })).toHaveAttribute('aria-pressed', /true|false/)
+    const group = page.getByRole('group', { name: 'All processes in mailer.ini' })
+    for (const name of ['Start all', 'Stop all', 'Restart all']) await expect(group.getByRole('button', { name, exact: true })).toHaveClass(/\bquiet\b/)
+
+    const chips = page.getByRole('group', { name: 'Processes in this config' })
+    const digest = chips.getByRole('button', { name: /^mailer-digest/ })
+    await expect(digest).toContainText(/Fatal · (just now|\d+[smhd])/, { timeout: 20_000 })
+    await expect(digest).toHaveClass(/\bfailing\b/)
+    expect(await digest.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(await token(page, '--bad-soft', 'backgroundColor'))
+    const worker = chips.getByRole('button', { name: /^mailer-worker_00/ })
+    await expect(worker).toContainText(/up /)
+    await expect(worker).not.toHaveClass(/\bfailing\b/)
+    expect(await worker.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe(await token(page, '--bad-soft', 'backgroundColor'))
+  })
+
+  test('a config with problems opens its line by line on Only problems', async ({ page }) => {
+    await openApp(page, configPage('mailer.ini'))
+    const lines = page.getByRole('region', { name: 'Line by line' })
+    await expect(lines.getByRole('button', { name: /^Only problems · \d+$/ })).toHaveAttribute('aria-pressed', 'true')
+    await expect(lines.getByRole('button', { name: 'All lines' })).toHaveAttribute('aria-pressed', 'false')
+    await expect(lines).toContainText('Suggestion.')
+    await expect(lines).not.toContainText('numprocs=2') // a line with no problem is hidden
+
+    // The choice is still the user's.
+    await lines.getByRole('button', { name: 'All lines' }).click()
+    await expect(lines.getByRole('button', { name: 'All lines' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(lines).toContainText('numprocs=2')
+  })
+
+  test('a config without problems opens its line by line on All lines', async ({ page }) => {
+    // Written for this test and never applied, so supervisord runs nothing from it.
+    const file = `${SANDBOX}/conf.d/e2e-clean.ini`
+    writeFileSync(
+      file,
+      ['[program:e2e-clean]', 'command=/bin/sleep 600', 'directory=/tmp', 'autostart=false', 'autorestart=false', 'redirect_stderr=true', `stdout_logfile=${SANDBOX}/logs/e2e-clean.log`, ''].join('\n'),
+    )
+    try {
+      await openApp(page, configPage('e2e-clean.ini'))
+      const lines = page.getByRole('region', { name: 'Line by line' })
+      await expect(lines).toContainText('[program:e2e-clean]')
+      await expect(lines.getByRole('button', { name: 'All lines' })).toHaveAttribute('aria-pressed', 'true')
+      await expect(lines.getByRole('button', { name: 'Only problems', exact: true })).toHaveAttribute('aria-pressed', 'false')
+      await expect(lines).toContainText('command=/bin/sleep 600')
+    } finally {
+      unlinkSync(file)
+    }
   })
 
   test('history tab renders', async ({ page }) => {
