@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { IssueView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
-import { issueKind, lasted, statusLabel } from './issue-status'
+import { KIND_ICONS, issueKind, lasted, statusLabel } from './issue-status'
 
 const issue = (over: Partial<IssueView> = {}): IssueView => ({
   ID: 'i1', Kind: 'fatal', Process: 'web:web', Config: '/etc/web.conf', Message: 'm',
@@ -39,9 +39,13 @@ describe('lasted', () => {
 })
 
 describe('issueKind', () => {
-  it('maps kinds to label and colour class', () => {
-    expect(issueKind('crash_loop')).toEqual({ label: 'CRASH LOOP', cls: 'warning' })
-    expect(issueKind('unreachable').label).toBe('UNREACHABLE')
-    expect(issueKind('weird')).toEqual({ label: 'WEIRD', cls: 'stopped' })
+  it('maps kinds to an icon, a sentence-case word and a colour class', () => {
+    expect(issueKind('fatal')).toEqual({ label: "Can't start", cls: 't-bad', icon: KIND_ICONS.fatal })
+    expect(issueKind('unexpected_exit')).toEqual({ label: 'Exited', cls: 't-warn', icon: KIND_ICONS.exit })
+    expect(issueKind('crash_loop')).toEqual({ label: 'Crash loop', cls: 't-warn', icon: KIND_ICONS.loop })
+    expect(issueKind('unreachable')).toEqual({ label: 'Unreachable', cls: 't-bad', icon: KIND_ICONS.down })
+  })
+  it('shows an unknown kind as a plain word', () => {
+    expect(issueKind('weird_thing')).toEqual({ label: 'Weird thing', cls: 't-idle', icon: KIND_ICONS.other })
   })
 })

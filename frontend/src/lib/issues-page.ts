@@ -1,6 +1,7 @@
 // Pure helpers for the Issues page: filter options, date ranges, selection
-// math and the wording of its confirmations.
-import type { IssueView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+// math, the summary line, row text and the wording of its confirmations.
+import type { IssueStats, IssueView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { statusLabel } from './issue-status'
 
 export const KIND_OPTIONS = [
   { value: '', label: 'All kinds' },
@@ -156,4 +157,60 @@ export function issueFiltersQuery(f: IssueFilters): Record<string, string> {
   if (f.q) q.q = f.q
   if (f.notified) q.n = '1'
   return q
+}
+
+/** One number in the summary line: "3 open". */
+export interface SummaryPart {
+  n: number
+  label: string
+}
+
+/**
+ * summaryParts is the line above the filters that replaced the stat tiles:
+ * open, resolved, then how many opened in the last 24 hours, 7 and 30 days.
+ */
+export function summaryParts(s: IssueStats): SummaryPart[] {
+  return [
+    { n: s.Open, label: 'open' },
+    { n: s.Resolved, label: 'resolved' },
+    { n: s.Last24h, label: 'in the last 24 hours' },
+    { n: s.Last7d, label: 'in 7 days' },
+    { n: s.Last30d, label: 'in 30 days' },
+  ]
+}
+
+/** summaryLine is the summary as one string: "3 open · 0 resolved · 3 in the last 24 hours · …". */
+export function summaryLine(s: IssueStats): string {
+  return summaryParts(s)
+    .map((p) => `${p.n} ${p.label}`)
+    .join(' · ')
+}
+
+/**
+ * showsStatus says whether the list has a Status column. On the Open tab
+ * every row would say "Open", and on Resolved every row is resolved, so only
+ * All shows it; elsewhere rowNotes carries what the column would add.
+ */
+export function showsStatus(status: StatusFilter): boolean {
+  return status === 'all'
+}
+
+/** rowWhere is the config a row's issue belongs to, for the meta line under it. */
+export function rowWhere(i: IssueView): string {
+  if (i.Config) return i.Config.split('/').pop() ?? i.Config
+  return i.Process ? 'config removed' : 'socket'
+}
+
+/**
+ * rowNotes is what the hidden Status column would have said beyond the tab
+ * itself, for the meta line: "not watched" or "notified" on an open issue,
+ * who closed a resolved one. Empty while the Status column shows.
+ */
+export function rowNotes(i: IssueView, watched: boolean, withStatus: boolean): string[] {
+  if (withStatus) return []
+  const notes: string[] = []
+  if (i.Status !== 'open') notes.push(statusLabel(i))
+  else if (!watched) notes.push('not watched')
+  if (i.Notified) notes.push('notified')
+  return notes
 }

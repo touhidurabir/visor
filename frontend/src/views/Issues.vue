@@ -29,7 +29,10 @@ watch(
 <template>
   <section class="page">
     <header>
-      <h1>Issues</h1>
+      <div class="title">
+        <h1>Issues</h1>
+        <p v-if="!onLog" class="help">An issue opens when a process can’t start, exits when it shouldn’t, or keeps restarting. Can’t-start issues close by themselves.</p>
+      </div>
       <nav class="tabs" aria-label="Issues sections">
         <RouterLink :to="{ path: '/issues', query: lastQuery.issues }" exact-active-class="on">Issues</RouterLink>
         <RouterLink :to="{ path: '/issues/log', query: lastQuery['issues-log'] }" exact-active-class="on">supervisord log</RouterLink>
@@ -43,7 +46,9 @@ watch(
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 14px; }
-header { display: flex; flex-direction: column; gap: 10px; }
-h1 { margin: 0; font-size: 22px; font-weight: 650; }
+.page { display: flex; flex-direction: column; gap: 18px; }
+header { display: flex; flex-direction: column; gap: 18px; }
+.title { display: flex; flex-direction: column; gap: 6px; }
+h1 { margin: 0; font-family: var(--display); font-optical-sizing: auto; font-size: 30px; font-weight: 650; line-height: 1.1; letter-spacing: -0.015em; }
+.help { margin: 0; color: var(--ink2); }
 </style>

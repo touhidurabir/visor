@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { IssueView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
-import { allSelected, dateRange, deleteAsk, issueFiltersQuery, keepLoaded, parseIssueFilters, resolveAsk, selectionActions, toggleAll, type IssueFilters } from './issues-page'
+import { allSelected, dateRange, deleteAsk, issueFiltersQuery, keepLoaded, parseIssueFilters, resolveAsk, rowNotes, rowWhere, selectionActions, showsStatus, summaryLine, summaryParts, toggleAll, type IssueFilters } from './issues-page'
 
 const row = (ID: string, Status = 'open') =>
   ({ ID, Kind: 'fatal', Process: 'g:w', Config: '', Message: '', OpenedMs: 1, ClosedMs: 0, Status, Notified: false, Note: '' }) as IssueView
@@ -84,5 +84,41 @@ describe('issue filters in the URL', () => {
     expect(parseIssueFilters({ s: 'nope', k: 'boom', d: 'week', n: 'yes', q: ['a'] })).toEqual(defaults)
     expect(issueFiltersQuery({ ...defaults, date: '7d', from: '2026-10-01' })).toEqual({ d: '7d' })
     expect(parseIssueFilters({ d: 'custom', from: 'soon' })).toEqual({ ...defaults, date: 'custom' })
+  })
+})
+
+describe('summary line', () => {
+  const stats = { Total: 3, Open: 3, Resolved: 0, Last24h: 3, Last7d: 4, Last30d: 9 }
+  it('reads open, resolved, then the last 24 hours, 7 and 30 days', () => {
+    expect(summaryLine(stats)).toBe('3 open · 0 resolved · 3 in the last 24 hours · 4 in 7 days · 9 in 30 days')
+  })
+  it('keeps each number apart from its words', () => {
+    expect(summaryParts(stats).slice(0, 3)).toEqual([
+      { n: 3, label: 'open' },
+      { n: 0, label: 'resolved' },
+      { n: 3, label: 'in the last 24 hours' },
+    ])
+  })
+})
+
+describe('issue rows', () => {
+  const issue = (over: Partial<IssueView> = {}) => ({ ...row('i1'), Config: '/etc/conf.d/flaky.ini', Process: 'flaky', ...over }) as IssueView
+  it('shows the Status column only on All', () => {
+    expect([showsStatus('open'), showsStatus('resolved'), showsStatus('all')]).toEqual([false, false, true])
+  })
+  it('names the config, or says why there is none', () => {
+    expect(rowWhere(issue())).toBe('flaky.ini')
+    expect(rowWhere(issue({ Config: '' }))).toBe('config removed')
+    expect(rowWhere(issue({ Config: '', Process: '' }))).toBe('socket')
+  })
+  it('adds nothing when the Status column shows', () => {
+    expect(rowNotes(issue({ Notified: true }), false, true)).toEqual([])
+  })
+  it('keeps what the hidden Status column would add', () => {
+    expect(rowNotes(issue(), true, false)).toEqual([])
+    expect(rowNotes(issue(), false, false)).toEqual(['not watched'])
+    expect(rowNotes(issue({ Notified: true }), true, false)).toEqual(['notified'])
+    expect(rowNotes(issue({ Status: 'resolved_auto' }), false, false)).toEqual(['Resolved by itself'])
+    expect(rowNotes(issue({ Status: 'resolved_user', Notified: true }), true, false)).toEqual(['Marked resolved by you', 'notified'])
   })
 })

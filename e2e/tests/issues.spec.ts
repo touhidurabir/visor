@@ -8,7 +8,7 @@ test.describe('issues', () => {
     const resolved = page.getByRole('button', { name: /^Resolved \(\d+\)$/ })
     const all = page.getByRole('button', { name: 'All' })
     const count = async (b: typeof open) => Number((await b.innerText()).match(/\((\d+)\)/)![1])
-    const digest = rows.filter({ hasText: 'mailer-digest' }).filter({ hasText: 'FATAL' })
+    const digest = rows.filter({ hasText: 'mailer-digest' }).filter({ has: page.locator('.kind', { hasText: "Can't start" }) })
 
     // The FATAL issue shows up under All (wait for the process to give up).
     await all.click()
@@ -41,11 +41,44 @@ test.describe('issues', () => {
     await page.getByRole('button', { name: 'All' }).click()
     await expect(rows.filter({ hasText: 'mailer-digest' }).first()).toBeVisible({ timeout: 30_000 })
     const search = page.getByRole('searchbox', { name: 'Search issues' })
+    // The search box comes first, left of the status filter.
+    const box = (await search.boundingBox())!
+    const seg = (await page.getByRole('group', { name: 'Filter' }).boundingBox())!
+    expect(box.x + box.width).toBeLessThanOrEqual(seg.x)
     await search.fill('mailer-digest')
     await expect(page.getByText(/matching issues?/)).toBeVisible()
     await expect(rows.filter({ hasText: 'mailer-digest' }).first()).toBeVisible()
     await expect(rows.filter({ hasNotText: 'mailer-digest' })).toHaveCount(0)
     await search.fill('no-such-process-xyz')
     await expect(page.getByText('No issues match your filters.')).toBeVisible()
+  })
+
+  test('one summary line instead of stat tiles', async ({ page }) => {
+    await page.goto('/#/issues')
+    const summary = page.getByRole('group', { name: 'Issue totals' })
+    await expect(summary).toHaveText(/^\d+ open · \d+ resolved · \d+ in the last 24 hours · \d+ in 7 days · \d+ in 30 days$/)
+    await expect(page.locator('.tile')).toHaveCount(0)
+    const n = async (label: string) => Number((await summary.locator('.part', { hasText: label }).locator('strong').innerText()))
+    const tab = async (name: string) => Number((await page.getByRole('button', { name: new RegExp(`^${name} \\(\\d+\\)$`) }).innerText()).match(/\((\d+)\)/)![1])
+    // A new issue can land between two reads, so poll until they agree.
+    await expect(async () => {
+      expect(await n('open')).toBe(await tab('Open'))
+      expect(await n('resolved')).toBe(await tab('Resolved'))
+    }).toPass()
+  })
+
+  test('the Status column shows only on the All tab', async ({ page }) => {
+    await page.goto('/#/issues')
+    const head = page.locator('.table .row.head')
+    const rows = page.locator('.table .row:not(.head)')
+    await expect(page.getByRole('button', { name: /^Open \(/ })).toHaveAttribute('aria-pressed', 'true')
+    await expect(rows.first()).toBeVisible({ timeout: 30_000 })
+    await expect(head).toContainText('What happened')
+    await expect(head.getByText('Status', { exact: true })).toHaveCount(0)
+    await expect(rows.locator('.status')).toHaveCount(0)
+
+    await page.getByRole('button', { name: 'All' }).click()
+    await expect(head.getByText('Status', { exact: true })).toBeVisible()
+    await expect(rows.first().locator('.status')).toBeVisible()
   })
 })

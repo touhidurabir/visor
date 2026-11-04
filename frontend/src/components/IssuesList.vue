@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Every issue Visor has recorded (spec §5.4): stats, filters (status, kind,
+// Every issue Visor has recorded (spec §5.4): a summary line, filters (status, kind,
 // date, notified, search), multi-select with bulk resolve and delete, and
 // paging back through history 50 at a time. Filters live in the URL query,
 // like the log tab's. The list reloads when an issue opens or the open count
@@ -25,7 +25,12 @@ import {
   keepLoaded,
   parseIssueFilters,
   resolveAsk,
+  rowNotes,
+  rowWhere,
   selectionActions,
+  showsStatus,
+  summaryLine,
+  summaryParts,
   toggleAll,
   type Ask,
   type DatePreset,
@@ -253,14 +258,9 @@ const filters = computed(() => [
   { key: 'resolved' as const, label: `Resolved (${stats.value.Resolved})` },
   { key: 'all' as const, label: 'All' },
 ])
-const tiles = computed(() => [
-  { label: 'Total', n: stats.value.Total },
-  { label: 'Open', n: stats.value.Open },
-  { label: 'Resolved', n: stats.value.Resolved },
-  { label: 'Last 24 hours', n: stats.value.Last24h },
-  { label: 'Last 7 days', n: stats.value.Last7d },
-  { label: 'Last 30 days', n: stats.value.Last30d },
-])
+const summary = computed(() => summaryParts(stats.value))
+const withStatus = computed(() => showsStatus(filter.value))
+const metaOf = (i: IssueView) => [rowWhere(i), ...rowNotes(i, watched(i), withStatus.value)].join(' · ')
 const total = computed(() => ({ open: stats.value.Open, resolved: stats.value.Resolved, all: stats.value.Total })[filter.value])
 const note = computed(() => {
   const n = rows.value.length
@@ -276,18 +276,16 @@ const empty = computed(() => {
 
 <template>
   <div class="list">
-    <p class="intro">
-      An issue opens when a process goes FATAL, exits when it should not, or keeps restarting. FATAL issues close by themselves once the process runs steadily again; you can also mark any issue resolved.
+    <p class="summary" role="group" aria-label="Issue totals" :title="summaryLine(stats)">
+      <template v-for="(p, k) in summary" :key="p.label">
+        <span v-if="k" class="sep"> · </span>
+        <span class="part"><strong>{{ p.n }}</strong> <span class="muted">{{ p.label }}</span></span>
+      </template>
     </p>
 
-    <dl class="stats" aria-label="Issue totals">
-      <div v-for="t in tiles" :key="t.label" class="tile">
-        <dt>{{ t.label }}</dt>
-        <dd>{{ t.n }}</dd>
-      </div>
-    </dl>
-
     <div class="tools">
+      <label for="iq" class="sr-only">Search issues</label>
+      <input id="iq" v-model="typed" class="input search" type="search" placeholder="Search issues" autocomplete="off" />
       <div class="seg" role="group" aria-label="Filter">
         <button v-for="f in filters" :key="f.key" type="button" :class="{ on: filter === f.key }" :aria-pressed="filter === f.key" @click="pick(f.key)">{{ f.label }}</button>
       </div>
@@ -301,21 +299,19 @@ const empty = computed(() => {
       </select>
       <template v-if="datePreset === 'custom'">
         <label for="idf" class="sr-only">From date</label>
-        <input id="idf" v-model="fromDay" type="date" :max="toDay || undefined" />
+        <input id="idf" v-model="fromDay" class="input" type="date" :max="toDay || undefined" />
         <span class="muted" aria-hidden="true">to</span>
         <label for="idt" class="sr-only">To date</label>
-        <input id="idt" v-model="toDay" type="date" :min="fromDay || undefined" />
+        <input id="idt" v-model="toDay" class="input" type="date" :min="fromDay || undefined" />
       </template>
       <label class="check" title="Only issues Visor sent a notification for"><input v-model="notified" type="checkbox" /> Notified only</label>
-      <label for="iq" class="sr-only">Search issues</label>
-      <input id="iq" v-model="typed" type="search" placeholder="Search issues" autocomplete="off" />
     </div>
 
     <div v-if="selected.size" class="bulk" role="region" aria-label="Selected issues">
       <span>{{ selected.size }} selected</span>
-      <button type="button" class="btn" :disabled="!actions.resolve.length || busy" @click="askResolve">Resolve {{ actions.resolve.length }}</button>
-      <button type="button" class="btn danger" :disabled="!actions.remove.length || busy" @click="askDelete(actions.remove)">Delete {{ actions.remove.length }}</button>
-      <button type="button" class="btn" @click="clearSelection">Clear selection</button>
+      <button type="button" class="btn sm" :disabled="!actions.resolve.length || busy" @click="askResolve">Resolve {{ actions.resolve.length }}</button>
+      <button type="button" class="btn sm danger" :disabled="!actions.remove.length || busy" @click="askDelete(actions.remove)">Delete {{ actions.remove.length }}</button>
+      <button type="button" class="btn sm quiet" @click="clearSelection">Clear selection</button>
     </div>
 
     <div v-if="loadError" class="error" role="alert">
@@ -326,25 +322,25 @@ const empty = computed(() => {
 
     <div v-else class="box">
       <div class="scroll">
-        <div class="table" :aria-busy="!loaded || fetching > 0">
-          <div class="row head label">
+        <div :class="['table', { 'with-status': withStatus }]" :aria-busy="!loaded || fetching > 0">
+          <div class="row head">
             <span class="pick"><input :ref="setIndeterminate" type="checkbox" aria-label="Select all loaded issues" :checked="everyRow" :disabled="!rows.length" @change="toggleEvery" /></span>
-            <span>Kind</span><span>Process · what happened</span><span>Started</span><span>Lasted</span><span>Status</span><span />
+            <span class="th">Kind</span><span class="th">What happened</span><span class="th">Started</span><span class="th">Lasted</span><span v-if="withStatus" class="th">Status</span><span class="sr-only">Actions</span>
           </div>
           <p v-if="loaded && !rows.length" class="none">{{ empty }}</p>
           <div v-for="i in rows" :key="i.ID" :class="['row', { picked: selected.has(i.ID) }]">
             <span class="pick"><input type="checkbox" :aria-label="`Select ${i.Process || 'supervisord'} issue`" :checked="selected.has(i.ID)" @change="toggle(i.ID)" /></span>
-            <span><span :class="['badge', issueKind(i.Kind).cls]"><span class="dot" aria-hidden="true" />{{ issueKind(i.Kind).label }}</span></span>
+            <span :class="['kind', issueKind(i.Kind).cls]">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="issueKind(i.Kind).icon" /></svg>
+              {{ issueKind(i.Kind).label }}
+            </span>
             <div class="what">
-              <div>
-                <span class="proc">{{ i.Process || 'supervisord' }}</span>
-                <span class="muted" :title="i.Config"> · {{ i.Config ? i.Config.split('/').pop() : i.Process ? 'config removed' : 'socket' }}</span>
-              </div>
-              <div class="msg" :title="i.Note ? `${i.Message} (${i.Note})` : i.Message">{{ i.Message }}</div>
+              <span class="msg" :title="i.Note || undefined">{{ i.Message }}</span>
+              <span class="meta"><span class="proc">{{ i.Process || 'supervisord' }}</span> · <span :title="i.Config || undefined">{{ metaOf(i) }}</span></span>
             </div>
-            <span class="soft">{{ historyTime(i.OpenedMs, nowMs) }}</span>
-            <span class="soft">{{ lasted(i, nowMs) }}</span>
-            <div class="soft status">
+            <span class="meta">{{ historyTime(i.OpenedMs, nowMs) }}</span>
+            <span class="meta">{{ lasted(i, nowMs) }}</span>
+            <div v-if="withStatus" class="meta status">
               <div>{{ statusLabel(i, watched(i)) }}</div>
               <div v-if="i.Notified" class="notified" title="Visor sent a notification">
                 <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M8 1.5a4 4 0 0 0-4 4v2.3L2.8 10.2a.8.8 0 0 0 .7 1.1h9a.8.8 0 0 0 .7-1.1L12 7.8V5.5a4 4 0 0 0-4-4Zm-1.6 11a1.6 1.6 0 0 0 3.2 0H6.4Z" /></svg>
@@ -352,19 +348,19 @@ const empty = computed(() => {
               </div>
             </div>
             <div class="acts">
-              <RouterLink v-if="detailTo(i)" class="btn" :to="detailTo(i)!">Logs</RouterLink>
-              <button v-if="i.Status === 'open'" type="button" class="btn" @click="resolve(i)">Resolve</button>
-              <button v-else type="button" class="btn" :disabled="busy" @click="askDelete([i.ID], true)">Delete</button>
+              <RouterLink v-if="detailTo(i)" class="btn quiet sm" :to="detailTo(i)!">Logs</RouterLink>
+              <button v-if="i.Status === 'open'" type="button" class="btn sm" @click="resolve(i)">Resolve</button>
+              <button v-else type="button" class="btn sm" :disabled="busy" @click="askDelete([i.ID], true)">Delete</button>
             </div>
           </div>
           <div class="foot">
             <span>{{ note }}</span>
-            <button v-if="hasMore" type="button" class="btn" :disabled="loading" @click="older">Load older</button>
+            <button v-if="hasMore" type="button" class="btn sm" :disabled="loading" @click="older">Load older</button>
           </div>
         </div>
       </div>
     </div>
-    <p v-if="currentSettings" class="muted">
+    <p v-if="currentSettings" class="meta">
       Resolved issues are kept on this Mac for {{ currentSettings.Settings.retentionDays }} days.
       <RouterLink to="/settings">Change in Settings</RouterLink>
     </p>
@@ -381,44 +377,42 @@ const empty = computed(() => {
 </template>
 
 <style scoped>
-.list { display: flex; flex-direction: column; gap: 16px; }
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin: 0; }
-.tile { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
-.tile dt { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
-.tile dd { margin: 2px 0 0; font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
-input[type='date'] { min-height: var(--control); box-sizing: border-box; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; }
-.bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--watch-on-border); border-radius: 10px; background: var(--selected-bg); }
-.bulk > span { margin-right: 6px; font-weight: 600; }
-.pick { display: flex; align-items: center; }
-.check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
-.picked { background: var(--selected-bg); }
-.status .notified { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-muted); }
-.intro { margin: 0; max-width: 640px; color: var(--text-muted); }
+.list { display: flex; flex-direction: column; gap: 18px; }
+.summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0; }
+.summary strong { font-weight: 650; font-variant-numeric: tabular-nums; }
+.summary .sep { color: var(--ink3); }
 .tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-input[type='search'] { min-height: var(--control); width: 200px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; }
-.box { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.search { width: 240px; }
+.check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--watch-on-border); border-radius: 10px; background: var(--accent-soft); }
+.bulk > span { margin-right: 6px; font-weight: 600; }
+.box { border: 1px solid var(--line); border-radius: 10px; background: var(--raised); overflow: hidden; }
 .scroll { overflow-x: auto; }
-/* Columns (24 + 120 + 200 + 130 + 90 + 130 + 150), 6 gaps and the padding: 950px. */
-.table { min-width: 950px; }
-.row { display: grid; grid-template-columns: 24px 120px minmax(200px, 1fr) 130px 90px 130px 150px; align-items: center; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--line); }
-.head { border-top: 0; background: var(--bg-subtle); }
-.label { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
-.what { min-width: 0; }
-.proc { font-family: var(--font-mono); font-size: 12px; font-weight: 600; }
-.msg { color: var(--stopped-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.soft { color: var(--stopped-fg); }
-.muted { margin: 0; color: var(--text-muted); }
-.muted a { color: var(--accent-text); }
-.none { margin: 0; padding: 14px; border-top: 1px solid var(--line); color: var(--text-muted); }
+/* Columns, 5 gaps and the padding: 28 + 130 + 200 + 110 + 90 + 150 + 60 + 32 = 800px.
+   With Status (All tab): + 130 + 12 = 942px. */
+.table { min-width: 800px; }
+.table.with-status { min-width: 942px; }
+.row { display: grid; grid-template-columns: 28px 130px minmax(200px, 1fr) 110px 90px 150px; align-items: center; column-gap: 12px; padding: 10px 16px; border-top: 1px solid var(--line); }
+.with-status .row { grid-template-columns: 28px 130px minmax(200px, 1fr) 110px 90px 130px 150px; }
+.row:not(.head):hover { background: var(--sunken); }
+.head { height: 34px; box-sizing: border-box; padding-top: 0; padding-bottom: 0; border-top: 0; background: var(--sunken); }
+.th { font-size: 12px; font-weight: 600; color: var(--ink3); }
+.pick { display: flex; align-items: center; }
+.picked, .picked:hover { background: var(--accent-soft); }
+.kind { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.kind svg { flex: none; }
+.what { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.msg { overflow-wrap: anywhere; user-select: text; }
+.meta { color: var(--ink3); font-size: 12.5px; }
+.meta a { color: var(--accent-text); }
+.proc { font-family: var(--mono); font-size: 12px; }
+.status .notified { display: inline-flex; align-items: center; gap: 4px; }
+.muted { color: var(--ink2); }
+.none { margin: 0; padding: 14px 16px; border-top: 1px solid var(--line); color: var(--ink2); }
 .acts { display: flex; gap: 6px; justify-content: flex-end; }
-.foot { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-top: 1px solid var(--line); color: var(--text-muted); }
-.failing { background: var(--failing-bg); color: var(--failing-fg); }
-.failing .dot { background: var(--failing-dot); }
-.warning { background: var(--warning-bg); color: var(--warning-fg); }
-.warning .dot { background: var(--warning-dot); }
-.stopped { background: var(--stopped-bg); color: var(--stopped-fg); }
-.stopped .dot { background: var(--stopped-dot); }
-.error { padding: 12px; border: 1px solid var(--failing-dot); border-radius: var(--radius-md); background: var(--failing-bg); color: var(--failing-fg); }
+.foot { display: flex; justify-content: space-between; align-items: center; min-height: 40px; box-sizing: border-box; padding: 6px 16px; border-top: 1px solid var(--line); background: var(--sunken); color: var(--ink3); font-size: 12.5px; }
+.error { padding: 12px; border: 1px solid var(--error-card-border); border-radius: var(--radius-md); background: var(--bad-soft); color: var(--bad); }
 .error p { margin: 4px 0 8px; user-select: text; }
-.sr-only { position: absolute; left: -9999px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.meta, .summary { margin: 0; }
 </style>
