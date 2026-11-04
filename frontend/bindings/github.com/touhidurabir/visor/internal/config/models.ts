@@ -3,11 +3,12 @@
 
 /**
  * CopyDoubt is a setting of a copy that may not do what the person wants,
- * because it is kept as written: a value naming the original program (a log
- * file, say), a group member defined in another file, or a section CopyAs
- * does not rename. Line is the line in the copy (copies keep line numbers);
- * Section is the copy's section name, e.g. "program:mailer-copy"; Name is
- * the name the setting mentions.
+ * because it is kept as written: a value naming the original program, a log
+ * file the two would share, a group member defined in another file, or a
+ * section CopyAs does not rename. Line is the line in the copy (copies keep
+ * line numbers), or 0 for the file name; Section is the copy's section name,
+ * e.g. "program:mailer-copy"; Name is the name the setting mentions (the
+ * program, for a shared log; the file, for the file name).
  */
 export interface CopyDoubt {
     "Line": number;
