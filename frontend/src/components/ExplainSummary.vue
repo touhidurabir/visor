@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // "What this config does": the plain-English summary of a config and how
 // many errors, suggestions, settings and paths the line-by-line view has.
+// The slot adds more under it (the Add new form's "things to check").
 import type { ExplainView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 
 defineProps<{ view: ExplainView | null; failed?: string | null }>()
@@ -25,6 +26,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
         <span v-if="view.Paths" class="badge b-idle">{{ plural(view.Paths, 'path', 'paths') }} checked</span>
       </div>
     </template>
+    <slot />
   </section>
 </template>
 

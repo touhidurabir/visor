@@ -95,7 +95,8 @@ test.describe('config editor', () => {
     await expect(lines).toContainText('process_name')
     const save = page.getByRole('button', { name: 'Save & apply' })
     await expect(save).toBeDisabled()
-    await expect(save).toHaveAttribute('title', /Fix 1 line to save/)
+    await expect(page.getByTestId('save-bar').getByRole('status')).toHaveText(/^Fix line \d+ to save\.$/)
+    await expect(page.getByRole('group', { name: 'To fix before saving' })).toContainText('process_name')
     expect(readFileSync(FILE, 'utf8')).toBe(original)
 
     await lines.getByRole('button', { name: 'Apply fix' }).click()

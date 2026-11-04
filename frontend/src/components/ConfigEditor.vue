@@ -6,6 +6,9 @@
 // The file is read with a hash; a save is refused when the file no longer
 // has it (edited elsewhere), and then the edits stay here until the person
 // chooses what to do with them.
+//
+// As in Add new, Save sits in the sticky bar at the bottom with where saving
+// stands, and Line by line starts with "To fix before saving".
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import {
@@ -19,6 +22,7 @@ import {
 } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { classifySaveError, saveErrorText } from '../lib/config-errors'
 import { addLines, applyEdit, explainMarks, fixToSave } from '../lib/explain'
+import { saveReason } from '../lib/fix-list'
 import { openLog, openPath, reveal } from '../lib/finder'
 import { takePendingEdit } from '../lib/pending-edit'
 import { copyText } from '../lib/clipboard'
@@ -33,6 +37,7 @@ import ExplainSummary from './ExplainSummary.vue'
 import IniEditor from './IniEditor.vue'
 import LineByLine from './LineByLine.vue'
 import RestoreDialog from './RestoreDialog.vue'
+import SaveBar from './SaveBar.vue'
 
 // line (from ?line=N) is the line to show when the editor opens.
 const props = defineProps<{ path: string; fileName: string; changed: boolean; uncertain: boolean; line?: number }>()
@@ -71,8 +76,18 @@ const cantSave = computed(() => {
   if (!writable.value) return 'Visor can’t write this file.'
   if (diskNewer.value) return 'The file changed on disk. Choose what to do with your edits first.'
   if (!dirty.value) return 'There is nothing to save yet.'
-  if (checkedText.value === text.value && errorCount.value) return `${fixToSave(errorCount.value)}: see Line by line.`
+  if (checkedText.value === text.value && errorCount.value) return saveReason(explained.value) || fixToSave(errorCount.value)
   return ''
+})
+const bar = computed<{ tone: 'ok' | 'bad' | 'warn' | 'idle'; status: string }>(() => {
+  if (busy.value === 'save') return { tone: 'idle', status: 'Saving…' }
+  if (busy.value === 'restore') return { tone: 'idle', status: 'Restoring…' }
+  if (busy.value === 'apply') return { tone: 'idle', status: 'Applying…' }
+  if (!writable.value) return { tone: 'warn', status: 'Read-only: Visor can’t write this file.' }
+  if (diskNewer.value) return { tone: 'warn', status: 'Edited elsewhere: choose what to do with your edits first.' }
+  if (dirty.value && checkedText.value === text.value && errorCount.value) return { tone: 'bad', status: `${cantSave.value}.` }
+  if (dirty.value) return { tone: 'warn', status: 'Unsaved changes' }
+  return { tone: 'idle', status: 'No changes to save' }
 })
 
 // ---- loading ----
@@ -203,7 +218,7 @@ async function startSave() {
   if (cantSave.value) return
   await runChecks()
   if (errorCount.value) {
-    showToast(`${fixToSave(errorCount.value)}: see Line by line.`, 'error')
+    showToast(`${saveReason(explained.value) || fixToSave(errorCount.value)}: see To fix before saving.`, 'error')
     return
   }
   failure.value = null
@@ -367,15 +382,6 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
     <p v-else-if="!file" class="muted">Loading…</p>
     <div v-else class="grid">
       <div class="col">
-        <div class="bar">
-          <strong id="editor-title" class="grow">Editor</strong>
-          <button type="button" class="btn" :disabled="!!busy" @click="openRestore">Restore a backup…</button>
-          <button type="button" class="btn" :disabled="!!busy" @click="runChecks">Validate</button>
-          <button type="button" class="btn primary" :disabled="!!cantSave" :title="cantSave || undefined" @click="startSave">
-            {{ busy === 'save' ? 'Saving…' : 'Save & apply' }}
-          </button>
-        </div>
-
         <div v-if="!writable" class="banner warn" role="status">
           <strong>Visor can’t write this file.</strong>
           <span>
@@ -408,10 +414,6 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
           :marks="marks"
           :label="`Editor for ${fileName}`"
         />
-        <div class="foot muted">
-          <span>A timestamped backup is saved before every write.</span>
-          <span v-if="dirty" class="dirty">Unsaved changes</span>
-        </div>
       </div>
 
       <div class="col">
@@ -454,6 +456,7 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
           :view="explained"
           :failed="checkFailed"
           mode="editor"
+          fix-list
           :read-only="!writable || !!busy || checkedText !== text"
           @goto="(n: number) => editor?.goToLine(n)"
           @edit="fix"
@@ -464,6 +467,14 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
         />
       </div>
     </div>
+
+    <SaveBar v-if="file" :tone="bar.tone" :status="bar.status" note="A timestamped backup is saved before every write.">
+      <button type="button" class="btn" :disabled="!!busy" @click="openRestore">Restore a backup…</button>
+      <button type="button" class="btn" :disabled="!!busy" @click="runChecks">Validate</button>
+      <button type="button" class="btn primary" :disabled="!!cantSave" @click="startSave">
+        {{ busy === 'save' ? 'Saving…' : 'Save & apply' }}
+      </button>
+    </SaveBar>
 
     <DialogShell v-if="preview" title="Review the change" wide @close="preview = false">
       <p class="lead">
@@ -511,11 +522,8 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; align-items: start; }
 .col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .col + .col { gap: 16px; }
-.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.grow { flex: 1; }
+.editor-tab { display: flex; flex-direction: column; gap: 16px; }
 .muted { margin: 0; color: var(--text-muted); }
-.foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
-.dirty { color: var(--warning-fg); font-weight: 600; }
 .note { margin: 0; color: var(--text-muted); }
 .lead { margin: 0; line-height: 1.45; }
 .link { border: 0; background: transparent; color: var(--accent-text); font: inherit; cursor: pointer; padding: 0; }

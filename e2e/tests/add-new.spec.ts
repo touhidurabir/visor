@@ -1,17 +1,21 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { collectErrors, expectState, openApp, removeConfig, supervisorStates, waitForDashboard } from './helpers'
+import { collectErrors, configRow, expectState, openApp, processRow, removeConfig, supervisorStates, waitForDashboard } from './helpers'
 
-// Creates e2e-task.ini in the sandbox's conf.d and takes it out again, so the
-// 12 sample programs stay as the other specs expect them.
+// Creates e2e-task.ini (and mailer-copy.ini, a copy of mailer.ini) in the
+// sandbox's conf.d and takes them out again, so the 12 sample programs stay
+// as the other specs expect them.
 const FILE = '/tmp/visor-e2e/conf.d/e2e-task.ini'
+const COPY = '/tmp/visor-e2e/conf.d/mailer-copy.ini'
 
 test.beforeEach(async ({ page }) => {
   await openApp(page, '/') // the cleanup talks to the app, so it has to be loaded
   await removeConfig(page, FILE) // a failed earlier attempt
+  await removeConfig(page, COPY)
 })
 test.afterEach(async ({ page }) => {
   await removeConfig(page, FILE)
+  await removeConfig(page, COPY)
 })
 
 /** Fills the form from the "Any script" template with a command that stays up. */
@@ -88,7 +92,7 @@ test.describe('add new config', () => {
     await page.getByLabel('File name').fill('e2e-task.conf')
     await expect(lines).toContainText('does not match the include setting')
     await expect(save).toBeDisabled()
-    await expect(save).toHaveText(/^Fix \d+ problems? to save$/)
+    await expect(page.getByTestId('save-bar').getByRole('status')).toHaveText(/^Fix \d+ problems? to save\.$/)
 
     // A name that is taken: the checks do not mind, the save refuses clearly.
     await editor.click()
@@ -96,6 +100,7 @@ test.describe('add new config', () => {
     await page.keyboard.insertText('[program:e2e-task]\ncommand=/bin/sleep 600\ndirectory=/tmp\n')
     await page.getByLabel('File name').fill('notes.ini')
     await expect(save).toHaveText('Save & apply')
+    await expect(save).toBeEnabled()
     await expect(lines).not.toContainText('Error.')
     await expect(page.getByTestId('explain-summary')).toContainText('e2e-task runs the program at /bin/sleep')
     await expect(lines).toContainText('Runs it inside /tmp.')
@@ -112,6 +117,111 @@ test.describe('add new config', () => {
     expect(existsSync(FILE)).toBe(true)
     // The refused save is an expected 422 from the app, which the browser logs.
     expect(errors.filter((e) => !e.includes('422'))).toEqual([])
+  })
+
+  test('Write it lists what to fix first, marks the line, and says why Save waits', async ({ page }) => {
+    await openApp(page, '/new')
+    const editor = page.getByRole('textbox', { name: 'Config contents' })
+    await expect(editor).toContainText('[program:acme-queue]')
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+a')
+    await page.keyboard.insertText('[program:e2e-task]\ncommand=/bin/sleep 600\ndirectory=/tmp\nnumprocs=2\nautostart=false\n')
+
+    // The problem is listed above the full line-by-line list, with its line.
+    const toFix = page.getByRole('group', { name: 'To fix before saving' })
+    await expect(toFix).toContainText('Line 4')
+    await expect(toFix).toContainText('process_name')
+
+    // The bar at the bottom: a disabled Save, the reason as text next to it.
+    const bar = page.getByTestId('save-bar')
+    await expect(bar.getByRole('button', { name: 'Save & apply' })).toBeDisabled()
+    await expect(bar.getByRole('status')).toHaveText('Fix line 4 to save.')
+    // The summary above stays neutral.
+    await expect(page.getByTestId('explain-summary')).not.toContainText('can’t be saved')
+
+    // The error line has an icon in the gutter, not only a tint.
+    const icon = page.getByTestId('ini-editor').locator('.cm-mark-icon[data-mark="error"]')
+    await expect(icon).toHaveCount(1)
+    await expect(icon).toHaveAttribute('title', 'Error on this line')
+
+    // Clicking the item puts the cursor on that line.
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+Home')
+    await expect(page.locator('.cm-activeLine')).toHaveText('[program:e2e-task]')
+    await toFix.getByRole('button', { name: /Line 4/ }).click()
+    await expect(page.locator('.cm-activeLine')).toHaveText('numprocs=2')
+    expect(existsSync(FILE)).toBe(false)
+  })
+
+  test('the form checks the template, counts what to check, and folds every line', async ({ page }) => {
+    await openApp(page, '/new/form')
+    const chips = page.getByRole('group', { name: 'Templates' })
+    await chips.getByRole('button', { name: 'Any script' }).click()
+    await expect(page.getByLabel('Program name')).toHaveValue('acme-task')
+    // The chosen chip has a check mark, the others none.
+    await expect(chips.getByRole('button', { name: 'Any script' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(chips.getByRole('button', { name: 'Any script' }).locator('svg.check')).toBeVisible()
+    await expect(chips.locator('svg.check')).toHaveCount(1)
+
+    // A missing working folder is one thing to check, linked to its field.
+    await page.getByLabel('Command').fill('/bin/sleep 600')
+    await page.getByLabel('Working folder').fill('/tmp/visor-e2e-no-such-folder')
+    const checks = page.getByTestId('things-to-check')
+    await expect(checks.locator('.th')).toHaveText(/^\d+ things? to check$/)
+    await expect(checks).toContainText('Working folder')
+    await checks.getByRole('button', { name: /Working folder/ }).click()
+    await expect(page.getByLabel('Working folder')).toBeFocused()
+    // The preview marks that line too.
+    await expect(page.getByLabel('File contents').locator('.pline.warning')).toContainText('directory=/tmp/visor-e2e-no-such-folder')
+
+    // The full line by line is folded under "Explain every line".
+    const lines = page.getByRole('region', { name: 'Line by line' })
+    const every = page.getByText(/^Explain every line/)
+    await expect(lines).toBeHidden()
+    await every.click()
+    await expect(lines).toBeVisible()
+    await expect(lines).toContainText('Runs it inside')
+    await every.click()
+    await expect(lines).toBeHidden()
+
+    // The same bar as Write it.
+    await expect(page.getByTestId('save-bar').getByRole('button', { name: 'Save & apply' })).toBeVisible()
+  })
+
+  test('copies an existing config under new names and saves it like any new one', async ({ page }) => {
+    await openApp(page, '/new')
+    await expect(page.getByRole('textbox', { name: 'Config contents' })).toContainText('[program:acme-queue]')
+    await page.getByRole('button', { name: 'Copy an existing config…' }).click()
+    const picker = page.getByRole('dialog', { name: 'Copy an existing config' })
+    await picker.getByRole('button', { name: /^mailer\.ini/ }).click()
+    await expect(picker).toBeHidden()
+
+    // Write it, prefilled with the copy under free names, and a note of the renames.
+    const editor = page.getByRole('textbox', { name: 'Config contents' })
+    await expect(editor).toContainText('[program:mailer-worker-copy]')
+    await expect(editor).toContainText('[program:mailer-digest-copy]')
+    await expect(page.getByLabel('File name')).toHaveValue('mailer-copy.ini')
+    const note = page.getByTestId('copy-note')
+    await expect(note).toContainText('Copied from mailer.ini')
+    await expect(note).toContainText('mailer-worker → mailer-worker-copy')
+    await expect(note).toContainText('mailer-digest → mailer-digest-copy')
+    // mailer.ini names nothing of the original outside its sections.
+    await expect(page.getByTestId('copy-doubts')).toHaveCount(0)
+    expect(existsSync(COPY)).toBe(false) // nothing is written before Save
+
+    const save = page.getByTestId('save-new')
+    await expect(save).toBeEnabled()
+    await save.click()
+    await expect(page.getByRole('region', { name: 'Saved and applied' })).toContainText('mailer-worker-copy')
+    expect(readFileSync(COPY, 'utf8')).toContain('[program:mailer-digest-copy]')
+
+    // The dashboard lists the copy with both programs; the original is untouched.
+    await openApp(page, '/')
+    await waitForDashboard(page)
+    await expect(configRow(page, 'mailer-copy.ini')).toBeVisible()
+    await expect(processRow(page, 'mailer-worker-copy:mailer-worker-copy_00')).toBeVisible()
+    await expect(processRow(page, 'mailer-digest-copy:mailer-digest-copy')).toBeVisible()
+    await expect(configRow(page, 'mailer.ini')).toBeVisible()
   })
 
   test('opens with ⌘N', async ({ page }) => {

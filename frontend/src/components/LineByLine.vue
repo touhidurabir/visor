@@ -7,17 +7,20 @@
 // the editor; mode "editor" sits beside an editor, so it shows only line
 // numbers and applies fixes straight to the text. actions=false hides the
 // fix and go-to-line buttons (the Add new form has no text to change).
+// fixList adds "To fix before saving" above the lines: each problem in one
+// line, linking to its line in the editor (goto).
 // The Overview opens on "Only problems" when the file has any (flow 2);
 // the choice is made once, when the explanation first arrives, and stays
 // the user's after that.
 import { computed, ref, watch } from 'vue'
 import type { EditView, ExplainLineView, ExplainView, LinePathView, ProblemView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { fileSize, isProblem } from '../lib/explain'
+import { fixItems } from '../lib/fix-list'
 import { opensOnProblems } from '../lib/overview'
 
 const props = withDefaults(
-  defineProps<{ view: ExplainView | null; failed?: string | null; mode: 'overview' | 'editor'; readOnly?: boolean; actions?: boolean }>(),
-  { failed: null, readOnly: false, actions: true },
+  defineProps<{ view: ExplainView | null; failed?: string | null; mode: 'overview' | 'editor'; readOnly?: boolean; actions?: boolean; fixList?: boolean }>(),
+  { failed: null, readOnly: false, actions: true, fixList: false },
 )
 const emit = defineEmits<{
   edit: [edit: EditView]
@@ -47,6 +50,7 @@ const sections = computed(() =>
     .filter((s) => s.Lines.length),
 )
 const problemCount = computed(() => (props.view?.Errors ?? 0) + (props.view?.Suggestions ?? 0))
+const toFix = computed(() => (props.fixList && !props.failed ? fixItems(props.view) : []))
 
 function heading(name: string, program: string) {
   return program ? `Program ${program}` : `[${name}]`
@@ -86,6 +90,18 @@ function tag(p: LinePathView): { text: string; cls: string } {
         <button type="button" :aria-pressed="!onlyProblems" @click="onlyProblems = false">All lines</button>
         <button type="button" :aria-pressed="onlyProblems" @click="onlyProblems = true">{{ problemCount ? `Only problems · ${problemCount}` : 'Only problems' }}</button>
       </div>
+    </div>
+
+    <div v-if="toFix.length" class="to-fix" role="group" aria-labelledby="to-fix-title" data-testid="to-fix">
+      <span id="to-fix-title" class="th">To fix before saving</span>
+      <ul>
+        <li v-for="(f, i) in toFix" :key="i" :class="f.level === 'error' ? 't-bad' : 't-warn'">
+          <component :is="f.line ? 'button' : 'span'" :type="f.line ? 'button' : undefined" class="fix-item" @click="f.line && emit('goto', f.line)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="f.level === 'error' ? 'M18 6 6 18M6 6l12 12' : 'M12 3 2 20h20L12 3zM12 10v4M12 17v.01'" /></svg>
+            <span><span class="sr">{{ f.level === 'error' ? 'Error' : 'Warning' }}: </span><strong>{{ f.line ? `Line ${f.line}` : 'The file' }}</strong> · {{ f.text }}<span v-if="f.level !== 'error'" class="still"> (it can still be saved)</span></span>
+          </component>
+        </li>
+      </ul>
     </div>
 
     <p v-if="failed" class="pad muted">Visor can’t explain this file. {{ failed }}</p>
@@ -188,6 +204,15 @@ function tag(p: LinePathView): { text: string; cls: string } {
 h2 { margin: 0; font-size: 15px; font-weight: 600; }
 .meta { color: var(--ink3); font-size: 12.5px; }
 .muted { color: var(--ink2); }
+.to-fix { display: flex; flex-direction: column; gap: 6px; padding: 12px 18px; border-top: 1px solid var(--line); background: var(--sunken); }
+.to-fix .th { font-size: 12px; font-weight: 600; color: var(--ink3); }
+.to-fix ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.fix-item { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; user-select: text; }
+.fix-item svg { flex: none; position: relative; top: 2px; }
+button.fix-item { cursor: pointer; }
+button.fix-item:hover strong { text-decoration: underline; }
+.still { color: var(--ink3); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .pad { margin: 0; padding: 16px 18px; border-top: 1px solid var(--line); }
 .file-problems { list-style: none; margin: 0; padding: 12px 18px; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); }
 .group-head { margin: 0; padding: 8px 18px; border-top: 1px solid var(--line); background: var(--sunken); color: var(--ink3); font-size: 12px; font-weight: 600; }

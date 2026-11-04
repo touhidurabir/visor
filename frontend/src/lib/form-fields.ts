@@ -1,5 +1,7 @@
 // The fields of "Fill a form": sections, labels and kinds, in the order of
-// the wireframe. `key` is the supervisord setting ("name" is the program name).
+// the polish canvas's form board (two columns; `wide` spans both). `key` is
+// the supervisord setting ("name" is the program name). The order here is
+// only the form's: Go renders the text in its own order (config.FormKeys).
 import type { Check } from '../../bindings/github.com/touhidurabir/visor/internal/validate'
 
 export interface FormField {
@@ -22,10 +24,10 @@ export const FORM_SECTIONS: FormSection[] = [
   {
     title: 'Basics',
     fields: [
-      { key: 'name', label: 'Program name', help: 'Letters, digits, - _ and . only' },
-      { key: 'command', label: 'Command', mono: true, wide: true, help: 'What supervisord runs' },
-      { key: 'directory', label: 'Working folder', mono: true, help: 'Optional. The folder the command runs in' },
+      { key: 'name', label: 'Program name', mono: true, help: 'Letters, digits, - _ and . only' },
       { key: 'user', label: 'Run as user', help: 'Blank runs it as the user supervisord runs as' },
+      { key: 'command', label: 'Command', mono: true, wide: true, help: 'What supervisord runs' },
+      { key: 'directory', label: 'Working folder', mono: true, wide: true, help: 'Optional. The folder the command runs in' },
     ],
   },
   {
@@ -36,7 +38,7 @@ export const FORM_SECTIONS: FormSection[] = [
       { key: 'numprocs', label: 'Copies', help: 'How many copies to run' },
       { key: 'startsecs', label: 'Seconds before it counts as started', help: '' },
       { key: 'startretries', label: 'Start attempts', help: '' },
-      { key: 'process_name', label: 'Copy name', mono: true, wide: true, help: 'Name of each copy' },
+      { key: 'process_name', label: 'Copy name', mono: true, help: 'Name of each copy' },
     ],
   },
   {
@@ -53,9 +55,9 @@ export const FORM_SECTIONS: FormSection[] = [
     fields: [
       { key: 'stdout_logfile', label: 'Output log', mono: true, wide: true, help: 'Blank: auto-named file in supervisord’s log folder' },
       { key: 'redirect_stderr', label: 'Send errors to the output log', options: BOOL, help: '' },
+      { key: 'priority', label: 'Start order', help: 'Lower numbers start first' },
       { key: 'stderr_logfile', label: 'Error log', mono: true, wide: true, help: 'Blank: auto-named file in supervisord’s log folder' },
       { key: 'environment', label: 'Environment variables', mono: true, wide: true, help: 'KEY="value" pairs, comma separated' },
-      { key: 'priority', label: 'Start order (priority)', help: 'Lower numbers start first' },
     ],
   },
 ]
@@ -106,4 +108,10 @@ export function nameProblem(name: string): string | null {
   if (!name.trim()) return 'Required'
   if (!NAME_OK.test(name.trim())) return 'Use letters, digits, - _ and . only'
   return null
+}
+
+/** The label of the form field for key ("" when the form has no field for it). */
+export function fieldLabel(key: string): string {
+  for (const s of FORM_SECTIONS) for (const f of s.fields) if (f.key === key) return f.label
+  return ''
 }
