@@ -105,8 +105,15 @@ func TestFatalInWatchedConfigNotifiesOnce(t *testing.T) {
 		t.Fatalf("notifications for the fatal issue = %+v, want one", sender.messages())
 	}
 	m := fatal[0]
-	if m.Title != "fataler can't start" || m.Body != is.Message+" · fataler.ini" || m.Process != "fataler:fataler" {
+	if m.Title != "🔴 fataler can't start" || m.Subtitle != "" || !strings.HasPrefix(m.Body, "fataler.ini: ") ||
+		!strings.HasSuffix(m.Body, ".") || filepath.Base(m.Config) != "fataler.ini" || m.Thread != m.Config || m.Process != "fataler:fataler" {
 		t.Errorf("message = %+v", m)
+	}
+	// The bell lists the same words, without the icon and the file name.
+	entries := rt.inbox.List()
+	k := slices.IndexFunc(entries, func(e notify.Entry) bool { return e.IssueID == is.ID })
+	if k < 0 || entries[k].Title != "fataler can't start" || entries[k].Detail != m.Detail || m.Detail == "" {
+		t.Errorf("inbox entry for %s = %+v, message detail %q", is.ID, entries, m.Detail)
 	}
 }
 
@@ -243,8 +250,11 @@ func TestNotifyService(t *testing.T) {
 		err := svc.SendTestNotification()
 		sent := native.messages()
 		if tc.wantErr == "" {
-			if err != nil || len(sent) != 1 || sent[0].Title != "Visor notifications are on" || sent[0].ID == "" {
-				t.Errorf("%s: test = %v, sent %+v", tc.perm, err, sent)
+			if err != nil || len(sent) != 1 || sent[0].Title != "🔵 Visor notifications are on" || sent[0].ID == "" {
+				t.Fatalf("%s: test = %v, sent %+v", tc.perm, err, sent)
+			}
+			if m := sent[0]; m.Subtitle != "" || m.Thread != testThread || !strings.Contains(m.Body, "🔴 for an error") {
+				t.Errorf("%s: test notification = %+v", tc.perm, m)
 			}
 			continue
 		}

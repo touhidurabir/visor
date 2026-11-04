@@ -25,6 +25,10 @@ const (
 	NotifyUnavailable = "unavailable"
 )
 
+// testThread is the banner thread of Settings' sample notification, apart
+// from every config's.
+const testThread = "visor-test"
+
 // nativeNotifier is the platform's notification centre.
 type nativeNotifier interface {
 	// start prepares notifications and asks for permission once. When it
@@ -82,9 +86,9 @@ func (s *NotifyService) SendTestNotification() error {
 		return errors.New("notifications are off for Visor. Turn them on in System Settings → Notifications → Visor")
 	}
 	return s.native.send(notify.Message{
-		ID:       fmt.Sprintf("visor-test-%d", time.Now().UnixNano()),
-		Title:    "Visor notifications are on",
-		Subtitle: notify.Info.Label(),
-		Body:     "You'll get one like this when a process fails, marked 🔴 Error or 🟠 Warning.",
+		ID:     fmt.Sprintf("visor-test-%d", time.Now().UnixNano()),
+		Title:  notify.Info.Icon() + " Visor notifications are on",
+		Body:   "You'll get one like this when a process fails, marked " + notify.Error.Icon() + " for an error or " + notify.Warning.Icon() + " for a warning.",
+		Thread: testThread,
 	})
 }

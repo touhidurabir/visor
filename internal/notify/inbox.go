@@ -28,6 +28,10 @@ var ErrNoEntry = errors.New("that notification is no longer in the list")
 // Entry is one notification in Visor's own list. Read is whether the
 // person has seen it in Visor; Shown is whether macOS showed it as a banner.
 // Count is how many times its failure happened (see issues.Issue.Count).
+// Title and Detail are the banner's words without the severity icon and
+// the config file's name (Message.Headline and Message.Detail): the list
+// shows those from Level and Config. Entries saved before 2026-11 keep
+// their older Detail ("Exited with status 2 · 3rd time in 10 minutes").
 type Entry struct {
 	ID      string      `json:"id"`
 	IssueID string      `json:"issueId"`
@@ -102,12 +106,12 @@ func (b *Inbox) Record(is issues.Issue) (Entry, error) {
 	defer b.mu.Unlock()
 	if k := slices.IndexFunc(b.entries, func(e Entry) bool { return e.IssueID == is.ID && !e.Read }); k >= 0 {
 		e := b.entries[k]
-		e.Title, e.Detail, e.At, e.Count, e.Shown = m.Title, m.Detail, b.now(), is.Times(), false
+		e.Title, e.Detail, e.At, e.Count, e.Shown = m.Headline, m.Detail, b.now(), is.Times(), false
 		b.entries = slices.Delete(b.entries, k, k+1)
 		return e, b.push(e)
 	}
 	return b.add(Entry{IssueID: is.ID, Kind: is.Kind, Process: is.Process, Config: is.Config,
-		Title: m.Title, Detail: m.Detail, Count: is.Times()})
+		Title: m.Headline, Detail: m.Detail, Count: is.Times()})
 }
 
 // Recovered adds a note that supervisord answers again after the
@@ -121,7 +125,7 @@ func (b *Inbox) Recovered(is issues.Issue) (Entry, error) {
 		end = b.now()
 	}
 	return b.add(Entry{IssueID: is.ID, Kind: is.Kind, Title: "supervisord is responding again",
-		Detail: "It was unreachable for " + span(end.Sub(is.OpenedAt)), Read: true, Severity: Info})
+		Detail: "It was unreachable for " + span(end.Sub(is.OpenedAt)) + ".", Read: true, Severity: Info})
 }
 
 // add stamps e with an ID and the time and puts it first. Caller holds mu.

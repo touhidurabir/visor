@@ -95,7 +95,10 @@ func (n *macNotifier) send(m notify.Message) error {
 		Subtitle: m.Subtitle,
 		Body:     m.Body,
 		Data:     data,
-		ThreadID: "visor-issues",
+		// macOS stacks a thread's banners: a burst from one config is one
+		// stack. It sums them up as "N more notifications"; Wails has no
+		// summaryArgument to say "N more from flaky.ini".
+		ThreadID: m.Thread,
 	})
 }
 

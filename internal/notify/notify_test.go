@@ -53,47 +53,109 @@ func TestShouldNotify(t *testing.T) {
 	}
 }
 
+// Each kind's banner: the severity icon before what happened, no
+// subtitle, and one sentence that starts with the config file's name. The
+// bell gets the same words without the icon and the file name.
 func TestCompose(t *testing.T) {
 	tests := []struct {
-		is          issues.Issue
-		title, body string
+		name                string
+		is                  issues.Issue
+		title, body, detail string
+		headline, thread    string
 	}{
 		{
-			issues.Issue{ID: "1", Kind: issues.KindFatal, Process: "mailer-digest:mailer-digest", Config: "/etc/conf.d/mailer.ini", Message: "Exited too quickly"},
-			"mailer-digest can't start", "Exited too quickly · mailer.ini",
+			"can't start, supervisord's reason",
+			issues.Issue{ID: "1", Kind: issues.KindFatal, Process: "reports-sync:reports-sync", Config: "/etc/conf.d/reports.ini", Message: "can't find command '/nonexistent/sync'"},
+			"🔴 reports-sync can't start", "reports.ini: can't find command '/nonexistent/sync'.", "Can't find command '/nonexistent/sync'.",
+			"reports-sync can't start", "/etc/conf.d/reports.ini",
 		},
 		{
-			issues.Issue{ID: "2", Kind: issues.KindUnexpectedExit, Process: "flaky:flaky", Config: "/c/flaky.ini", Message: "Exited with status 1"},
-			"flaky exited unexpectedly", "Exited with status 1 · flaky.ini",
+			"can't start, Visor's fallback",
+			issues.Issue{ID: "2", Kind: issues.KindFatal, Process: "mailer-digest:mailer-digest", Config: "/etc/conf.d/mailer.ini", Message: "Exited too quickly (process log may have details)"},
+			"🔴 mailer-digest can't start", "mailer.ini: it exited too quickly (process log may have details).", "It exited too quickly (process log may have details).",
+			"mailer-digest can't start", "/etc/conf.d/mailer.ini",
 		},
 		{
-			issues.Issue{ID: "3", Kind: issues.KindCrashLoop, Process: "flaky:flaky", Config: "/c/flaky.ini", Message: "Restarted 5 times in 10 minutes"},
-			"flaky keeps restarting", "Restarted 5 times in 10 minutes · flaky.ini",
+			"exited",
+			issues.Issue{ID: "3", Kind: issues.KindUnexpectedExit, Process: "flaky:flaky", Config: "/c/flaky.ini", Message: "Exited with status 1"},
+			"🟠 flaky exited unexpectedly", "flaky.ini: it exited with status 1.", "It exited with status 1.",
+			"flaky exited unexpectedly", "/c/flaky.ini",
 		},
 		{
-			issues.Issue{ID: "4", Kind: issues.KindUnreachable, Message: "Cannot reach supervisord"},
-			"supervisord isn't responding", "Cannot reach supervisord",
+			"exited and restarted",
+			issues.Issue{ID: "4", Kind: issues.KindUnexpectedExit, Process: "flaky:flaky", Config: "/c/flaky.ini", Message: "Exited with status 2 and was restarted by supervisord"},
+			"🟠 flaky exited unexpectedly", "flaky.ini: it exited with status 2 and was restarted by supervisord.", "It exited with status 2 and was restarted by supervisord.",
+			"flaky exited unexpectedly", "/c/flaky.ini",
 		},
-		{ // a process named unlike its group keeps the full name
-			issues.Issue{ID: "5", Kind: issues.KindFatal, Process: "shop-queue:shop-queue_00", Config: "/c/shop.ini", Message: "Exited too quickly"},
-			"shop-queue:shop-queue_00 can't start", "Exited too quickly · shop.ini",
+		{
+			"terminated by a signal",
+			issues.Issue{ID: "5", Kind: issues.KindUnexpectedExit, Process: "flaky:flaky", Config: "/c/flaky.ini", Message: "Was terminated by SIGKILL and restarted by supervisord"},
+			"🟠 flaky exited unexpectedly", "flaky.ini: it was terminated by SIGKILL and restarted by supervisord.", "It was terminated by SIGKILL and restarted by supervisord.",
+			"flaky exited unexpectedly", "/c/flaky.ini",
 		},
-		{ // no config file known: the reason alone
-			issues.Issue{ID: "6", Kind: issues.KindUnexpectedExit, Process: "orphan:orphan", Message: "Exited with status 3"},
-			"orphan exited unexpectedly", "Exited with status 3",
+		{
+			"crash loop",
+			issues.Issue{ID: "6", Kind: issues.KindCrashLoop, Process: "flaky:flaky", Config: "/c/flaky.ini", Message: "Restarted 5 times in 10 minutes"},
+			"🔴 flaky keeps restarting", "flaky.ini: it was restarted 5 times in 10 minutes.", "It was restarted 5 times in 10 minutes.",
+			"flaky keeps restarting", "/c/flaky.ini",
 		},
-		{ // no reason: the file alone
-			issues.Issue{ID: "7", Kind: issues.KindFatal, Process: "w:w", Config: "/c/w.ini"},
-			"w can't start", "w.ini",
+		{
+			"supervisord down, with the error",
+			issues.Issue{ID: "7", Kind: issues.KindUnreachable, Message: "supervisord is not responding: dial unix /tmp/s.sock: connect: connection refused"},
+			"🔴 supervisord isn't responding", "Visor can't reach it: dial unix /tmp/s.sock: connect: connection refused.", "Visor can't reach it: dial unix /tmp/s.sock: connect: connection refused.",
+			"supervisord isn't responding", DaemonThread,
+		},
+		{
+			"supervisord down, no error",
+			issues.Issue{ID: "8", Kind: issues.KindUnreachable, Message: "supervisord is not responding"},
+			"🔴 supervisord isn't responding", "Visor can't reach it.", "Visor can't reach it.",
+			"supervisord isn't responding", DaemonThread,
+		},
+		{
+			"supervisord down, other wording kept",
+			issues.Issue{ID: "9", Kind: issues.KindUnreachable, Message: "supervisord said no"},
+			"🔴 supervisord isn't responding", "supervisord said no.", "supervisord said no.",
+			"supervisord isn't responding", DaemonThread,
+		},
+		{
+			"a process named unlike its group keeps the full name",
+			issues.Issue{ID: "10", Kind: issues.KindFatal, Process: "shop-queue:shop-queue_00", Config: "/c/shop.ini", Message: "Exited too quickly."},
+			"🔴 shop-queue:shop-queue_00 can't start", "shop.ini: it exited too quickly.", "It exited too quickly.",
+			"shop-queue:shop-queue_00 can't start", "/c/shop.ini",
+		},
+		{
+			"no config file known: no prefix",
+			issues.Issue{ID: "11", Kind: issues.KindUnexpectedExit, Process: "orphan:orphan", Message: "Exited with status 3"},
+			"🟠 orphan exited unexpectedly", "It exited with status 3.", "It exited with status 3.",
+			"orphan exited unexpectedly", DaemonThread,
+		},
+		{
+			"no reason: the file alone",
+			issues.Issue{ID: "12", Kind: issues.KindFatal, Process: "w:w", Config: "/c/w.ini"},
+			"🔴 w can't start", "From w.ini.", "",
+			"w can't start", "/c/w.ini",
+		},
+		{
+			"another kind",
+			issues.Issue{ID: "13", Kind: "something_new", Process: "w:w", Config: "/c/w.ini", Message: "odd"},
+			"🔵 w has a problem", "w.ini: odd.", "Odd.",
+			"w has a problem", "/c/w.ini",
 		},
 	}
 	for _, tt := range tests {
 		m := Compose(tt.is)
-		if m.Title != tt.title || m.Body != tt.body {
-			t.Errorf("Compose(%s) = %q / %q, want %q / %q", tt.is.ID, m.Title, m.Body, tt.title, tt.body)
+		if m.Title != tt.title || m.Body != tt.body || m.Detail != tt.detail || m.Headline != tt.headline {
+			t.Errorf("%s:\n got %q / %q / %q / %q\nwant %q / %q / %q / %q", tt.name,
+				m.Title, m.Body, m.Detail, m.Headline, tt.title, tt.body, tt.detail, tt.headline)
 		}
-		if m.ID != tt.is.ID || m.IssueID != tt.is.ID || m.Process != tt.is.Process || m.Config != tt.is.Config {
-			t.Errorf("Compose(%s) ids = %+v", tt.is.ID, m)
+		if m.Subtitle != "" {
+			t.Errorf("%s: subtitle %q, want none", tt.name, m.Subtitle)
+		}
+		if m.Thread != tt.thread {
+			t.Errorf("%s: thread %q, want %q", tt.name, m.Thread, tt.thread)
+		}
+		if m.ID != tt.is.ID || m.IssueID != tt.is.ID || m.Process != tt.is.Process || m.Config != tt.is.Config || m.Kind != tt.is.Kind {
+			t.Errorf("%s: ids = %+v", tt.name, m)
 		}
 	}
 }
@@ -153,17 +215,17 @@ func TestComposeRepeat(t *testing.T) {
 		after  time.Duration
 		detail string
 	}{
-		{2, 40 * time.Second, "Exited with status 2 · 2nd time in 40 seconds"},
-		{3, 10 * time.Minute, "Exited with status 2 · 3rd time in 10 minutes"},
-		{4, 61 * time.Second, "Exited with status 2 · 4th time in 2 minutes"},
-		{11, 3 * time.Hour, "Exited with status 2 · 11th time in 3 hours"},
-		{22, time.Hour, "Exited with status 2 · 22nd time in 1 hour"},
+		{2, 40 * time.Second, "it exited with status 2, the 2nd time in 40 seconds"},
+		{3, 10 * time.Minute, "it exited with status 2, the 3rd time in 10 minutes"},
+		{4, 61 * time.Second, "it exited with status 2, the 4th time in 2 minutes"},
+		{11, 3 * time.Hour, "it exited with status 2, the 11th time in 3 hours"},
+		{22, time.Hour, "it exited with status 2, the 22nd time in 1 hour"},
 	}
 	for _, tt := range tests {
 		is := issues.Issue{ID: "x", Kind: issues.KindUnexpectedExit, Process: "flaky:flaky", Config: "/c/flaky.ini",
 			Message: "Exited with status 2", OpenedAt: t0, LastAt: t0.Add(tt.after), Count: tt.count}
 		m := Compose(is)
-		if m.Detail != tt.detail || m.Body != tt.detail+" · flaky.ini" {
+		if m.Body != "flaky.ini: "+tt.detail+"." || m.Detail != upperFirst(tt.detail)+"." {
 			t.Errorf("count %d: detail %q body %q", tt.count, m.Detail, m.Body)
 		}
 		if m.ID == is.ID {
@@ -171,21 +233,32 @@ func TestComposeRepeat(t *testing.T) {
 		}
 	}
 	once := Compose(issues.Issue{ID: "y", Kind: issues.KindUnexpectedExit, Process: "a:a", Message: "Exited with status 1", Count: 1})
-	if once.Detail != "Exited with status 1" || once.ID != "y" || once.Kind != issues.KindUnexpectedExit {
+	if once.Detail != "It exited with status 1." || once.ID != "y" || once.Kind != issues.KindUnexpectedExit {
 		t.Errorf("once = %+v", once)
+	}
+	// A repeat with no reason is the count alone.
+	bare := Compose(issues.Issue{ID: "z", Kind: issues.KindFatal, Process: "w:w", Config: "/c/w.ini", OpenedAt: t0, LastAt: t0.Add(time.Minute), Count: 2})
+	if bare.Body != "w.ini: the 2nd time in 1 minute." || bare.Detail != "The 2nd time in 1 minute." {
+		t.Errorf("bare repeat = %q / %q", bare.Body, bare.Detail)
 	}
 }
 
+// The severity is the icon before the title, with no word and no line of
+// its own.
 func TestComposeSaysHowSerious(t *testing.T) {
 	for kind, want := range map[issues.Kind]string{
-		issues.KindFatal:          "🔴 Error",
-		issues.KindCrashLoop:      "🔴 Error",
-		issues.KindUnreachable:    "🔴 Error",
-		issues.KindUnexpectedExit: "🟠 Warning",
-		"something_new":           "🔵 Info",
+		issues.KindFatal:          "🔴",
+		issues.KindCrashLoop:      "🔴",
+		issues.KindUnreachable:    "🔴",
+		issues.KindUnexpectedExit: "🟠",
+		"something_new":           "🔵",
 	} {
-		if got := Compose(issues.Issue{ID: "x", Kind: kind, Process: "a:a"}).Subtitle; got != want {
-			t.Errorf("%s: subtitle %q, want %q", kind, got, want)
+		if got := SeverityOf(kind).Icon(); got != want {
+			t.Errorf("%s: icon %q, want %q", kind, got, want)
+		}
+		m := Compose(issues.Issue{ID: "x", Kind: kind, Process: "a:a"})
+		if m.Title != want+" "+m.Headline || m.Subtitle != "" {
+			t.Errorf("%s: title %q subtitle %q", kind, m.Title, m.Subtitle)
 		}
 	}
 }
