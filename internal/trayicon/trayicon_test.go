@@ -44,8 +44,12 @@ func TestErrorBadgeOpaque(t *testing.T) {
 	if a>>8 <= 200 {
 		t.Errorf("error badge alpha = %d, want > 200", a>>8)
 	}
-	_, _, _, a = decode(t, monitor.HealthOK).At(36, 8).RGBA()
-	if a != 0 {
+	// (36, 8) touches the ring's outer edge; (38, 6) is in the badge but
+	// clear of the ring.
+	if a := alpha(decode(t, monitor.HealthError), 38, 6); a != 255 {
+		t.Errorf("error badge alpha at (38,6) = %d, want 255", a)
+	}
+	if a := alpha(decode(t, monitor.HealthOK), 38, 6); a != 0 {
 		t.Errorf("OK alpha at badge = %d, want 0", a)
 	}
 }
@@ -67,11 +71,53 @@ func TestOnlyBlack(t *testing.T) {
 	}
 }
 
-func TestWarningIsLeftHalf(t *testing.T) {
+func alpha(img image.Image, x, y int) uint32 {
+	_, _, _, a := img.At(x, y).RGBA()
+	return a >> 8
+}
+
+// The pulse's flat runs sit at y 22 on the 44 px canvas: the left one
+// around x 14, the right one around x 30.
+func TestOKHasWholePulse(t *testing.T) {
+	img := decode(t, monitor.HealthOK)
+	if l, r := alpha(img, 14, 22), alpha(img, 30, 22); l != 255 || r != 255 {
+		t.Errorf("left alpha %d, right alpha %d; want both 255", l, r)
+	}
+}
+
+func TestWarningBadgeIsHollow(t *testing.T) {
 	img := decode(t, monitor.HealthWarning)
-	_, _, _, l := img.At(18, 22).RGBA()
-	_, _, _, r := img.At(26, 22).RGBA()
-	if l == 0 || r != 0 {
-		t.Errorf("left alpha %d, right alpha %d; want left filled, right empty", l, r)
+	if l, r := alpha(img, 14, 22), alpha(img, 30, 22); l != 255 || r != 255 {
+		t.Errorf("pulse alpha left %d, right %d; want the whole pulse", l, r)
+	}
+	if a := alpha(img, 36, 8); a != 0 {
+		t.Errorf("badge centre alpha = %d, want 0 (hollow)", a)
+	}
+	// The badge ring (radius 4 to 6 around (36, 8)): pixels (41, 8) and
+	// (36, 3) sit inside the stroke, clear of the main ring.
+	for _, p := range [][2]int{{41, 8}, {36, 3}} {
+		if a := alpha(img, p[0], p[1]); a != 255 {
+			t.Errorf("badge ring alpha at %v = %d, want 255", p, a)
+		}
+		if a := alpha(decode(t, monitor.HealthOK), p[0], p[1]); a != 0 {
+			t.Errorf("OK alpha at %v = %d, want 0", p, a)
+		}
+	}
+}
+
+func TestErrorBadgeIsFilled(t *testing.T) {
+	if a := alpha(decode(t, monitor.HealthError), 36, 8); a != 255 {
+		t.Errorf("error badge centre alpha = %d, want 255", a)
+	}
+}
+
+func TestUnknownIsRingOnly(t *testing.T) {
+	img := decode(t, monitor.HealthUnknown)
+	if a := alpha(img, 14, 22); a != 0 {
+		t.Errorf("pulse alpha %d, want 0", a)
+	}
+	// The ring (radius 17.6, stroke 3.9) crosses the vertical axis at y 4.4.
+	if a := alpha(img, 22, 4); a != 255 {
+		t.Errorf("ring alpha at top = %d, want 255", a)
 	}
 }
