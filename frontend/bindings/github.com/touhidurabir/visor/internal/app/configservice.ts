@@ -43,6 +43,16 @@ export function Backups(path: string): $CancellablePromise<$models.BackupView[] 
 }
 
 /**
+ * CopyDraft drafts a copy of the include file at path under free names (see
+ * config.CopyAs): no program or group name of the include files, and no
+ * file name already in the include folder. Nothing is written; the draft is
+ * saved with Create like any new config.
+ */
+export function CopyDraft(path: string): $CancellablePromise<$models.CopyDraftView> {
+    return $Call.ByID(3306359901, path);
+}
+
+/**
  * Create writes content as a new config file named fileName in the include
  * folder, after the checks (errors refuse it), and has supervisord add just
  * its programs, so everything else keeps running. The new config is watched

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/touhidurabir/visor/internal/apply"
+	"github.com/touhidurabir/visor/internal/config"
 	"github.com/touhidurabir/visor/internal/supervisor/supervisortest"
 	"github.com/touhidurabir/visor/internal/validate"
 )
@@ -393,5 +394,87 @@ func TestCreateRefuses(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(cs.IncludeDir(), n)); err == nil {
 			t.Errorf("%s was written", n)
 		}
+	}
+}
+
+func TestCopyDraft(t *testing.T) {
+	dir := t.TempDir()
+	confd, extra := filepath.Join(dir, "conf.d"), filepath.Join(dir, "extra")
+	for _, d := range []string{confd, extra, filepath.Join(confd, "mailer-copy.ini")} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write := func(p, s string) {
+		t.Helper()
+		if err := os.WriteFile(p, []byte(s), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const mailer = "; mail jobs\n[program:mailer-worker]\ncommand=sleep 3600\nstdout_logfile=/tmp/mailer-worker.log\n\n" +
+		"[program:mailer-digest]\ncommand=sleep 3600\n"
+	mailerPath := filepath.Join(confd, "mailer.ini")
+	write(mailerPath, mailer)
+	// A program and a group elsewhere already have the first names.
+	write(filepath.Join(confd, "taken.ini"), "[program:mailer-worker-copy]\ncommand=x\n[group:mailer-digest-copy]\nprograms=mailer-worker-copy\n")
+	xPath := filepath.Join(extra, "x.conf")
+	write(xPath, "[program:x]\ncommand=x\n")
+	main := filepath.Join(dir, "supervisord.conf")
+	write(main, "[supervisord]\n")
+	rt := offlineRuntime(t, main, filepath.Join(confd, "*.ini"), filepath.Join(extra, "*.conf"))
+	cs := NewConfigService(rt)
+	before, _ := os.ReadDir(confd)
+
+	v, err := cs.CopyDraft(mailerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// mailer-copy.ini is a folder in the include dir, so it is taken too.
+	if v.FileName != "mailer-copy-2.ini" {
+		t.Errorf("file name = %q", v.FileName)
+	}
+	want := strings.NewReplacer("[program:mailer-worker]", "[program:mailer-worker-copy-2]",
+		"[program:mailer-digest]", "[program:mailer-digest-copy-2]").Replace(mailer)
+	if v.Content != want {
+		t.Errorf("content = %q, want %q", v.Content, want)
+	}
+	wantRenames := []config.Rename{
+		{Kind: "program", From: "mailer-worker", To: "mailer-worker-copy-2"},
+		{Kind: "program", From: "mailer-digest", To: "mailer-digest-copy-2"},
+	}
+	if !slices.Equal(v.Renames, wantRenames) {
+		t.Errorf("renames = %+v", v.Renames)
+	}
+	if len(v.Doubts) != 1 || v.Doubts[0].Key != "stdout_logfile" || v.Doubts[0].Line != 4 {
+		t.Errorf("doubts = %+v", v.Doubts)
+	}
+	// The draft passes the name checks as a new file.
+	for _, c := range cs.Validate(v.FileName, v.Content, "") {
+		if c.Level == validate.Error && strings.Contains(c.Message, "already exists") {
+			t.Errorf("the draft reuses a name: %+v", c)
+		}
+	}
+	if after, _ := os.ReadDir(confd); len(after) != len(before) {
+		t.Errorf("CopyDraft wrote to the include folder: %v", after)
+	}
+	if got := mustRead(t, mailerPath); got != mailer {
+		t.Errorf("original changed: %q", got)
+	}
+
+	// From another include pattern, the copy takes the include folder's extension.
+	if v, err := cs.CopyDraft(xPath); err != nil || v.FileName != "x-copy.ini" {
+		t.Errorf("CopyDraft(x.conf) = %q, %v", v.FileName, err)
+	}
+
+	outside := filepath.Join(t.TempDir(), "o.ini")
+	write(outside, "[program:o]\ncommand=x\n")
+	if _, err := cs.CopyDraft(outside); err == nil {
+		t.Error("CopyDraft of a file outside the include folder succeeded")
+	}
+	if _, err := cs.CopyDraft(filepath.Join(confd, "missing.ini")); err == nil {
+		t.Error("CopyDraft of a missing file succeeded")
+	}
+	if _, err := cs.CopyDraft(main); err == nil {
+		t.Error("CopyDraft of supervisord.conf succeeded")
 	}
 }

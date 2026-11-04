@@ -416,6 +416,56 @@ func (s *ConfigService) Create(fileName, content string) (ApplyResultView, error
 	return s.create(path, content)
 }
 
+// CopyDraftView is a new config drafted from an existing one: its file name
+// and content for Create, what was renamed, and the settings still naming
+// the original (Doubts) for the editor to point at.
+type CopyDraftView struct {
+	FileName, Content string
+	Renames           []config.Rename
+	Doubts            []config.CopyDoubt
+}
+
+// CopyDraft drafts a copy of the include file at path under free names (see
+// config.CopyAs): no program or group name of the include files, and no
+// file name already in the include folder. Nothing is written; the draft is
+// saved with Create like any new config.
+func (s *ConfigService) CopyDraft(path string) (CopyDraftView, error) {
+	if _, err := s.rt.includeFile(path); err != nil {
+		return CopyDraftView{}, err
+	}
+	dir, ext := s.rt.newFileHome()
+	if dir == "" {
+		return CopyDraftView{}, errors.New("supervisord's [include] files= setting names no folder Visor can write to")
+	}
+	// The copy goes to the include folder, so it takes that folder's
+	// extension when the original came from another include pattern.
+	name := filepath.Base(path)
+	if ext != "" && filepath.Ext(name) != ext {
+		name = strings.TrimSuffix(name, filepath.Ext(name)) + ext
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return CopyDraftView{}, fmt.Errorf("read %s: %w", path, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return CopyDraftView{}, fmt.Errorf("read %s: %w", dir, err)
+	}
+	files := make([]string, 0, len(entries))
+	for _, e := range entries {
+		files = append(files, e.Name())
+	}
+	// The names the checks treat as taken (validateEnv), groups included.
+	c, err := config.CopyAs(name, string(data), s.rt.validateEnv("").Inventory.Names(), files)
+	if err != nil {
+		return CopyDraftView{}, err
+	}
+	if c.Doubts == nil {
+		c.Doubts = []config.CopyDoubt{} // [] rather than null for the frontend
+	}
+	return CopyDraftView{FileName: c.FileName, Content: c.Content, Renames: c.Renames, Doubts: c.Doubts}, nil
+}
+
 // invalidError is ErrInvalidConfig with the first error found.
 func invalidError(cs []validate.Check) error {
 	for _, c := range cs {

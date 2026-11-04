@@ -30,6 +30,7 @@ export type {
     ConfigDetailView,
     ConfigView,
     ConnectionInput,
+    CopyDraftView,
     DoctorView,
     EditView,
     ExplainLineView,
