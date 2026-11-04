@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bulkConfirm, configMenu, ctlName, processMenu, serverMenu, type MenuItem } from './menus'
+import { bulkConfirm, configMenu, ctlName, processMenu, serverMenu, withoutSupervisord, type MenuItem } from './menus'
 import type { ConfigView, ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 
 const proc = (o: Partial<ProcessView>) =>
@@ -81,6 +81,28 @@ describe('serverMenu', () => {
     const items = serverMenu()
     expect(items).toHaveLength(6)
     expect(items.filter((i) => i.confirm).map((i) => i.id)).toEqual(['restart', 'shutdown'])
+  })
+})
+
+describe('withoutSupervisord', () => {
+  const off = (items: MenuItem[]) => withoutSupervisord(items, 'supervisord isn’t running')
+  const enabled = (items: MenuItem[]) => items.filter((i) => !i.disabled).map((i) => i.id)
+
+  it('keeps only the file actions of a config menu, with the reason on the rest', () => {
+    const items = off(configMenu({ FileName: 'a.ini', Path: '/x/a.ini', Changed: true, Processes: [] } as unknown as ConfigView))
+    expect(enabled(items)).toEqual(['open-config', 'describe', 'reveal', 'open-log'])
+    for (const i of items.filter((i) => i.disabled)) expect(i.title).toBe('supervisord isn’t running')
+  })
+
+  it('disables every supervisord action of a process and of the server', () => {
+    expect(enabled(off(processMenu(proc({ State: 'RUNNING', PID: 7 }), 1)))).toEqual(['logs', 'copy-pid'])
+    expect(enabled(off(serverMenu()))).toEqual(['log', 'settings'])
+  })
+
+  it('leaves the menu it was given alone', () => {
+    const items = serverMenu()
+    off(items)
+    expect(items.every((i) => !i.disabled)).toBe(true)
   })
 })
 

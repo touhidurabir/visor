@@ -2,14 +2,17 @@
 // The server dashboard (spec §5.2): header, changed-on-disk banner, the
 // health strip (a sentence plus small counts) and the configs and processes
 // table, failing rows first in each config (open issues live on the Issues
-// page). All data comes from the live overview; this view only wires menu ids
-// to service calls.
+// page). While supervisord can't be reached, a banner says why in plain words,
+// the strip shows dashes, and the actions that need supervisord are disabled.
+// All data comes from the live overview; this view only wires menu ids to
+// service calls.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ServerService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { ConfigView, ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import ApplyReport from '../components/ApplyReport.vue'
 import ChangedBanner from '../components/ChangedBanner.vue'
+import ConnectionBanner from '../components/ConnectionBanner.vue'
 import ConfigTable from '../components/ConfigTable.vue'
 import ActionMenu from '../components/ActionMenu.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
@@ -18,10 +21,11 @@ import RecentlyRemoved from '../components/RecentlyRemoved.vue'
 import { useApplyFlow } from '../lib/apply-flow'
 import { describeError } from '../lib/faults'
 import { filterConfigs } from '../lib/filter'
-import { firstFailing, health, openIssuesLabel } from '../lib/health'
+import { connectionProblem } from '../lib/connection'
+import { disconnectedHealth, firstFailing, health, NO_COUNT, openIssuesLabel } from '../lib/health'
 import { sortFailingFirst } from '../lib/sort'
 import { formatDuration } from '../lib/format'
-import { configGroups, bulkConfirm, serverMenu, type BulkConfirm } from '../lib/menus'
+import { configGroups, bulkConfirm, serverMenu, withoutSupervisord, type BulkConfirm } from '../lib/menus'
 import { useOverview } from '../lib/overview'
 import { copyText } from '../lib/clipboard'
 import { configRoute } from '../lib/links'
@@ -107,7 +111,15 @@ const subtitle = computed(() => {
     .filter(Boolean)
     .join(' · ')
 })
-const healthView = computed(() => (overview.value ? health(overview.value.Stats, sorted.value) : null))
+// Not connected: what to say, and why the supervisord actions are off.
+const problem = computed(() => connectionProblem(server.value))
+const offline = computed(() => problem.value?.reason)
+const healthView = computed(() => {
+  const ov = overview.value
+  if (!ov) return null
+  return problem.value ? disconnectedHealth(ov.Stats) : health(ov.Stats, sorted.value)
+})
+const BACK_NOTE = 'Processes appear once supervisord is back. Until then, the ⋯ menus keep only the file actions.'
 
 /** "Show them": scrolls to the first failing row and focuses it, clearing a search that hides it. */
 async function showFailing() {
@@ -118,7 +130,22 @@ async function showFailing() {
   await table.value?.focusProcess(p.FullName)
 }
 
-const menuItems = serverMenu()
+const menuItems = computed(() => (offline.value ? withoutSupervisord(serverMenu(), offline.value) : serverMenu()))
+
+/** Try again: reconnects as Doctor's Check again does, and says so when nothing changed. */
+const retrying = ref(false)
+async function tryAgain() {
+  if (retrying.value) return
+  retrying.value = true
+  try {
+    let ov
+    if (!(await run(async () => (ov = await ServerService.Reconnect())))) return
+    const still = connectionProblem(ov!.Server)
+    if (still) showToast(`Still not connected: ${still.title}.`)
+  } finally {
+    retrying.value = false
+  }
+}
 
 const ifOk = (fn: () => unknown) => (ok: boolean) => {
   if (ok) fn()
@@ -290,7 +317,7 @@ function sendSignal(sig: string) {
             <input id="q" ref="search" v-model="query" class="input" type="search" placeholder="Search" autocomplete="off" />
             <span class="kbd" aria-hidden="true">⌘F</span>
           </div>
-          <button type="button" class="btn" :disabled="checking" @click="checkForChanges">
+          <button type="button" class="btn" :disabled="checking || !!offline" :title="offline" @click="checkForChanges">
             {{ checking ? 'Checking…' : 'Check for changes' }}
           </button>
           <RouterLink class="btn primary" to="/new">
@@ -300,7 +327,8 @@ function sendSignal(sig: string) {
         </div>
       </header>
 
-      <div v-if="overview.Server.Error" class="error" role="alert">
+      <ConnectionBanner v-if="problem" :problem="problem" :busy="retrying" @retry="tryAgain" />
+      <div v-else-if="overview.Server.Error" class="error" role="alert">
         <strong>Can’t reach supervisord</strong>
         <p>{{ overview.Server.Error }}</p>
         <p>Check that supervisord is running, or open Doctor to find out why.</p>
@@ -330,7 +358,7 @@ function sendSignal(sig: string) {
         <dl class="counts" aria-label="Totals">
           <div v-for="n in healthView.counts" :key="n.label" class="count">
             <dt class="meta">{{ n.label }}</dt>
-            <dd>{{ n.value }}</dd>
+            <dd :class="{ none: n.value === NO_COUNT }">{{ n.value }}</dd>
           </div>
           <div class="count issues">
             <RouterLink to="/issues">{{ openIssuesLabel(overview.Stats.OpenIssues) }}</RouterLink>
@@ -342,13 +370,13 @@ function sendSignal(sig: string) {
         <div class="bar">
           <h2 id="s2" class="sec">Configs and processes</h2>
           <div class="bulk" role="group" aria-label="All processes">
-            <button type="button" class="btn quiet sm" @click="bulk('start')">Start all</button>
-            <button type="button" class="btn quiet sm" @click="bulk('stop')">Stop all</button>
-            <button type="button" class="btn quiet sm" @click="bulk('restart')">Restart all</button>
+            <button type="button" class="btn quiet sm" :disabled="!!offline" :title="offline" @click="bulk('start')">Start all</button>
+            <button type="button" class="btn quiet sm" :disabled="!!offline" :title="offline" @click="bulk('stop')">Stop all</button>
+            <button type="button" class="btn quiet sm" :disabled="!!offline" :title="offline" @click="bulk('restart')">Restart all</button>
           </div>
         </div>
         <p v-if="!configs.length" class="muted">No config files found. Add a program to get started.</p>
-        <ConfigTable v-else ref="table" :configs="shown" :now-ms="nowMs" @process="onProcess" @config="onConfig" @watch="onWatch" />
+        <ConfigTable v-else ref="table" :configs="shown" :now-ms="nowMs" :offline="offline" :note="offline && BACK_NOTE" @process="onProcess" @config="onConfig" @watch="onWatch" />
         <p class="meta">Each ⋯ menu shows the matching <span class="mono">supervisorctl</span> command in grey. Copy it with the button beside it, or ⌘C.</p>
       </section>
 
@@ -398,6 +426,8 @@ header { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px; }
 .bulk { display: inline-flex; border: 1px solid var(--line2); border-radius: var(--radius-sm); overflow: hidden; }
 .bulk .btn { border-radius: 0; }
 .bulk .btn + .btn { border-left: 1px solid var(--line2); }
+/* Disabled, the group looks sunken (like any disabled button), not just grey. */
+.bulk .btn:disabled { background: var(--sunken); }
 
 .health { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 12px 28px; padding: 16px 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--raised); }
 .verdict { display: flex; align-items: center; gap: 12px; margin-right: auto; min-width: 0; }
@@ -414,6 +444,7 @@ header { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px; }
 .count { display: flex; flex-direction: column; }
 .count dt { order: 2; }
 .count dd { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.count dd.none { color: var(--ink3); }
 .count.issues { justify-content: center; }
 .count.issues a { color: var(--accent-text); text-decoration: none; }
 .count.issues a:hover { text-decoration: underline; }

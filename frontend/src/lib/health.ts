@@ -15,8 +15,12 @@ export interface Segment {
 
 export interface Count {
   label: string
-  value: number
+  /** A number, or NO_COUNT while supervisord isn't connected. */
+  value: number | string
 }
+
+/** What a count shows while Visor has no connection: not a zero, which would read as fact. */
+export const NO_COUNT = '—'
 
 export interface Health {
   tone: HealthTone
@@ -97,6 +101,25 @@ export function health(stats: Totals, configs: ConfigView[]): Health {
       { label: plural(stats.Configs, 'config', 'configs'), value: stats.Configs },
     ],
     failing: stats.Failing,
+  }
+}
+
+/**
+ * The strip while supervisord isn't connected: no verdict and no process
+ * counts (Visor doesn't know them), only the configs it read from disk.
+ */
+export function disconnectedHealth(stats: Pick<StatsView, 'Configs'>): Health {
+  return {
+    tone: 'idle',
+    sentence: 'Not connected',
+    detail: [{ text: 'Counts come back with supervisord.' }],
+    counts: [
+      { label: 'running', value: NO_COUNT },
+      { label: 'stopped', value: NO_COUNT },
+      { label: 'processes', value: NO_COUNT },
+      { label: plural(stats.Configs, 'config', 'configs'), value: stats.Configs },
+    ],
+    failing: 0,
   }
 }
 

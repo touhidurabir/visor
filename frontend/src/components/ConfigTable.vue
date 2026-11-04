@@ -2,18 +2,20 @@
 // Configs and their processes: collapsible config rows with the Watch toggle
 // and action menus. The table only reports what was chosen; Dashboard wires
 // each menu id to a service call. A failing row is tinted and shows its
-// reason in full under the name; focusProcess brings one into view.
+// reason in full under the name; focusProcess brings one into view. With
+// `offline` (the reason supervisord can't be used), the menus keep only
+// their file actions, and `note` is a quiet line under the rows.
 import { nextTick, reactive, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { ConfigView, ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { sinceLabel } from '../lib/format'
 import { isFailing, summaryParts } from '../lib/health'
-import { configMenu, processMenu } from '../lib/menus'
+import { configMenu, processMenu, withoutSupervisord, type MenuItem } from '../lib/menus'
 import { configRoute } from '../lib/links'
 import ActionMenu from './ActionMenu.vue'
 import StateText from './StateText.vue'
 
-const props = defineProps<{ configs: ConfigView[]; nowMs: number }>()
+const props = defineProps<{ configs: ConfigView[]; nowMs: number; offline?: string; note?: string }>()
 const emit = defineEmits<{
   process: [p: ProcessView, c: ConfigView, id: string]
   config: [c: ConfigView, id: string]
@@ -21,6 +23,9 @@ const emit = defineEmits<{
 }>()
 
 const NEEDS_FILE = ['open-config', 'describe', 'reveal', 'open-log', 'apply', 'remove']
+const online = (items: MenuItem[]) => (props.offline ? withoutSupervisord(items, props.offline) : items)
+const fileMenu = (c: ConfigView) =>
+  online(configMenu(c)).map((i) => (c.Path || !NEEDS_FILE.includes(i.id) ? i : { ...i, disabled: true, title: 'This process has no config file in the include folder' }))
 const collapsed = reactive<Record<string, boolean>>({})
 const key = (c: ConfigView) => c.Path || c.FileName
 const root = ref<HTMLElement>()
@@ -87,7 +92,7 @@ defineExpose({ focusProcess })
               <svg width="15" height="15" viewBox="0 0 24 24" :fill="c.Watched ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0" fill="none" /></svg>
             </button>
             <ActionMenu
-              :items="configMenu(c).map((i) => (c.Path || !NEEDS_FILE.includes(i.id) ? i : { ...i, disabled: true, title: 'This process has no config file in the include folder' }))"
+              :items="fileMenu(c)"
               :label="`Actions for ${c.FileName}`"
               heading="Whole config file"
               small
@@ -116,7 +121,7 @@ defineExpose({ focusProcess })
             <span class="mono pid num">{{ p.PID > 0 ? p.PID : '–' }}</span>
             <div class="acts">
               <ActionMenu
-                :items="processMenu(p, groupSize(c, p))"
+                :items="online(processMenu(p, groupSize(c, p)))"
                 :label="`Actions for ${p.FullName}`"
                 heading="This process"
                 small
@@ -127,6 +132,7 @@ defineExpose({ focusProcess })
         </template>
       </div>
     </div>
+    <p v-if="note" class="note">{{ note }}</p>
   </div>
 </template>
 
@@ -173,4 +179,5 @@ a.pname:hover { text-decoration: underline; }
 .mono { font-family: var(--mono); font-size: 12.5px; }
 .pid { color: var(--ink2); font-variant-numeric: tabular-nums; }
 .empty { margin: 0; padding: 16px; color: var(--ink2); }
+.note { margin: 0; padding: 10px 16px; border-top: 1px solid var(--line); background: var(--sunken); color: var(--ink3); font-size: 12.5px; }
 </style>

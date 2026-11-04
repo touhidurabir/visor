@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ConfigView, ProcessView, StatsView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
-import { firstFailing, health, healthSentence, openIssuesLabel, processLabel, summaryParts } from './health'
+import { disconnectedHealth, firstFailing, health, healthSentence, NO_COUNT, openIssuesLabel, processLabel, summaryParts } from './health'
 
 const stats = (s: Partial<StatsView>) => ({ Configs: 5, Processes: 12, Running: 0, Failing: 0, Stopped: 0, OpenIssues: 0, ...s }) as StatsView
 const p = (FullName: string, Status: string, Group = FullName) => ({ FullName, Name: FullName.split(':').pop()!, Group, Status }) as ProcessView
@@ -72,6 +72,22 @@ describe('health', () => {
       { label: 'configs', value: 5 },
     ])
     expect(health(stats({ Configs: 1, Processes: 1, Running: 1 }), []).counts.map((c) => c.label)).toEqual(['running', 'stopped', 'process', 'config'])
+  })
+})
+
+describe('disconnectedHealth', () => {
+  it('shows dashes, not zeros, for what only supervisord knows, and keeps the configs on disk', () => {
+    const h = disconnectedHealth({ Configs: 5 })
+    expect(h).toMatchObject({ tone: 'idle', sentence: 'Not connected', failing: 0 })
+    expect(text(h)).toBe('Counts come back with supervisord.')
+    expect(h.counts).toEqual([
+      { label: 'running', value: NO_COUNT },
+      { label: 'stopped', value: NO_COUNT },
+      { label: 'processes', value: NO_COUNT },
+      { label: 'configs', value: 5 },
+    ])
+    expect(NO_COUNT).toBe('—')
+    expect(disconnectedHealth({ Configs: 1 }).counts[3]).toEqual({ label: 'config', value: 1 })
   })
 })
 
