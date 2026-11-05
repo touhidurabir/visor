@@ -59,8 +59,11 @@ func TestExplainNewFile(t *testing.T) {
 	if v.Errors != 1 || v.SaveErrors != 1 || v.Suggestions != 2 || v.Settings != 5 || v.Paths != 3 {
 		t.Errorf("counts = %d errors, %d suggestions, %d settings, %d paths", v.Errors, v.Suggestions, v.Settings, v.Paths)
 	}
-	if !strings.HasPrefix(v.Summary, "This file sets up one background program.") {
+	if v.Summary != "This file sets up one program." {
 		t.Errorf("summary = %q", v.Summary)
+	}
+	if s := v.Sections[0]; s.Summary != "Runs three copies of a shell command and starts with supervisord." || s.Failure != "" {
+		t.Errorf("section summary = %q, failure = %q", s.Summary, s.Failure)
 	}
 }
 
@@ -108,8 +111,21 @@ func TestConfigDetailExplainsLiveFailure(t *testing.T) {
 	if d.Explain.SaveErrors != 0 {
 		t.Errorf("a live failure blocks saving: %d", d.Explain.SaveErrors)
 	}
-	if !strings.Contains(d.Explain.Summary, "broken can’t run") {
+	// The failure is on its program's section, not in the file's summary.
+	if strings.Contains(d.Explain.Summary, "can’t run") {
 		t.Errorf("summary = %q", d.Explain.Summary)
+	}
+	for _, s := range d.Explain.Sections {
+		switch s.Program {
+		case "broken":
+			if !strings.HasPrefix(s.Failure, "Can’t run: ") {
+				t.Errorf("broken failure = %q", s.Failure)
+			}
+		default:
+			if s.Failure != "" {
+				t.Errorf("%s failure = %q", s.Program, s.Failure)
+			}
+		}
 	}
 	for _, s := range d.Explain.Sections {
 		for _, ln := range s.Lines {

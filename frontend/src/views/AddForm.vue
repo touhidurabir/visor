@@ -2,9 +2,8 @@
 // Add new, "Fill a form" (spec §7.4): start from a template (or a copy of a
 // config), fill in the settings, and watch the file that will be written,
 // with its problem lines marked. Each field shows the check that applies to
-// it; "N things to check" lists them all, and every line's explanation
-// folds under "Explain every line". The text is the same one "Write it"
-// edits. Save sits in the sticky bar at the bottom.
+// it; "N things to check" lists them all, above one card per program
+// that explains every line. The text is the same one "Write it" edits. Save sits in the sticky bar at the bottom.
 import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { ConfigService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
@@ -12,8 +11,7 @@ import AddHeader from '../components/AddHeader.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import CopyPicker from '../components/CopyPicker.vue'
 import CreatedCard from '../components/CreatedCard.vue'
-import ExplainSummary from '../components/ExplainSummary.vue'
-import LineByLine from '../components/LineByLine.vue'
+import ExplainPanel from '../components/ExplainPanel.vue'
 import SaveBar from '../components/SaveBar.vue'
 import { explainMarks } from '../lib/explain'
 import { openLog, openPath, reveal } from '../lib/finder'
@@ -103,8 +101,6 @@ const items = computed<CheckItem[]>(() => (n.upToDate.value ? checkItems(n.check
 function focusField(key: string) {
   document.getElementById(`f-${key}`)?.focus()
 }
-/** How many lines "Explain every line" has (the file's own lines). */
-const lineCount = computed(() => (n.explained.value?.Sections ?? []).reduce((sum, s) => sum + (s.Lines ?? []).filter((l) => l.Kind !== 'unset').length, 0))
 
 const nameBad = computed(() => nameProblem(draft.state.name) !== null)
 const errorTotal = computed(() => (n.upToDate.value ? n.errorCount.value : 0) + (nameBad.value && !notes.value.name ? 1 : 0))
@@ -208,7 +204,15 @@ const iconOf = (level: string) => ICON[level as keyof typeof ICON] ?? ''
             <span class="meta"><RouterLink to="/new">Switch to writing it by hand</RouterLink> (keeps what you entered)</span>
           </section>
 
-          <ExplainSummary :view="n.explained.value" :failed="n.checkFailed.value">
+          <ExplainPanel
+            :view="n.explained.value"
+            :failed="n.checkFailed.value"
+            mode="editor"
+            :actions="false"
+            @reveal="reveal"
+            @open="openPath"
+            @open-log="openLog"
+          >
             <div v-if="items.length" class="checks" role="group" aria-labelledby="checks-title" data-testid="things-to-check">
               <span id="checks-title" class="th">{{ thingsToCheck(items.length) }}</span>
               <ul>
@@ -220,19 +224,7 @@ const iconOf = (level: string) => ICON[level as keyof typeof ICON] ?? ''
                 </li>
               </ul>
             </div>
-            <details class="every">
-              <summary>Explain every line<template v-if="lineCount"> ({{ lineCount }})</template></summary>
-              <LineByLine
-                :view="n.explained.value"
-                :failed="n.checkFailed.value"
-                mode="editor"
-                :actions="false"
-                @reveal="reveal"
-                @open="openPath"
-                @open-log="openLog"
-              />
-            </details>
-          </ExplainSummary>
+          </ExplainPanel>
         </aside>
       </div>
 
@@ -308,15 +300,12 @@ h2 { margin: 0; font-size: 15px; font-weight: 600; }
 .pline.error .pmark { color: var(--bad); }
 .pline.warning .pmark { color: var(--warn); }
 .ptext { padding-right: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.checks { display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
+.checks { display: flex; flex-direction: column; gap: 6px; }
 .checks ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .check-item { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; user-select: text; }
 .check-item svg { flex: none; position: relative; top: 1px; }
 button.check-item { cursor: pointer; }
 button.check-item:hover strong { text-decoration: underline; }
-.every { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
-.every summary { cursor: pointer; font-weight: 600; }
-.every[open] summary { margin-bottom: 10px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 a:not(.btn) { color: var(--accent-text); }
 .banner { margin: 0; padding: 10px 14px; border-radius: var(--radius-md); background: var(--warn-soft); color: var(--warn); }

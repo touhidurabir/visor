@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// Add new, "Write it": a file name and a text editor, with a plain-English
-// summary above and every line explained beside it as you type: problems
+// Add new, "Write it": a file name and a text editor, with every program
+// explained beside it as you type, one card each: problems
 // listed first ("To fix before saving") and highlighted, with fixes that
 // apply to the text. A draft copied from another config says what it
 // renamed and points at the settings that still name the original. Save
@@ -11,7 +11,7 @@ import type { EditView } from '../../bindings/github.com/touhidurabir/visor/inte
 import AddHeader from '../components/AddHeader.vue'
 import CreatedCard from '../components/CreatedCard.vue'
 import IniEditor from '../components/IniEditor.vue'
-import LineByLine from '../components/LineByLine.vue'
+import ExplainPanel from '../components/ExplainPanel.vue'
 import SaveBar from '../components/SaveBar.vue'
 import { doubtMarks, liveDoubts, mergeMarks, renamesNote } from '../lib/copy-draft'
 import { addLines, applyEdit, errorsOnLines, explainMarks, fixToSave } from '../lib/explain'
@@ -72,7 +72,6 @@ watch(
       <button type="button" class="btn" @click="n.retry">Try again</button>
     </p>
     <p v-else-if="!n.ready.value" class="muted">Loading…</p>
-    <p v-if="n.ready.value && view && !view.ParseError" class="summary" data-testid="explain-summary">{{ view.Summary }}</p>
 
     <div v-if="n.ready.value && n.copied.value" class="copied" role="status" data-testid="copy-note">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h8" /></svg>
@@ -119,7 +118,7 @@ watch(
         <p class="meta">The explanation on the right follows as you type.</p>
       </div>
 
-      <LineByLine
+      <ExplainPanel
         :view="view"
         :failed="n.checkFailed.value"
         mode="editor"
@@ -152,7 +151,6 @@ watch(
 <style scoped>
 .page { display: flex; flex-direction: column; gap: 16px; min-height: 100%; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 20px; align-items: start; }
-.summary { margin: 0; max-width: 80ch; color: var(--ink2); line-height: 1.55; user-select: text; }
 .col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .name-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .strong { font-weight: 600; }

@@ -1,6 +1,7 @@
-summary: This file sets up two background programs. reports-export runs a shell command and waits for you to start it. Its output goes to /var/log/supervisor/reports-export.log. reports-sync runs the program at /nonexistent/sync and starts with supervisord.
+summary: This file sets up two programs.
 
 [program:reports-export] program="reports-export"
+  summary: Runs a shell command and waits for you to start it.
   1 section [program:reports-export]
     => Starts a program section. Visor and supervisorctl call it reports-export.
   2 key     command=sh -c ': visor-sandbox; while :; do sleep 5; done'
@@ -19,6 +20,7 @@ summary: This file sets up two background programs. reports-export runs a shell 
     add: stderr_logfile=/var/log/supervisor/reports-export.err.log
 
 [program:reports-sync] program="reports-sync"
+  summary: Runs the program at /nonexistent/sync and starts with supervisord.
   8 section [program:reports-sync]
     => Starts a program section. Visor and supervisorctl call it reports-sync.
   9 key     command=/nonexistent/sync

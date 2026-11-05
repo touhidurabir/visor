@@ -2,7 +2,7 @@
 // One config file (spec §5.3): header with Watch and file actions, process
 // chips, and the Overview / Logs / Config / History tabs. The config and its
 // processes come from the live overview; log files, the last error and the
-// line-by-line explanation come from ServerService.ConfigDetail, reloaded
+// explanation (one card per program) come from ServerService.ConfigDetail, reloaded
 // whenever a process in this file changes state. The tab, process, log
 // stream and editor line live in the URL (?tab=…&process=group:name
 // &stream=stderr&line=9), so links land on them.
@@ -10,10 +10,9 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ServerService, type ConfigDetailView, type EditView, type ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import ConfigEditor from '../components/ConfigEditor.vue'
-import ExplainSummary from '../components/ExplainSummary.vue'
+import ExplainPanel from '../components/ExplainPanel.vue'
 import HistoryList from '../components/HistoryList.vue'
 import LastErrorCard from '../components/LastErrorCard.vue'
-import LineByLine from '../components/LineByLine.vue'
 import LogView from '../components/LogView.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import { openLog, openPath, reveal } from '../lib/finder'
@@ -157,11 +156,10 @@ function addInEditor(after: number, lines: string[]) {
 function viewLog(process: string, stream: string) {
   go({ tab: 'logs', process, stream })
 }
-/** "Caused by line N": brings that line of the explanation into view. */
+/** "Caused by line N": brings that line of the explanation into view, opening its card. */
+const explainPanel = ref<InstanceType<typeof ExplainPanel>>()
 function showLine(line: number) {
-  const el = document.getElementById(`explain-line-${line}`)
-  el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  el?.focus({ preventScroll: true })
+  void explainPanel.value?.showLine(line)
 }
 
 let tick: ReturnType<typeof setInterval>
@@ -321,11 +319,12 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
             @open-config="openPath(config.Path)"
             @show-line="showLine"
           />
-          <ExplainSummary :view="detail ? detail.Explain : null" :failed="detail?.ExplainError || null" />
-          <LineByLine
+          <ExplainPanel
+            ref="explainPanel"
             :key="config.Path"
             :view="detail ? detail.Explain : null"
             :failed="detail?.ExplainError || null"
+            :processes="procs"
             mode="overview"
             @goto="editLine"
             @edit="fixInEditor"
@@ -359,6 +358,7 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
           :changed="config.Changed"
           :uncertain="config.Uncertain"
           :line="editorLine"
+          :processes="procs"
         />
 
         <template v-else-if="tab === 'history'">

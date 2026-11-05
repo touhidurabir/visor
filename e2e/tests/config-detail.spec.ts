@@ -25,9 +25,9 @@ test.describe('config detail', () => {
     await page.getByRole('link', { name: 'reports.ini', exact: true }).click()
     await expect(page.getByRole('heading', { level: 1, name: 'reports.ini' })).toBeVisible()
     await expect(page.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true')
-    await expect(page.getByRole('button', { name: /reports-sync/ })).toBeVisible()
+    await expect(page.getByRole('group', { name: 'Processes in this config' }).getByRole('button', { name: /reports-sync/ })).toBeVisible()
 
-    const lines = page.getByRole('region', { name: 'Line by line' })
+    const lines = page.getByRole('region', { name: 'What this config does' })
     const row = lines.getByRole('listitem').filter({ hasText: 'command=/nonexistent/sync' })
     await expect(row).toContainText('missing')
     await expect(row).toContainText('Error.')
@@ -47,7 +47,9 @@ test.describe('config detail', () => {
   test('a log path opens its process in the Logs tab', async ({ page }) => {
     await waitForDashboard(page)
     await page.getByRole('link', { name: 'shop-api.ini', exact: true }).click()
-    const lines = page.getByRole('region', { name: 'Line by line' })
+    const lines = page.getByRole('region', { name: 'What this config does' })
+    // Nothing in shop-api.ini is failing, so its cards start closed.
+    await lines.getByRole('button', { name: 'Expand all' }).click()
     await lines.getByRole('button', { name: 'View in Logs tab' }).first().click()
     await expect(page.getByRole('tab', { name: 'Logs' })).toHaveAttribute('aria-selected', 'true')
   })
@@ -97,10 +99,13 @@ test.describe('config detail', () => {
 
   test('a config with problems opens its line by line on Only problems', async ({ page }) => {
     await openApp(page, configPage('mailer.ini'))
-    const lines = page.getByRole('region', { name: 'Line by line' })
+    const lines = page.getByRole('region', { name: 'What this config does' })
     await expect(lines.getByRole('button', { name: /^Only problems · \d+$/ })).toHaveAttribute('aria-pressed', 'true')
     await expect(lines.getByRole('button', { name: 'All lines' })).toHaveAttribute('aria-pressed', 'false')
     await expect(lines).toContainText('Suggestion.')
+    await lines.getByRole('button', { name: 'Expand all' }).click()
+    await expect(lines.getByRole('button', { name: /^Program mailer-worker/ })).toHaveAttribute('aria-expanded', 'true')
+    await expect(lines.locator('[data-card="program:mailer-worker"]')).toContainText('not set:') // its suggestion
     await expect(lines).not.toContainText('numprocs=2') // a line with no problem is hidden
 
     // The choice is still the user's.
@@ -118,7 +123,7 @@ test.describe('config detail', () => {
     )
     try {
       await openApp(page, configPage('e2e-clean.ini'))
-      const lines = page.getByRole('region', { name: 'Line by line' })
+      const lines = page.getByRole('region', { name: 'What this config does' })
       await expect(lines).toContainText('[program:e2e-clean]')
       await expect(lines.getByRole('button', { name: 'All lines' })).toHaveAttribute('aria-pressed', 'true')
       await expect(lines.getByRole('button', { name: 'Only problems', exact: true })).toHaveAttribute('aria-pressed', 'false')

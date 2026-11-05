@@ -1,6 +1,7 @@
-summary: This file sets up one background program. web runs a Node.js app and starts with supervisord.
+summary: This file sets up one program.
 
 [program:web] program="web"
+  summary: Runs a Node.js app and starts with supervisord.
   1 section [program:web]
     => Starts a program section. Visor and supervisorctl call it web.
   2 key     command=node server.js

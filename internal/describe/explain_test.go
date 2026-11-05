@@ -12,7 +12,7 @@ func renderExplain(ex Explanation) string {
 	var b strings.Builder
 	b.WriteString("summary: " + ex.Summary + "\n")
 	for _, s := range ex.Sections {
-		fmt.Fprintf(&b, "\n[%s] program=%q\n", s.Name, s.Program)
+		fmt.Fprintf(&b, "\n[%s] program=%q\n  summary: %s\n", s.Name, s.Program, s.Summary)
 		for _, l := range s.Lines {
 			fmt.Fprintf(&b, "%3d %-7s %s\n    => %s\n", l.Line, l.Kind, l.Text, l.Meaning)
 			if l.Suggest != "" {
@@ -83,5 +83,43 @@ func TestExplainEverySettingHasAMeaning(t *testing.T) {
 		if m := ex.Sections[0].Lines[1].Meaning; strings.Contains(m, "doesn’t know") || m == "" {
 			t.Errorf("%s: meaning %q", k, m)
 		}
+	}
+}
+
+func TestExplainSectionSummaries(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"[program:a]\ncommand=php /srv/app/artisan ocpp:watch-ceilings --sleep=1\n", "Runs the Laravel command ocpp:watch-ceilings and starts with supervisord."},
+		{"[program:a]\ncommand=php artisan reverb:start\nautostart=false\n", "Runs the Laravel command reverb:start and waits for you to start it."},
+		{"[program:a]\ncommand=php artisan queue:work --tries=3\nnumprocs=2\nprocess_name=%(program_name)s_%(process_num)02d\n", "Runs two copies of a Laravel queue worker and starts with supervisord."},
+		{"[program:a]\ncommand=php artisan horizon\n", "Runs Laravel Horizon and starts with supervisord."},
+		{"[program:a]\ncommand=php artisan schedule:work\n", "Runs Laravel’s scheduler and starts with supervisord."},
+		{"[program:a]\ncommand=php /srv/worker.php\n", "Runs a PHP script and starts with supervisord."},
+		{"[program:a]\ncommand=/usr/bin/artisanal-bread\n", "Runs the program at /usr/bin/artisanal-bread and starts with supervisord."},
+		// The log file is on its own line, not in the one-liner.
+		{"[program:a]\ncommand=node server.js\nstdout_logfile=/var/log/a.log\n", "Runs a Node.js app and starts with supervisord."},
+		{"[program:a]\nautostart=false\n", "Has no command yet."},
+		{"[group:shop]\nprograms=a,b, c\n", "Starts and stops a, b and c together as shop."},
+		{"[group:shop]\n", "A group: its programs can be started and stopped together as shop."},
+	} {
+		ex, err := Explain(c.in, Hints{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := ex.Sections[0].Summary; got != c.want {
+			t.Errorf("%q: summary = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestExplainFileSummaryIsShort(t *testing.T) {
+	ex, err := Explain("[program:a]\ncommand=sleep 1\n[program:b]\ncommand=sleep 1\n[group:g]\nprograms=a,b\n", Hints{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ex.Summary != "This file sets up two programs." {
+		t.Errorf("summary = %q", ex.Summary)
+	}
+	if ex, _ := Explain("[group:g]\nprograms=a\n", Hints{}); ex.Summary != "This file has no [program:x] section, so it starts nothing." {
+		t.Errorf("summary = %q", ex.Summary)
 	}
 }
