@@ -70,8 +70,4 @@ label.on { background: var(--bg-active); }
 label code { width: 48px; font-weight: 600; }
 label span { color: var(--text-muted); font-size: 12px; }
 .actions { display: flex; justify-content: flex-end; gap: 8px; }
-.btn { min-height: 32px; padding: 0 14px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; cursor: pointer; }
-.btn:hover { background: var(--bg-hover); }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
-.btn.primary:hover { background: var(--accent-hover); }
 </style>

@@ -1,25 +1,31 @@
 <script setup lang="ts">
-// The server dashboard (spec §5.2): header, changed-on-disk banner, six
-// stats and the configs and processes table (open issues live on the Issues
-// page). All data comes from the live overview; this view only wires menu ids
-// to service calls.
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+// The server dashboard (spec §5.2): header, changed-on-disk banner, the
+// health strip (a sentence plus small counts) and the configs and processes
+// table, failing rows first in each config (open issues live on the Issues
+// page). While supervisord can't be reached, a banner says why in plain words,
+// the strip shows dashes, and the actions that need supervisord are disabled.
+// All data comes from the live overview; this view only wires menu ids to
+// service calls.
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ServerService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { ConfigView, ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import ApplyReport from '../components/ApplyReport.vue'
 import ChangedBanner from '../components/ChangedBanner.vue'
+import ConnectionBanner from '../components/ConnectionBanner.vue'
 import ConfigTable from '../components/ConfigTable.vue'
 import ActionMenu from '../components/ActionMenu.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import SignalDialog from '../components/SignalDialog.vue'
-import StatTile from '../components/StatTile.vue'
 import RecentlyRemoved from '../components/RecentlyRemoved.vue'
 import { useApplyFlow } from '../lib/apply-flow'
 import { describeError } from '../lib/faults'
 import { filterConfigs } from '../lib/filter'
+import { connectionProblem } from '../lib/connection'
+import { disconnectedHealth, firstFailing, health, NO_COUNT, openIssuesLabel } from '../lib/health'
+import { sortFailingFirst } from '../lib/sort'
 import { formatDuration } from '../lib/format'
-import { configGroups, bulkConfirm, serverMenu, type BulkConfirm } from '../lib/menus'
+import { configGroups, bulkConfirm, serverMenu, withoutSupervisord, type BulkConfirm } from '../lib/menus'
 import { useOverview } from '../lib/overview'
 import { copyText } from '../lib/clipboard'
 import { configRoute } from '../lib/links'
@@ -38,6 +44,7 @@ const flow = useApplyFlow(() => {
 
 const query = ref('')
 const search = ref<HTMLInputElement>()
+const table = ref<InstanceType<typeof ConfigTable>>()
 const nowMs = ref(Date.now())
 const signalFor = ref<ProcessView | null>(null)
 const checking = ref(false)
@@ -92,7 +99,9 @@ watch(
   () => configs.value.map((c) => c.Path).join('\n'),
   () => removedStamp.value++,
 )
-const shown = computed(() => filterConfigs(configs.value, query.value))
+// Flow 1: failing processes first within each config.
+const sorted = computed(() => sortFailingFirst(configs.value))
+const shown = computed(() => filterConfigs(sorted.value, query.value))
 const server = computed(() => overview.value?.Server)
 
 const subtitle = computed(() => {
@@ -102,18 +111,41 @@ const subtitle = computed(() => {
     .filter(Boolean)
     .join(' · ')
 })
-const incDir = computed(() => {
-  const path = configs.value.find((c) => c.Path)?.Path ?? ''
-  return path.split('/').slice(-2, -1)[0] ?? ''
+// Not connected: what to say, and why the supervisord actions are off.
+const problem = computed(() => connectionProblem(server.value))
+const offline = computed(() => problem.value?.reason)
+const healthView = computed(() => {
+  const ov = overview.value
+  if (!ov) return null
+  return problem.value ? disconnectedHealth(ov.Stats) : health(ov.Stats, sorted.value)
 })
-const programs = computed(() => new Set(configs.value.flatMap((c) => (c.Processes ?? []).map((p) => p.Program || p.Group))).size)
-const longestUp = computed(() => {
-  const starts = configs.value.flatMap((c) => c.Processes ?? []).filter((p) => p.Status === 'running' && p.StartMs > 0)
-  if (!starts.length) return 'none running'
-  return `longest up ${formatDuration(nowMs.value - Math.min(...starts.map((p) => p.StartMs)))}`
-})
+const BACK_NOTE = 'Processes appear once supervisord is back. Until then, the ⋯ menus keep only the file actions.'
 
-const menuItems = serverMenu()
+/** "Show them": scrolls to the first failing row and focuses it, clearing a search that hides it. */
+async function showFailing() {
+  const p = firstFailing(sorted.value)
+  if (!p) return
+  if (!shown.value.some((c) => (c.Processes ?? []).some((q) => q.FullName === p.FullName))) query.value = ''
+  await nextTick()
+  await table.value?.focusProcess(p.FullName)
+}
+
+const menuItems = computed(() => (offline.value ? withoutSupervisord(serverMenu(), offline.value) : serverMenu()))
+
+/** Try again: reconnects as Doctor's Check again does, and says so when nothing changed. */
+const retrying = ref(false)
+async function tryAgain() {
+  if (retrying.value) return
+  retrying.value = true
+  try {
+    let ov
+    if (!(await run(async () => (ov = await ServerService.Reconnect())))) return
+    const still = connectionProblem(ov!.Server)
+    if (still) showToast(`Still not connected: ${still.title}.`)
+  } finally {
+    retrying.value = false
+  }
+}
 
 const ifOk = (fn: () => unknown) => (ok: boolean) => {
   if (ok) fn()
@@ -154,7 +186,9 @@ function onServer(id: string) {
     case 'restart':
       return void run(() => ServerService.RestartDaemon()).then(ifOk(() => showToast('Restarting supervisord…')))
     case 'shutdown':
-      return void run(() => ServerService.ShutdownDaemon()).then(ifOk(() => showToast('supervisord shut down. Start it from a terminal to bring your processes back.')))
+      return void run(() => ServerService.ShutdownDaemon()).then(
+        ifOk(() => showToast('supervisord shut down. Start it again from Doctor.', 'info', { label: 'Open Doctor', run: () => void router.push('/doctor') })),
+      )
     case 'settings':
       return void router.push('/settings')
   }
@@ -269,25 +303,32 @@ function sendSignal(sig: string) {
     <p v-else-if="!overview" class="muted">Loading…</p>
     <template v-else>
       <header>
-        <div>
-          <h1>{{ overview.Server.Name }}</h1>
-          <div class="sub">
+        <div class="titles">
+          <h1 class="title">{{ overview.Server.Name }}</h1>
+          <p class="meta">
             {{ subtitle }}<template v-if="subtitle && overview.Server.ConfigPath"> · </template
             ><span class="mono">{{ overview.Server.ConfigPath }}</span>
-          </div>
+          </p>
         </div>
         <div class="tools">
-          <label for="q" class="sr-only">Search processes and config files</label>
-          <input id="q" ref="search" v-model="query" type="search" placeholder="Search  ⌘F" autocomplete="off" />
-          <button type="button" class="btn" :disabled="checking" @click="checkForChanges">
+          <div class="search">
+            <label for="q" class="sr-only">Search processes and config files</label>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+            <input id="q" ref="search" v-model="query" class="input" type="search" placeholder="Search" autocomplete="off" />
+            <span class="kbd" aria-hidden="true">⌘F</span>
+          </div>
+          <button type="button" class="btn" :disabled="checking || !!offline" :title="offline" @click="checkForChanges">
             {{ checking ? 'Checking…' : 'Check for changes' }}
           </button>
-          <RouterLink class="btn primary" to="/new">+ Add new</RouterLink>
+          <RouterLink class="btn primary" to="/new">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>Add new
+          </RouterLink>
           <ActionMenu :items="menuItems" label="Server actions" heading="Whole server" @select="onServer" />
         </div>
       </header>
 
-      <div v-if="overview.Server.Error" class="error" role="alert">
+      <ConnectionBanner v-if="problem" :problem="problem" :busy="retrying" @retry="tryAgain" />
+      <div v-else-if="overview.Server.Error" class="error" role="alert">
         <strong>Can’t reach supervisord</strong>
         <p>{{ overview.Server.Error }}</p>
         <p>Check that supervisord is running, or open Doctor to find out why.</p>
@@ -296,30 +337,47 @@ function sendSignal(sig: string) {
       <ChangedBanner v-if="configs.some((c) => c.Changed || c.Uncertain)" :configs="configs" :busy="flow.running.value" @apply="flow.applyAll" />
       <ApplyReport v-if="flow.report.value" :report="flow.report.value" :busy="flow.running.value" @undo="flow.undo" @dismiss="flow.dismiss" />
 
-      <section aria-labelledby="s1">
-        <h2 id="s1" class="label">Overview</h2>
-        <div class="tiles">
-          <StatTile label="Configs" :value="overview.Stats.Configs" :hint="incDir ? `in ${incDir}` : 'include files'" />
-          <StatTile label="Processes" :value="overview.Stats.Processes" :hint="`from ${programs} ${programs === 1 ? 'program' : 'programs'}`" />
-          <StatTile label="Running" :value="overview.Stats.Running" :hint="longestUp" tone="running" />
-          <StatTile label="Failing" :value="overview.Stats.Failing" hint="FATAL or BACKOFF" tone="failing" />
-          <StatTile label="Stopped" :value="overview.Stats.Stopped" hint="by you or exited" />
-          <StatTile label="Open issues" :value="overview.Stats.OpenIssues" hint="View all →" to="/issues" />
+      <section v-if="healthView" class="health" aria-label="Health">
+        <div class="verdict">
+          <span :class="['mark', `m-${healthView.tone}`]" aria-hidden="true">
+            <svg v-if="healthView.tone === 'ok'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+            <svg v-else-if="healthView.tone === 'idle'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M7 12h10" /></svg>
+            <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 7v6" /><path d="M12 17v.01" /></svg>
+          </span>
+          <div class="words">
+            <span class="sentence">{{ healthView.sentence }}</span>
+            <span class="meta"
+              ><span v-for="(seg, i) in healthView.detail" :key="i" :class="{ mono: seg.mono }">{{ seg.text }}</span
+              ><template v-if="healthView.failing > 0">{{ ' ' }}<button type="button" class="link" :aria-label="healthView.failing === 1 ? 'Show it: the failing process' : 'Show them: the failing processes'" @click="showFailing">
+                  {{ healthView.failing === 1 ? 'Show it' : 'Show them' }}
+                </button></template
+              ></span
+            >
+          </div>
+        </div>
+        <div class="totals">
+          <dl class="counts" aria-label="Totals">
+            <div v-for="n in healthView.counts" :key="n.label" class="count">
+              <dt class="meta">{{ n.label }}</dt>
+              <dd :class="{ none: n.value === NO_COUNT }">{{ n.value }}</dd>
+            </div>
+          </dl>
+          <RouterLink class="issues-link" to="/issues">{{ openIssuesLabel(overview.Stats.OpenIssues) }}</RouterLink>
         </div>
       </section>
 
       <section aria-labelledby="s2">
         <div class="bar">
-          <h2 id="s2" class="label">Configs and processes</h2>
-          <div class="bulk">
-            <button type="button" class="btn" @click="bulk('start')">Start all</button>
-            <button type="button" class="btn" @click="bulk('stop')">Stop all</button>
-            <button type="button" class="btn" @click="bulk('restart')">Restart all</button>
+          <h2 id="s2" class="sec">Configs and processes</h2>
+          <div class="bulk" role="group" aria-label="All processes">
+            <button type="button" class="btn quiet sm" :disabled="!!offline" :title="offline" @click="bulk('start')">Start all</button>
+            <button type="button" class="btn quiet sm" :disabled="!!offline" :title="offline" @click="bulk('stop')">Stop all</button>
+            <button type="button" class="btn quiet sm" :disabled="!!offline" :title="offline" @click="bulk('restart')">Restart all</button>
           </div>
         </div>
         <p v-if="!configs.length" class="muted">No config files found. Add a program to get started.</p>
-        <ConfigTable v-else :configs="shown" :now-ms="nowMs" @process="onProcess" @config="onConfig" @watch="onWatch" />
-        <p class="muted">Grey text in each menu is the matching <span class="mono">supervisorctl</span> command. Copy it with the button beside it, or ⌘C.</p>
+        <ConfigTable v-else ref="table" :configs="shown" :now-ms="nowMs" :offline="offline" :note="offline && BACK_NOTE" @process="onProcess" @config="onConfig" @watch="onWatch" />
+        <p class="meta">Each ⋯ menu shows the matching <span class="mono">supervisorctl</span> command in grey. Copy it with the button beside it, or ⌘C.</p>
       </section>
 
       <RecentlyRemoved :stamp="removedStamp" @restored="reload" />
@@ -347,26 +405,51 @@ function sendSignal(sig: string) {
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 22px; }
+.page { display: flex; flex-direction: column; gap: 20px; }
 section { display: flex; flex-direction: column; gap: 10px; }
-header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
-h1 { margin: 0; font-size: 22px; font-weight: 650; }
-.sub { margin-top: 3px; color: var(--text-muted); }
-.mono { font-family: var(--font-mono); font-size: 12px; }
-.muted { margin: 0; color: var(--text-muted); }
-.tools, .bulk { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
-.label { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-input[type='search'] { min-height: 32px; width: 200px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; }
-.btn { display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; text-decoration: none; white-space: nowrap; cursor: pointer; }
-.btn:hover:not(:disabled) { background: var(--bg-hover); }
-.btn:disabled { color: var(--text-faint); cursor: default; }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.btn.primary:hover { background: var(--accent-hover); }
-a { color: var(--accent-text); }
-a.btn { color: var(--text); }
-a.btn.primary { color: var(--on-accent); }
+header { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px; }
+.titles { display: flex; flex-direction: column; gap: 4px; margin-right: auto; min-width: 0; }
+.title { margin: 0; font-family: var(--display); font-optical-sizing: auto; font-size: 30px; font-weight: 650; line-height: 1.1; letter-spacing: -0.015em; }
+.meta { margin: 0; color: var(--ink3); font-size: 12.5px; }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+.muted { margin: 0; color: var(--ink2); }
+.sec { margin: 0 auto 0 0; font-size: 15px; font-weight: 600; }
+.tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.search { position: relative; display: flex; align-items: center; }
+.search svg { position: absolute; left: 9px; color: var(--ink3); pointer-events: none; }
+.search .input { width: 220px; padding-left: 28px; padding-right: 36px; }
+.search .kbd { position: absolute; right: 8px; pointer-events: none; }
+/* The native clear button would sit under the shortcut hint. */
+.search .input::-webkit-search-cancel-button { display: none; }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+/* Start / Stop / Restart all: one quiet group, one click away. */
+.bulk { display: inline-flex; border: 1px solid var(--line2); border-radius: var(--radius-sm); overflow: hidden; }
+.bulk .btn { border-radius: 0; }
+.bulk .btn + .btn { border-left: 1px solid var(--line2); }
+/* Disabled, the group looks sunken (like any disabled button), not just grey. */
+.bulk .btn:disabled { background: var(--sunken); }
+
+.health { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 12px 28px; padding: 16px 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--raised); }
+.verdict { display: flex; align-items: center; gap: 12px; margin-right: auto; min-width: 0; }
+.mark { display: flex; flex: none; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; }
+.m-bad { background: var(--bad-soft); color: var(--bad); }
+.m-warn { background: var(--warn-soft); color: var(--warn); }
+.m-ok { background: var(--ok-soft); color: var(--ok); }
+.m-idle { background: var(--idle-soft); color: var(--idle); }
+.words { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.sentence { font-size: 16px; font-weight: 600; }
+.link { padding: 0; border: 0; background: none; color: var(--accent-text); font: inherit; cursor: pointer; }
+.link:hover { text-decoration: underline; }
+/* The counts and the issues link sit in one row, as one group of totals. */
+.totals { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 24px; }
+.counts { display: flex; flex-wrap: wrap; gap: 4px 24px; margin: 0; }
+.count { display: flex; flex-direction: column; }
+.count dt { order: 2; }
+.count dd { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.count dd.none { color: var(--ink3); }
+.issues-link { color: var(--accent-text); text-decoration: none; }
+.issues-link:hover { text-decoration: underline; }
+
 .error { padding: 12px; border: 1px solid var(--failing-dot); border-radius: var(--radius-md); background: var(--failing-bg); color: var(--failing-fg); }
 .error p { margin: 4px 0 8px; user-select: text; }
 .sr-only { position: absolute; left: -9999px; }

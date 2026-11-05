@@ -83,12 +83,12 @@ describe('retentionChange (R27)', () => {
 
 describe('notifyPermission', () => {
   it('words each permission', () => {
-    expect(notifyPermission('allowed')).toEqual({ text: 'Allowed', cls: 'running' })
-    expect(notifyPermission('denied')).toEqual({ text: 'Not allowed. Allow Visor in System Settings → Notifications.', cls: 'failing' })
-    expect(notifyPermission('unavailable')).toEqual({ text: 'Not available in this build', cls: 'stopped' })
+    expect(notifyPermission('allowed')).toEqual({ text: 'Allowed', tone: 'ok' })
+    expect(notifyPermission('denied')).toEqual({ text: 'Not allowed. Allow Visor in System Settings → Notifications.', tone: 'bad' })
+    expect(notifyPermission('unavailable')).toEqual({ text: 'Not available in this build', tone: 'idle' })
   })
   it('says it is checking before the answer comes', () => {
-    expect(notifyPermission('')).toEqual({ text: 'Checking…', cls: 'stopped' })
-    expect(notifyPermission('something new')).toEqual({ text: 'Checking…', cls: 'stopped' })
+    expect(notifyPermission('')).toEqual({ text: 'Checking…', tone: 'idle' })
+    expect(notifyPermission('something new')).toEqual({ text: 'Checking…', tone: 'idle' })
   })
 })

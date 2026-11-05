@@ -119,8 +119,9 @@ It builds the frontend and `bin/visor-e2e` (the server-mode build, which keeps
 passwords in memory, never the Keychain), then runs Playwright in WebKit.
 Playwright starts `e2e/scripts/serve.sh` itself: it brings up a sandbox in
 `/tmp/visor-e2e`, runs Visor on port 8766, and removes both when the run ends.
-You don't run `serve.sh` by hand. `tests/doctor.spec.ts` starts its own extra
-Visors on ports 8771–8775 with fresh state.
+You don't run `serve.sh` by hand. `tests/doctor.spec.ts` (ports 8771–8775)
+and the supervisord-down cases in the dashboard, connection and tray specs
+(8776–8778) start their own extra Visors with fresh state.
 
 Visor's log is always in `e2e/visor-server.log`. More in [testing.md](testing.md#end-to-end-ui-tests).
 

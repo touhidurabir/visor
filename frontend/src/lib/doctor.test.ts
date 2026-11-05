@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Status, Step } from '../../bindings/github.com/touhidurabir/visor/internal/doctor'
-import { chownCommand, lensText, mkdirCommand, rootFixes, situationCopy } from './doctor'
+import { chownCommand, lensText, mkdirCommand, rootFixes, situationCopy, stepLook } from './doctor'
 
 const step = (s: string): Step => ({ ID: '', Title: '', Detail: '', Status: s as Status })
 
@@ -39,5 +39,16 @@ describe('commands', () => {
     expect(fixes).toHaveLength(3)
     expect(fixes[1].commands[0]).toBe('chown=abir:staff')
     expect(rootFixes('')[1].commands[0]).toBe('chown=you:staff')
+  })
+})
+
+describe('stepLook', () => {
+  it('says each status in words beside the mark', () => {
+    expect(stepLook('ok')).toEqual({ glyph: '✓', word: 'Done', tone: 'ok' })
+    expect(stepLook('bad')).toEqual({ glyph: '!', word: 'Needs attention', tone: 'bad' })
+    expect(stepLook('wait')).toEqual({ glyph: '', word: 'Waiting', tone: 'idle' })
+  })
+  it('reads an unknown status as waiting', () => {
+    expect(stepLook('later')).toEqual({ glyph: '', word: 'Waiting', tone: 'idle' })
   })
 })

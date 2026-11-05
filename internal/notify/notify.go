@@ -14,6 +14,7 @@ import (
 
 	"github.com/touhidurabir/visor/internal/issues"
 	"github.com/touhidurabir/visor/internal/settings"
+	"github.com/touhidurabir/visor/internal/supervisor"
 )
 
 // ErrUnavailable is returned by a Sender that cannot show notifications in
@@ -27,18 +28,32 @@ var ErrNotAllowed = errors.New("notifications are not allowed for Visor")
 
 // Message is one notification. ID is unique per notification (the issue's
 // ID, plus the count for a repeat); IssueID, Kind, Process and Config say
-// what it is about. Body is Detail plus the config file's name.
+// what it is about.
+//
+// A banner shows Title and Body. Title is the severity icon and what
+// happened ("🔴 flaky can't start"); Body is one sentence that starts with
+// the config file's name ("flaky.ini: it exited with status 2."). Subtitle
+// stays empty, because macOS shows it as a line of its own. Headline and
+// Detail are the same words without the icon and the file name, for
+// Visor's own list, which shows those itself. Thread groups the banners:
+// the config file's path, or DaemonThread for supervisord itself.
 type Message struct {
 	ID       string
 	Title    string
-	Subtitle string // how serious, e.g. "🔴 Error" (macOS can't colour a banner)
+	Subtitle string
 	Body     string
+	Headline string
 	Detail   string
+	Thread   string
 	IssueID  string
 	Kind     issues.Kind
 	Process  string
 	Config   string
 }
+
+// DaemonThread is the banner thread of notifications that belong to no
+// config: supervisord not responding, or a process in no known config.
+const DaemonThread = "supervisord"
 
 // Severity is how serious a notification is: Error (a process can't run,
 // keeps crashing, or supervisord doesn't answer), Warning (it crashed and
@@ -62,16 +77,16 @@ func SeverityOf(k issues.Kind) Severity {
 	return Info
 }
 
-// Label is the severity as a notification shows it. The coloured circle is
-// the only colour a macOS banner can carry.
-func (s Severity) Label() string {
+// Icon is the severity as a banner shows it, before the title: a coloured
+// circle, the only colour a macOS banner can carry.
+func (s Severity) Icon() string {
 	switch s {
 	case Error:
-		return "🔴 Error"
+		return "🔴"
 	case Warning:
-		return "🟠 Warning"
+		return "🟠"
 	}
-	return "🔵 Info"
+	return "🔵"
 }
 
 // Sender shows a notification.
@@ -100,45 +115,116 @@ func ShouldNotify(is issues.Issue, prefs settings.NotifyPrefs, watched bool) boo
 	return false
 }
 
-// Compose words the notification for an issue: the title says what
-// happened to which process, the detail gives supervisord's reason (and,
-// for a failure that keeps happening, "3rd time in 10 minutes"), and the
-// body adds the config file it comes from.
+// Compose words the notification for an issue. The headline says what
+// happened to which process. The detail is one sentence with the reason
+// and, for a failure that keeps happening, "the 3rd time in 10 minutes".
+// The banner puts the severity icon before the headline and the config
+// file's name before the detail.
 func Compose(is issues.Issue) Message {
-	m := Message{ID: is.ID, IssueID: is.ID, Kind: is.Kind, Process: is.Process, Config: is.Config, Detail: is.Message}
+	m := Message{ID: is.ID, IssueID: is.ID, Kind: is.Kind, Process: is.Process, Config: is.Config, Thread: is.Config}
+	if m.Thread == "" {
+		m.Thread = DaemonThread
+	}
+	text := clause(is)
 	if n := is.Times(); n > 1 {
 		m.ID = fmt.Sprintf("%s-%d", is.ID, n)
-		again := ordinal(n) + " time in " + span(is.Latest().Sub(is.OpenedAt))
-		if m.Detail == "" {
-			m.Detail = upperFirst(again)
+		again := "the " + ordinal(n) + " time in " + span(is.Latest().Sub(is.OpenedAt))
+		if text == "" {
+			text = again
 		} else {
-			m.Detail += " · " + again
+			text += ", " + again
+		}
+	}
+	if text != "" {
+		m.Detail = sentence(text)
+		if !strings.HasPrefix(text, "supervisord") { // a name, written in lower case
+			m.Detail = upperFirst(m.Detail)
 		}
 	}
 	m.Body = m.Detail
-	m.Subtitle = SeverityOf(is.Kind).Label()
+	if is.Config != "" && is.Kind != issues.KindUnreachable {
+		file := filepath.Base(is.Config)
+		if text == "" {
+			m.Body = "From " + file + "."
+		} else {
+			m.Body = sentence(file + ": " + text)
+		}
+	}
 	name := DisplayName(is.Process)
 	switch is.Kind {
 	case issues.KindFatal:
-		m.Title = name + " can't start"
+		m.Headline = name + " can't start"
 	case issues.KindUnexpectedExit:
-		m.Title = name + " exited unexpectedly"
+		m.Headline = name + " exited unexpectedly"
 	case issues.KindCrashLoop:
-		m.Title = name + " keeps restarting"
+		m.Headline = name + " keeps restarting"
 	case issues.KindUnreachable:
-		m.Title = "supervisord isn't responding"
+		m.Headline = "supervisord isn't responding"
+		if turnedDown(is) {
+			m.Headline = "supervisord wants a password"
+		}
 	default:
-		m.Title = name + " has a problem"
+		m.Headline = name + " has a problem"
 	}
-	if is.Config != "" && is.Kind != issues.KindUnreachable {
-		file := filepath.Base(is.Config)
-		if m.Body == "" {
-			m.Body = file
-		} else {
-			m.Body += " · " + file
+	m.Title = SeverityOf(is.Kind).Icon() + " " + m.Headline
+	return m
+}
+
+// unreachablePrefix starts the issues package's message for supervisord
+// not responding; the error after it says why.
+const unreachablePrefix = "supervisord is not responding"
+
+// clause turns an issue's message into the middle of a sentence, to follow
+// "flaky.ini: ". Visor's own wording ("Exited with status 2", "Restarted 5
+// times in 10 minutes") becomes "it exited with status 2", "it was
+// restarted 5 times in 10 minutes"; supervisord not responding becomes
+// "Visor can't reach it" plus the error, or, when it answered but turned
+// down the password, says so. supervisord's own reason ("can't find command
+// '/x'") is kept as it is.
+func clause(is issues.Issue) string {
+	msg := strings.TrimSuffix(strings.TrimSpace(is.Message), ".")
+	if msg == "" {
+		return ""
+	}
+	if is.Kind == issues.KindUnreachable {
+		rest, ok := strings.CutPrefix(msg, unreachablePrefix)
+		if !ok {
+			return msg
+		}
+		why := strings.TrimSpace(strings.TrimPrefix(rest, ":"))
+		if why == supervisor.ErrUnauthorized.Error() {
+			return "supervisord turned down the username and password Visor used"
+		}
+		if why != "" {
+			return "Visor can't reach it: " + why
+		}
+		return "Visor can't reach it"
+	}
+	for _, own := range [...]struct{ prefix, as string }{
+		{"Exited", "it exited"},
+		{"Was ", "it was "},
+		{"Restarted", "it was restarted"},
+	} {
+		if rest, ok := strings.CutPrefix(msg, own.prefix); ok {
+			return own.as + rest
 		}
 	}
-	return m
+	return msg
+}
+
+// turnedDown reports whether an unreachable issue is supervisord answering
+// with 401: it is running, but turned down Visor's username and password.
+func turnedDown(is issues.Issue) bool {
+	return is.Kind == issues.KindUnreachable &&
+		strings.TrimSuffix(strings.TrimSpace(is.Message), ".") == unreachablePrefix+": "+supervisor.ErrUnauthorized.Error()
+}
+
+// sentence ends s with a full stop, unless it already ends a sentence.
+func sentence(s string) string {
+	if strings.HasSuffix(s, ".") || strings.HasSuffix(s, "!") || strings.HasSuffix(s, "?") {
+		return s
+	}
+	return s + "."
 }
 
 // ordinal is 1st, 2nd, 3rd, 4th, ..., 11th, 12th, 13th, 21st, ...

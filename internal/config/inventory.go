@@ -158,6 +158,28 @@ func autorestart(s Section) string {
 	return "unexpected"
 }
 
+// Names returns every program name and every group name in the include
+// files, sorted: the names a new program or group must not take. Programs
+// without a [group:] are process groups themselves, so supervisord keeps
+// them and groups in one namespace.
+func (inv Inventory) Names() []string {
+	seen := map[string]bool{}
+	for g := range inv.groupFile {
+		seen[g] = true
+	}
+	for _, f := range inv.Files {
+		for _, p := range f.Programs {
+			seen[p.Name], seen[p.Group] = true, true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for n := range seen {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // FileForGroup returns the file defining the group: its [group:x] section if
 // there is one, otherwise the file of a program in that group.
 func (inv Inventory) FileForGroup(group string) (string, bool) {

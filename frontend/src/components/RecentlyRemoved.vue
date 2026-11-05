@@ -50,7 +50,7 @@ async function restore(r: RemovedRow) {
       <li v-for="r in rows" :key="r.path">
         <span class="name mono">{{ r.fileName }}</span>
         <span class="meta">{{ r.when }} · <span class="mono">{{ r.folder }}</span></span>
-        <button type="button" class="btn" :disabled="busy !== null" :aria-label="`Restore ${r.fileName}`" @click="restore(r)">
+        <button type="button" class="btn sm" :disabled="busy !== null" :aria-label="`Restore ${r.fileName}`" @click="restore(r)">
           {{ busy === r.path ? 'Restoring…' : 'Restore' }}
         </button>
       </li>
@@ -67,7 +67,4 @@ li + li { border-top: 1px solid var(--line); }
 .name { font-weight: 600; }
 .meta { flex: 1 1 200px; color: var(--text-muted); min-width: 0; overflow-wrap: anywhere; }
 .mono { font-family: var(--font-mono); font-size: 12px; }
-.btn { min-height: 28px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; cursor: pointer; }
-.btn:hover:not(:disabled) { background: var(--bg-hover); }
-.btn:disabled { color: var(--text-faint); cursor: default; }
 </style>

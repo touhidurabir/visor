@@ -8,6 +8,7 @@ import { InboxService, type NotificationView, type NotificationsView } from '../
 import { VisorNotifications } from '../../bindings/events'
 import { historyTime } from './format'
 import { configRoute } from './links'
+import { issueKind } from './issue-status'
 
 const items = ref<NotificationView[]>([])
 const loaded = ref(false)
@@ -81,9 +82,47 @@ export function noticeRoute(n: NotificationView): RouteLocationRaw {
   return configRoute(n.Config, n.Process ? { process: n.Process } : {})
 }
 
+export type SeverityLevel = 'error' | 'warning' | 'info'
+
+/** severityLevel is a notification's Severity, with anything unknown as info. */
+export function severityLevel(severity: string): SeverityLevel {
+  return severity === 'error' || severity === 'warning' ? severity : 'info'
+}
+
 /** The word for how serious a notification is ("error", "warning", "info"). */
 export function severityWord(severity: string): string {
-  if (severity === 'error') return 'Error'
-  if (severity === 'warning') return 'Warning'
-  return 'Info'
+  return { error: 'Error', warning: 'Warning', info: 'Info' }[severityLevel(severity)]
+}
+
+/** A check mark, for good news (supervisord answering again). */
+const OK_ICON = 'M5 12.5l4.5 4.5L19 7.5'
+
+/**
+ * noticeIcon is the kind icon (an SVG path) a notification leads with: exit,
+ * can't start, crash loop or supervisord down; good news gets a check.
+ */
+export function noticeIcon(n: Pick<NotificationView, 'Kind' | 'Severity'>): string {
+  return severityLevel(n.Severity) === 'info' ? OK_ICON : issueKind(n.Kind).icon
+}
+
+export interface NoticeGroup {
+  name: 'Today' | 'Earlier'
+  items: NotificationView[]
+}
+
+/**
+ * groupByDay splits the list (newest first) into Today, since local
+ * midnight, and Earlier, keeping the order; an empty group is left out.
+ * Anything stamped after nowMs (a clock change) counts as today.
+ */
+export function groupByDay(items: NotificationView[], nowMs: number): NoticeGroup[] {
+  const now = new Date(nowMs)
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const today = items.filter((n) => n.AtMs >= midnight)
+  const earlier = items.filter((n) => n.AtMs < midnight)
+  const groups: NoticeGroup[] = [
+    { name: 'Today', items: today },
+    { name: 'Earlier', items: earlier },
+  ]
+  return groups.filter((g) => g.items.length > 0)
 }

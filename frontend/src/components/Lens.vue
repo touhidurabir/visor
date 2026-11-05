@@ -2,10 +2,14 @@
 // The visor lens (spec §5.1): an iridescent disc with a ring of one segment
 // per check. On mount the segments light in order and one sweep crosses the
 // glass; reduced motion turns both off. Re-key it to play them again.
+// --lens-inset and --lens-glass-inset resize the disc and its rim, for the
+// small mark in the sidebar (no segments, no text). pulse draws the app
+// icon's pulse line in place of the big text (Doctor's all-clear state).
 defineProps<{
   segments: string[] // 'ok' | 'bad' | 'wait', one per check
   big: string
   small: string
+  pulse?: boolean
 }>()
 </script>
 
@@ -13,12 +17,15 @@ defineProps<{
   <div class="lens-wrap">
     <svg viewBox="0 0 340 340" class="ring" aria-hidden="true">
       <g transform="rotate(-90 170 170)">
-        <circle v-for="(s, i) in segments" :key="i" cx="170" cy="170" r="160" :class="['seg', `seg-${i}`, `c-${s}`]" />
+        <circle v-for="(s, i) in segments" :key="i" cx="170" cy="170" r="160" :class="['arc', `arc-${i}`, `c-${s}`]" />
       </g>
     </svg>
     <div class="lens">
       <div class="glass">
-        <span class="big">{{ big }}</span>
+        <svg v-if="pulse" class="pulse" viewBox="290 420 444 210" aria-hidden="true">
+          <path d="M290 520 H420 L462 430 L522 620 L566 490 L598 520 H734" />
+        </svg>
+        <span :class="['big', { 'sr-only': pulse }]">{{ big }}</span>
         <span class="small">{{ small }}</span>
       </div>
       <div class="sweep" aria-hidden="true" />
@@ -29,25 +36,25 @@ defineProps<{
 <style scoped>
 .lens-wrap { position: relative; width: var(--lens-size, 340px); max-width: 100%; aspect-ratio: 1 / 1; }
 .ring { position: absolute; inset: 0; width: 100%; height: 100%; }
-.seg { fill: none; stroke-width: 9; stroke-linecap: round; stroke-dasharray: 187 818; animation: light 0.45s ease-out both; }
-.seg-0 { stroke-dashoffset: -7px; animation-delay: 0.15s; }
-.seg-1 { stroke-dashoffset: -208px; animation-delay: 0.5s; }
-.seg-2 { stroke-dashoffset: -409px; animation-delay: 0.85s; }
-.seg-3 { stroke-dashoffset: -610px; animation-delay: 1.2s; }
-.seg-4 { stroke-dashoffset: -811px; animation-delay: 1.55s; }
+.arc { fill: none; stroke-width: 9; stroke-linecap: round; stroke-dasharray: 187 818; animation: light 0.45s ease-out both; }
+.arc-0 { stroke-dashoffset: -7px; animation-delay: 0.15s; }
+.arc-1 { stroke-dashoffset: -208px; animation-delay: 0.5s; }
+.arc-2 { stroke-dashoffset: -409px; animation-delay: 0.85s; }
+.arc-3 { stroke-dashoffset: -610px; animation-delay: 1.2s; }
+.arc-4 { stroke-dashoffset: -811px; animation-delay: 1.55s; }
 .c-ok { stroke: var(--lens-ok, #1e9e63); }
 .c-bad { stroke: var(--lens-bad, #d92d20); }
 .c-wait { stroke: var(--lens-wait, #c9d3df); }
 .lens {
   position: absolute;
-  inset: 9%;
+  inset: var(--lens-inset, 9%);
   border-radius: 50%;
   background: conic-gradient(from 200deg, #19b5c8, #5b7cff, #9b5cff, #e86bb8, #ffb547, #7ee0c3, #19b5c8);
   box-shadow: 0 30px 60px -20px rgba(43, 58, 120, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
 }
 .glass {
   position: absolute;
-  inset: 4.5%;
+  inset: var(--lens-glass-inset, 4.5%);
   border-radius: 50%;
   background:
     radial-gradient(circle at 34% 26%, rgba(255, 255, 255, 0.38) 0, rgba(255, 255, 255, 0) 30%),
@@ -69,6 +76,10 @@ defineProps<{
   line-height: 1;
 }
 .small { max-width: 60%; font-size: 14px; color: #c9d3e3; }
+/* The app icon's pulse line (scripts/appicon), in its mint. */
+.pulse { width: 58%; overflow: visible; }
+.pulse path { fill: none; stroke: #7ee0c3; stroke-width: 26; stroke-linecap: round; stroke-linejoin: round; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .sweep {
   position: absolute;
   inset: 0;
@@ -82,7 +93,7 @@ defineProps<{
 @keyframes fade { to { opacity: 0; } }
 @keyframes light { from { stroke: var(--lens-wait, #c9d3df); opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) {
-  .seg, .sweep { animation: none; }
+  .arc, .sweep { animation: none; }
   .sweep { opacity: 0; }
 }
 </style>

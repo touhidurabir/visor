@@ -29,6 +29,21 @@ export function lensText(v: Pick<DoctorView, 'Steps'>): { big: string; small: st
   return { big: '!', small: `${bad} ${bad === 1 ? 'thing' : 'things'} to fix` }
 }
 
+/**
+ * stepLook is how a check shows its status: the mark, the word beside it
+ * (board 1: in words, not by glyph and colour alone) and the badge tone.
+ * Anything unknown reads as waiting.
+ */
+export function stepLook(status: string): { glyph: string; word: string; tone: 'ok' | 'bad' | 'idle' } {
+  switch (status) {
+    case 'ok':
+      return { glyph: '✓', word: 'Done', tone: 'ok' }
+    case 'bad':
+      return { glyph: '!', word: 'Needs attention', tone: 'bad' }
+  }
+  return { glyph: '', word: 'Waiting', tone: 'idle' }
+}
+
 export const installCommands = ['brew install supervisor', 'brew services start supervisor']
 export const startCommand = 'brew services start supervisor'
 

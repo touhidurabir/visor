@@ -2,6 +2,8 @@
 // checks on it, and the save. Pure draft logic is in draft.ts.
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ConfigService, type ApplyResultView, type ExplainView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import type { CopyDoubt, Rename } from '../../bindings/github.com/touhidurabir/visor/internal/config'
+import type { Draft } from './copy-draft'
 import type { Check } from '../../bindings/github.com/touhidurabir/visor/internal/validate'
 import { createDraft, type TemplateInfo } from './draft'
 import { describeError } from './faults'
@@ -30,6 +32,16 @@ const checked = ref<{ fileName: string; content: string } | null>(null)
 const busy = ref(false)
 const failure = ref<string | null>(null)
 const created = ref<{ path: string; fileName: string; res: ApplyResultView } | null>(null)
+
+/** The draft came from "Copy an existing config": from which file, what was renamed, what to double-check. */
+export interface CopiedFrom {
+  fileName: string
+  renames: Rename[]
+  doubts: CopyDoubt[]
+  /** The copy as Go drafted it, which the doubts were raised on. */
+  copy: Draft
+}
+const copied = ref<CopiedFrom | null>(null)
 
 let starting: Promise<void> | null = null
 
@@ -130,7 +142,43 @@ export function useNewConfig() {
     }
   }
 
-  return { draft, templates, dir, ready, loadError, checks, explained, checked, checkFailed, upToDate, errorCount, hasErrors, busy, failure, created, save, retry: () => void start() }
+  return {
+    draft,
+    templates,
+    dir,
+    ready,
+    loadError,
+    checks,
+    explained,
+    checked,
+    checkFailed,
+    upToDate,
+    errorCount,
+    hasErrors,
+    busy,
+    failure,
+    created,
+    copied,
+    save,
+    retry: () => void start(),
+  }
+}
+
+/**
+ * Replaces the draft with a copy of the include file at path, under free
+ * names (ConfigService.CopyDraft). Nothing is written: it is saved like any
+ * new config. Throws when Go can't copy it (the caller says why).
+ */
+export async function copyFrom(path: string, fileName: string) {
+  await start() // so the first template never lands on top of the copy
+  const v = await ConfigService.CopyDraft(path)
+  draft.loadCopy(v.FileName, v.Content)
+  copied.value = { fileName, renames: v.Renames ?? [], doubts: v.Doubts ?? [], copy: { fileName: v.FileName, content: v.Content } }
+}
+
+/** The draft no longer is the copy (a template was chosen). */
+export function forgetCopy() {
+  copied.value = null
 }
 
 /** Forgets the draft and everything about it (Cancel, or after "Open it"). */
@@ -141,6 +189,7 @@ export function resetNewConfig() {
   checked.value = null
   failure.value = null
   created.value = null
+  copied.value = null
   starting = null
   ready.value = false
 }

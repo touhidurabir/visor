@@ -95,10 +95,21 @@ export function serverMenu(): MenuItem[] {
     }),
     item('shutdown', 'Shut down supervisord', 'supervisorctl shutdown', false, {
       danger: true,
-      confirm: 'Shutting down supervisord stops every process. Visor cannot start it again; you start it from a terminal.',
+      confirm: 'Shutting down supervisord stops every process. You can start it again from Doctor.',
     }),
     item('settings', 'Server settings', ''),
   ]
+}
+
+/**
+ * Menu ids that only work through supervisord (start, stop, apply, …); the
+ * rest act on files on disk or open a page, so they work without it.
+ */
+const NEEDS_SUPERVISORD = new Set(['start', 'stop', 'restart', 'signal', 'clear', 'start-all', 'stop-all', 'restart-all', 'apply', 'remove', 'check', 'apply-all', 'shutdown'])
+
+/** The menu while supervisord isn't connected: its actions disabled, with the reason as their tooltip. */
+export function withoutSupervisord(items: MenuItem[], reason: string): MenuItem[] {
+  return items.map((i) => (NEEDS_SUPERVISORD.has(i.id) ? { ...i, disabled: true, title: reason } : i))
 }
 
 export interface BulkConfirm { title: string; message: string; confirmLabel: string }

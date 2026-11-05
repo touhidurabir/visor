@@ -2,6 +2,8 @@
 // "find", "reload" (check supervisord's config for changes) and
 // "restart-all". The page that is showing handles them; Reload Config and
 // Restart All go to the dashboard first when nothing on screen can.
+// "doctor" goes to Doctor: Go's ShellService.OpenDoctor sends it in the
+// server build, which has no main window to show at Doctor.
 import { Events } from '@wailsio/runtime'
 import { VisorMenu } from '../../bindings/events'
 
@@ -9,6 +11,9 @@ type Router = { push: (to: string) => unknown }
 
 const handlers = new Map<string, () => void>()
 const toDashboard = new Set(['reload', 'restart-all'])
+/** The menu choice that goes to Doctor (internal/app menuDoctor). */
+export const DOCTOR_MENU = 'doctor'
+const toRoute = new Map([[DOCTOR_MENU, '/doctor']])
 let pending: string | null = null
 let off: (() => void) | null = null
 
@@ -19,6 +24,8 @@ export function followMenu(router: Router) {
     const name = String(ev.data)
     const run = handlers.get(name)
     if (run) return run()
+    const route = toRoute.get(name)
+    if (route) return void router.push(route)
     if (toDashboard.has(name)) {
       pending = name
       void router.push('/')

@@ -77,11 +77,5 @@ const stats = (b: BackupView) => diffStats(diffLines(props.current ?? '', b.Cont
 .stat, .tag { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
 .tag { font-family: inherit; color: var(--warning-fg); }
 .detail { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.btn { min-height: 32px; padding: 0 14px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; cursor: pointer; }
-.btn:hover:not(:disabled) { background: var(--bg-hover); }
-.btn:disabled { color: var(--text-faint); cursor: default; }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
-.btn.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
-.btn.primary:disabled { opacity: 0.6; color: var(--on-accent); }
 @media (max-width: 640px) { .cols { grid-template-columns: 1fr; } }
 </style>

@@ -98,6 +98,38 @@ describe('draft', () => {
     expect(d.state.content).toBe('typed since')
   })
 
+  it('starts from a copy: its text and file name, no template, not dirty', async () => {
+    const d = createDraft(codec)
+    await d.applyTemplate(tpl)
+    const copy = '; kept\n[program:mailer-copy]\ncommand=run.sh\n\n[program:digest-copy]\ncommand=x\n'
+    d.loadCopy('mailer-copy.ini', copy)
+    expect(d.state.content).toBe(copy)
+    expect(d.state.fileName).toBe('mailer-copy.ini')
+    expect(d.state.name).toBe('mailer-copy')
+    expect(d.state.templateId).toBe('')
+    expect(d.state.values).toEqual({})
+    expect(d.isDirty()).toBe(false)
+    // The copy's file name is kept, as if typed, when the program is renamed.
+    d.setContent(copy.replace('[program:mailer-copy]', '[program:other]'))
+    expect(d.state.fileName).toBe('mailer-copy.ini')
+    expect(d.isDirty()).toBe(true)
+    // A single-program copy reads into the form like any draft.
+    d.loadCopy('one-copy.ini', '[program:one-copy]\ncommand=run.sh\n')
+    expect(await d.toForm()).toBeNull()
+    expect(d.state.values).toEqual({ command: 'run.sh' })
+  })
+
+  it('a render still on its way does not overwrite a copy', async () => {
+    let release: () => void = () => {}
+    const slow: Codec = { ...codec, render: () => new Promise((r) => (release = () => r('rendered'))) }
+    const d = createDraft(slow)
+    const p = d.setField('command', 'x')
+    d.loadCopy('a-copy.ini', '[program:a-copy]\n')
+    release()
+    await p
+    expect(d.state.content).toBe('[program:a-copy]\n')
+  })
+
   it('reset forgets everything', async () => {
     const d = createDraft(codec)
     await d.applyTemplate(tpl)

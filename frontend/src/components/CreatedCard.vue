@@ -37,6 +37,4 @@ const added = computed(() => (props.result.Added ?? []).join(', '))
 .path { overflow-wrap: anywhere; user-select: text; }
 .plain { margin: 0; padding-left: 18px; color: var(--failing-fg); user-select: text; }
 .muted { margin: 0; color: var(--text-muted); }
-.btn { display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; text-decoration: none; box-sizing: border-box; }
-.btn:hover { background: var(--bg-hover); }
 </style>

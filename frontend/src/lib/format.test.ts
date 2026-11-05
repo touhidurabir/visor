@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { duration, formatDuration, historyNote, historyTime, shortSince, sinceLabel } from './format'
+import { chipSince, duration, formatDuration, historyNote, historyTime, shortSince, sinceLabel } from './format'
 import type { ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 
 const s = 1000
@@ -89,5 +89,24 @@ describe('historyNote', () => {
     expect(historyNote({ AtMs: 1, Process: 'a:a', From: 'STOPPED', To: 'STARTING', Note: 'by you' })).toBe('By you')
     expect(historyNote({ AtMs: 1, Process: 'a:a', From: 'STARTING', To: 'RUNNING', Note: '' })).toBe('From STARTING')
     expect(historyNote({ AtMs: 1, Process: 'a:a', From: '', To: 'RUNNING', Note: '' })).toBe('First seen')
+  })
+})
+
+describe('chipSince', () => {
+  const base = { StartMs: 0, StopMs: 0, State: 'RUNNING', Status: 'running', Since: '' } as unknown as ProcessView
+  const now = 10 * d
+  it('a failing process says its state and how long ago it stopped', () => {
+    expect(chipSince({ ...base, State: 'FATAL', Status: 'failing', StopMs: now - 3 * m }, now)).toBe('Fatal · 3m')
+    expect(chipSince({ ...base, State: 'EXITED', Status: 'failing', StopMs: now - 5 * s }, now)).toBe('Exited · just now')
+  })
+  it('a failing process with no stop time says only its state', () => {
+    expect(chipSince({ ...base, State: 'BACKOFF', Status: 'failing' }, now)).toBe('Backoff')
+  })
+  it('a healthy process keeps the quiet since label', () => {
+    expect(chipSince({ ...base, StartMs: now - 4 * m }, now)).toBe('up 4m')
+    expect(chipSince({ ...base, State: 'STOPPED', Status: 'stopped', StopMs: now - 5 * d }, now)).toBe('stopped 5d')
+  })
+  it('falls back to the state word when there is nothing else', () => {
+    expect(chipSince({ ...base, State: 'STARTING', Status: 'other' }, now)).toBe('Starting')
   })
 })

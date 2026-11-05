@@ -124,9 +124,9 @@ onUnmounted(() => window.removeEventListener('focus', checkPermission))
 
 const status = computed(() => {
   const sv = overview.value?.Server
-  if (!sv || sv.Health === 'unknown') return { cls: 'stopped', text: 'Connecting…' }
-  if (sv.Reachable) return { cls: 'running', text: sv.Version ? `Connected to supervisord ${sv.Version}` : 'Connected' }
-  return { cls: 'failing', text: 'Not connected' }
+  if (!sv || sv.Health === 'unknown') return { tone: 'idle', text: 'Connecting…' }
+  if (sv.Reachable) return { tone: 'ok', text: sv.Version ? `Connected to supervisord ${sv.Version}` : 'Connected' }
+  return { tone: 'bad', text: 'Not connected' }
 })
 const serverError = computed(() => (overview.value?.Server.Reachable ? '' : (overview.value?.Server.Error ?? '')))
 
@@ -364,14 +364,18 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
 ]
 </script>
 
+
 <template>
   <section class="page" aria-labelledby="settings-title">
     <header>
-      <div>
+      <div class="title">
         <h1 id="settings-title">Settings</h1>
-        <p class="intro">How Visor connects to supervisord, how often it checks, and what it tells you about. Most changes save as you make them.</p>
+        <span v-if="view" :class="['badge', saving ? 'b-idle' : 'b-ok']" aria-live="polite">
+          <svg v-if="!saving" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="m5 12 5 5 9-10" /></svg>
+          {{ saving ? 'Saving…' : 'All changes saved' }}
+        </span>
       </div>
-      <span class="saved" aria-live="polite">{{ saving ? 'Saving…' : view ? 'All changes saved' : '' }}</span>
+      <p class="intro">How Visor connects to supervisord, how often it checks, and what it tells you about. Most changes save as you make them.</p>
     </header>
 
     <div v-if="loadError" class="alert" role="alert">
@@ -391,260 +395,239 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
       <p>{{ describeError(warning) }}</p>
     </div>
 
-    <template v-if="view && s">
-      <div class="cards">
-        <!-- Connection -->
-        <div class="card" role="group" aria-labelledby="conn-title">
-          <div class="card-head">
-            <h2 id="conn-title">Connection</h2>
-            <span :class="['badge', status.cls]"><span class="dot" aria-hidden="true" />{{ status.text }}</span>
+    <!-- Card order (flow change 3): General, Connection, Notifications,
+         Checking and history. M7's remote servers go above General. -->
+    <div v-if="view && s" class="cards">
+      <!-- General -->
+      <div class="card" role="group" aria-labelledby="general-title">
+        <h2 id="general-title" class="card-title">General</h2>
+        <div class="row">
+          <div class="what">
+            <label class="name" for="login">Launch at login</label>
+            <span id="login-hint" class="hint">{{ login.view.value ? loginHint(login.view.value.Status) : '' }}</span>
+            <span v-if="login.view.value?.Status === 'requires_approval'" class="hint-action">
+              <button type="button" class="btn sm" @click="login.openLoginItems">Open Login Items</button>
+            </span>
+            <span v-if="login.error.value" class="note" role="alert">{{ login.error.value }}</span>
           </div>
-
-          <div class="row stack">
-            <div class="what">
-              <label class="name" for="conf-path">Config file</label>
-              <p class="hint">
-                <template v-if="envSet">Set by VISOR_CONFIG. Unset it to choose a file here.</template>
-                <template v-else-if="!conn.configPath">Auto-detect looks in the usual Homebrew and system locations.</template>
-                <template v-else>The supervisord.conf Visor reads.</template>
-              </p>
-            </div>
-            <div class="ctl wide">
-              <input
-                id="conf-path"
-                class="mono"
-                type="text"
-                readonly
-                :disabled="envSet"
-                :value="envSet ? view.EnvConfigPath : conn.configPath || (view.Settings.configPath === '' && view.ConfigPath ? `Auto-detect: ${view.ConfigPath}` : 'Auto-detect')"
-              />
-              <div class="btns">
-                <span v-if="envSet" class="badge stopped">Set by VISOR_CONFIG</span>
-                <button type="button" class="btn" :disabled="envSet || connBusy" @click="choose">Choose…</button>
-                <button type="button" class="btn" :disabled="envSet || connBusy || !conn.configPath" @click="autoDetect">Use auto-detect</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="row">
-            <div class="what">
-              <span class="name">Socket</span>
-              <p class="hint">Read from the config’s [unix_http_server] or [inet_http_server] section.</p>
-            </div>
-            <div class="ctl wide">
-              <span v-if="view.Socket" class="mono value">{{ view.Socket }}</span>
-              <span v-else class="hint">None found</span>
-            </div>
-          </div>
-
-          <div class="row">
-            <div class="what">
-              <label class="name" for="conn-user">Username</label>
-              <p class="hint">Leave empty to use the [supervisorctl] username and password in the config.</p>
-            </div>
-            <div class="ctl">
-              <input id="conn-user" v-model.trim="conn.username" type="text" autocomplete="off" spellcheck="false" placeholder="From the config" />
-            </div>
-          </div>
-
-          <div class="row">
-            <div class="what">
-              <label class="name" for="conn-pass">Password</label>
-              <p class="hint">
-                Kept in your Keychain, never in a file.<template v-if="view.HasPassword"> Removing it also clears the username, so the config’s credentials apply again.</template>
-              </p>
-            </div>
-            <div v-if="view.HasPassword && !changingPassword" class="ctl">
-              <span class="pw-saved" data-testid="password-saved">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
-                Saved in your Keychain
-              </span>
-              <button type="button" class="btn" :disabled="connBusy" @click="changePassword">Change…</button>
-              <button type="button" class="btn" :disabled="connBusy" @click="removePassword">Remove password</button>
-            </div>
-            <div v-else class="ctl">
-              <input
-                id="conn-pass"
-                ref="passwordBox"
-                v-model="conn.password"
-                type="password"
-                autocomplete="off"
-                :placeholder="view.HasPassword ? 'New password' : 'Optional'"
-              />
-            </div>
-          </div>
-
-          <div v-if="connError" class="alert" role="alert">
-            <strong>Can’t save the connection</strong>
-            <p>{{ connError }}</p>
-          </div>
-          <p v-else-if="serverError" class="server-error" role="status">{{ describeError(serverError) }}</p>
-
-          <div class="foot">
-            <button
-              type="button"
-              class="btn"
-              :disabled="connBusy || connDirty"
-              :title="connDirty ? 'Save and reconnect to use your changes' : undefined"
-              @click="reconnect"
-            >
-              {{ connBusy && !connDirty ? 'Reconnecting…' : 'Reconnect' }}
-            </button>
-            <template v-if="connDirty">
-              <button type="button" class="btn" :disabled="connBusy" @click="cancelConnection">Cancel</button>
-              <button type="button" class="btn primary" :disabled="connBusy" @click="saveConnection">{{ connBusy ? 'Reconnecting…' : 'Save and reconnect' }}</button>
-            </template>
+          <div class="ctl">
+            <input
+              id="login"
+              class="switch"
+              type="checkbox"
+              role="switch"
+              aria-describedby="login-hint"
+              :checked="login.view.value?.On ?? false"
+              :disabled="!login.view.value || login.busy.value || loginLocked(login.view.value.Status)"
+              @change="setLogin($event)"
+            />
           </div>
         </div>
-
-        <div class="more">
-          <div class="col">
-        <!-- Polling -->
-        <div class="card" role="group" aria-labelledby="poll-title">
-          <h2 id="poll-title">Polling</h2>
-          <div class="row">
-            <div class="what">
-              <label class="name" for="poll">Check supervisord every</label>
-              <p class="hint">1 to 10 seconds. Shorter shows changes sooner.</p>
-              <p v-if="notes.poll" class="note" role="status">{{ notes.poll }}</p>
-            </div>
-            <div class="ctl">
-              <input id="poll" v-model="fields.poll" class="num" @input="editing.add('poll')" type="number" inputmode="decimal" :min="LIMITS.pollSeconds.min" :max="LIMITS.pollSeconds.max" step="1" @change="savePoll" />
-              <span class="unit">seconds</span>
-            </div>
+        <div class="row">
+          <div class="what">
+            <span class="name">Appearance</span>
+            <span class="hint">System follows your Mac’s light or dark setting.</span>
           </div>
+          <div class="ctl"><ThemeSwitch /></div>
         </div>
-
-        <!-- Notifications -->
-        <div class="card" role="group" aria-labelledby="notify-title">
-          <h2 id="notify-title">Notifications</h2>
-          <div class="row">
-            <div class="what">
-              <label class="name" for="notify-on">Send notifications</label>
-              <p class="hint">Only for configs you watch. Issues are recorded either way.</p>
-            </div>
-            <div class="ctl">
-              <input id="notify-on" class="switch" type="checkbox" role="switch" :checked="notify.enabled" @change="setNotify('enabled', ($event.target as HTMLInputElement).checked)" />
-            </div>
+        <div class="row">
+          <div class="what">
+            <label class="name" for="menubar-count">Show the unread count in the menu bar</label>
+            <span class="hint">The number beside Visor’s menu-bar icon. The bell and the icon’s menu show it either way.</span>
           </div>
-          <fieldset class="types" :disabled="!notify.enabled">
-            <legend class="sr-only">Notify me when</legend>
-            <label v-for="t in notifyTypes" :key="t.key" class="check">
-              <input type="checkbox" :checked="notify[t.key]" @change="setNotify(t.key, ($event.target as HTMLInputElement).checked)" />
-              {{ t.label }}
-            </label>
-          </fieldset>
-          <div class="row">
-            <div class="what">
-              <span class="name">macOS permission</span>
-              <p class="hint">Visor asks once, the first time it runs.</p>
-            </div>
-            <div class="ctl">
-              <span :class="['badge', 'wrap', permissionView.cls]" data-testid="notify-permission"><span class="dot" aria-hidden="true" />{{ permissionView.text }}</span>
-              <button type="button" class="btn" :disabled="testBusy" @click="sendTest">Send a test notification</button>
-            </div>
-          </div>
-          <div class="row">
-            <div class="what">
-              <span class="name">Keep them on screen</span>
-              <p class="hint">
-                macOS decides how long they stay. Visor asks for Persistent (they stay until you close them) when it first runs; choose
-                Temporary in System Settings → Notifications → Visor to have them slide away.
-              </p>
-            </div>
-            <div class="ctl">
-              <button type="button" class="btn" @click="openNotificationSettings">Open Notification Settings</button>
-            </div>
-          </div>
-        </div>
-
-          </div>
-          <div class="col">
-        <!-- Crash loops -->
-        <div class="card" role="group" aria-labelledby="loop-title">
-          <h2 id="loop-title">Crash loops</h2>
-          <div class="row">
-            <div class="what">
-              <span class="name">Open a crash-loop issue after</span>
-              <p class="hint">Restarts you ask for don’t count.</p>
-              <p v-if="notes.restarts" class="note" role="status">{{ notes.restarts }}</p>
-              <p v-if="notes.window" class="note" role="status">{{ notes.window }}</p>
-            </div>
-            <div class="ctl">
-              <input id="loop-restarts" v-model="fields.restarts" @input="editing.add('restarts')" aria-label="Restarts" class="num" type="number" inputmode="numeric" :min="LIMITS.restarts.min" :max="LIMITS.restarts.max" step="1" @change="saveRestarts" />
-              <span class="unit">restarts within</span>
-              <input id="loop-window" v-model="fields.window" @input="editing.add('window')" aria-label="Minutes" class="num" type="number" inputmode="numeric" :min="LIMITS.windowMinutes.min" :max="LIMITS.windowMinutes.max" step="1" @change="saveWindow" />
-              <span class="unit">minutes</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Issue history -->
-        <div class="card" role="group" aria-labelledby="keep-title">
-          <h2 id="keep-title">Issue history</h2>
-          <div class="row">
-            <div class="what">
-              <label class="name" for="keep">Keep resolved issues and process history for</label>
-              <p class="hint">At least 7 days. Open issues are always kept. A shorter time deletes older entries once you confirm.</p>
-              <p v-if="notes.retention" class="note" role="status">{{ notes.retention }}</p>
-            </div>
-            <div class="ctl">
-              <input id="keep" v-model="fields.retention" class="num" @input="editing.add('retention')" type="number" inputmode="numeric" :min="LIMITS.retentionDays.min" :max="LIMITS.retentionDays.max" step="1" @keydown.enter="applyRetention" @keydown.esc="cancelRetention" />
-              <span class="unit">days</span>
-              <template v-if="retention.kind === 'raise' || retention.kind === 'lower'">
-                <button type="button" class="btn" :disabled="retentionBusy" @click="cancelRetention">Cancel</button>
-                <button type="button" class="btn primary" :disabled="retentionBusy" @click="applyRetention">{{ retentionBusy ? 'Applying…' : 'Apply' }}</button>
-              </template>
-            </div>
-          </div>
-        </div>
-
-        <!-- Startup and appearance -->
-        <div class="card" role="group" aria-labelledby="general-title">
-          <h2 id="general-title">General</h2>
-          <div class="row">
-            <div class="what">
-              <label class="name" for="login">Launch at login</label>
-              <p id="login-hint" class="hint">{{ login.view.value ? loginHint(login.view.value.Status) : '' }}</p>
-              <p v-if="login.view.value?.Status === 'requires_approval'" class="hint">
-                <button type="button" class="btn" @click="login.openLoginItems">Open Login Items</button>
-              </p>
-              <p v-if="login.error.value" class="note" role="alert">{{ login.error.value }}</p>
-            </div>
-            <div class="ctl">
-              <input
-                id="login"
-                class="switch"
-                type="checkbox"
-                role="switch"
-                aria-describedby="login-hint"
-                :checked="login.view.value?.On ?? false"
-                :disabled="!login.view.value || login.busy.value || loginLocked(login.view.value.Status)"
-                @change="setLogin($event)"
-              />
-            </div>
-          </div>
-          <div class="row">
-            <div class="what">
-              <label class="name" for="menubar-count">Show the unread count in the menu bar</label>
-              <p class="hint">The number beside Visor’s menu-bar icon. The bell and the icon’s menu show it either way.</p>
-            </div>
-            <div class="ctl">
-              <input id="menubar-count" class="switch" type="checkbox" role="switch" :checked="s?.menuBarCount ?? true" @change="setMenuBarCount(($event.target as HTMLInputElement).checked)" />
-            </div>
-          </div>
-          <div class="row">
-            <div class="what">
-              <span class="name">Appearance</span>
-              <p class="hint">System follows your Mac’s light/dark setting.</p>
-            </div>
-            <div class="ctl"><ThemeSwitch /></div>
-          </div>
-        </div>
+          <div class="ctl">
+            <input id="menubar-count" class="switch" type="checkbox" role="switch" :checked="s?.menuBarCount ?? true" @change="setMenuBarCount(($event.target as HTMLInputElement).checked)" />
           </div>
         </div>
       </div>
-    </template>
+
+      <!-- Connection -->
+      <div class="card" role="group" aria-labelledby="conn-title">
+        <div class="card-head">
+          <h2 id="conn-title" class="card-title">Connection</h2>
+          <span :class="['badge', `b-${status.tone}`]"><span :class="['dot', `d-${status.tone}`]" aria-hidden="true" />{{ status.text }}</span>
+        </div>
+
+        <div class="row wide">
+          <div class="what">
+            <span class="name">Config file</span>
+            <span class="hint">
+              <template v-if="envSet">Set by <span class="mono">VISOR_CONFIG</span>. Unset it to choose a file here.</template>
+              <template v-else-if="!conn.configPath">Auto-detect looks in the usual Homebrew and system locations.</template>
+              <template v-else>The supervisord.conf Visor reads.</template>
+            </span>
+          </div>
+          <div class="ctl end">
+            <span class="mono value" data-testid="config-path">{{
+              envSet ? view.EnvConfigPath : conn.configPath || (view.Settings.configPath === '' && view.ConfigPath ? `Auto-detect: ${view.ConfigPath}` : 'Auto-detect')
+            }}</span>
+            <span class="btns">
+              <button type="button" class="btn sm" :disabled="envSet || connBusy" @click="choose">Choose…</button>
+              <button type="button" class="btn sm" :disabled="envSet || connBusy || !conn.configPath" @click="autoDetect">Use auto-detect</button>
+            </span>
+          </div>
+        </div>
+
+        <div class="row wide">
+          <div class="what">
+            <span class="name">Socket</span>
+            <span class="hint">Read from the config’s <span class="mono">[unix_http_server]</span> or <span class="mono">[inet_http_server]</span> section.</span>
+          </div>
+          <div class="ctl end">
+            <span v-if="view.Socket" class="mono value">{{ view.Socket }}</span>
+            <span v-else class="hint">None found</span>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="what">
+            <label class="name" for="conn-user">Username</label>
+            <span class="hint">Leave empty to use the <span class="mono">[supervisorctl]</span> username and password in the config.</span>
+          </div>
+          <div class="ctl">
+            <input id="conn-user" v-model.trim="conn.username" class="input field" type="text" autocomplete="off" spellcheck="false" placeholder="From the config" />
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="what">
+            <label class="name" for="conn-pass">Password</label>
+            <span class="hint">
+              Kept in your Keychain, never in a file.<template v-if="view.HasPassword"> Removing it also clears the username, so the config’s credentials apply again.</template>
+            </span>
+          </div>
+          <div v-if="view.HasPassword && !changingPassword" class="ctl">
+            <span class="pw-saved" data-testid="password-saved">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
+              Saved in your Keychain
+            </span>
+            <button type="button" class="btn sm" :disabled="connBusy" @click="changePassword">Change…</button>
+            <button type="button" class="btn sm" :disabled="connBusy" @click="removePassword">Remove password</button>
+          </div>
+          <div v-else class="ctl">
+            <input
+              id="conn-pass"
+              ref="passwordBox"
+              v-model="conn.password"
+              class="input field"
+              type="password"
+              autocomplete="off"
+              :placeholder="view.HasPassword ? 'New password' : 'Optional'"
+            />
+          </div>
+        </div>
+
+        <div v-if="connError" class="alert inset" role="alert">
+          <strong>Can’t save the connection</strong>
+          <p>{{ connError }}</p>
+        </div>
+        <p v-else-if="serverError" class="server-error" role="status">{{ describeError(serverError) }}</p>
+
+        <div class="foot">
+          <button
+            type="button"
+            class="btn"
+            :disabled="connBusy || connDirty"
+            :title="connDirty ? 'Save and reconnect to use your changes' : undefined"
+            @click="reconnect"
+          >
+            {{ connBusy && !connDirty ? 'Reconnecting…' : 'Reconnect' }}
+          </button>
+          <template v-if="connDirty">
+            <button type="button" class="btn" :disabled="connBusy" @click="cancelConnection">Cancel</button>
+            <button type="button" class="btn primary" :disabled="connBusy" @click="saveConnection">{{ connBusy ? 'Reconnecting…' : 'Save and reconnect' }}</button>
+          </template>
+        </div>
+      </div>
+
+      <!-- Notifications -->
+      <div class="card" role="group" aria-labelledby="notify-title">
+        <h2 id="notify-title" class="card-title">Notifications</h2>
+        <div class="row">
+          <div class="what">
+            <label class="name" for="notify-on">Send notifications</label>
+            <span class="hint">Only for configs you watch. Issues are recorded either way.</span>
+          </div>
+          <div class="ctl">
+            <input id="notify-on" class="switch" type="checkbox" role="switch" :checked="notify.enabled" @change="setNotify('enabled', ($event.target as HTMLInputElement).checked)" />
+          </div>
+        </div>
+        <fieldset class="types" :disabled="!notify.enabled">
+          <legend class="sr-only">Notify me when</legend>
+          <label v-for="t in notifyTypes" :key="t.key" class="check">
+            <input type="checkbox" :checked="notify[t.key]" @change="setNotify(t.key, ($event.target as HTMLInputElement).checked)" />
+            {{ t.label }}
+          </label>
+        </fieldset>
+        <div class="row">
+          <div class="what">
+            <span class="name">macOS permission</span>
+            <span class="hint">Visor asks once, the first time it runs.</span>
+          </div>
+          <div class="ctl">
+            <span :class="['badge', 'wrap', `b-${permissionView.tone}`]" data-testid="notify-permission"><span :class="['dot', `d-${permissionView.tone}`]" aria-hidden="true" />{{ permissionView.text }}</span>
+            <button type="button" class="btn sm" :disabled="testBusy" @click="sendTest">Send a test notification</button>
+          </div>
+        </div>
+        <div class="row">
+          <div class="what">
+            <span class="name">Keep them on screen</span>
+            <span class="hint">
+              macOS decides how long they stay. Visor asks for Persistent (they stay until you close them) when it first runs; choose
+              Temporary in System Settings → Notifications → Visor to have them slide away.
+            </span>
+          </div>
+          <div class="ctl">
+            <button type="button" class="btn sm" @click="openNotificationSettings">Open Notification Settings</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Checking and history (was Polling, Crash loops and Issue history) -->
+      <div class="card" role="group" aria-labelledby="check-title">
+        <h2 id="check-title" class="card-title">Checking and history</h2>
+        <div class="row">
+          <div class="what">
+            <label class="name" for="poll">Check supervisord every</label>
+            <span class="hint">1 to 10 seconds. Shorter shows changes sooner.</span>
+            <span v-if="notes.poll" class="note" role="status">{{ notes.poll }}</span>
+          </div>
+          <div class="ctl">
+            <input id="poll" v-model="fields.poll" class="input num" @input="editing.add('poll')" type="number" inputmode="decimal" :min="LIMITS.pollSeconds.min" :max="LIMITS.pollSeconds.max" step="1" @change="savePoll" />
+            <span class="unit">seconds</span>
+          </div>
+        </div>
+        <div class="row">
+          <div class="what">
+            <span class="name">Open a crash-loop issue after</span>
+            <span class="hint">Restarts you ask for don’t count.</span>
+            <span v-if="notes.restarts" class="note" role="status">{{ notes.restarts }}</span>
+            <span v-if="notes.window" class="note" role="status">{{ notes.window }}</span>
+          </div>
+          <div class="ctl">
+            <input id="loop-restarts" v-model="fields.restarts" @input="editing.add('restarts')" aria-label="Restarts" class="input num" type="number" inputmode="numeric" :min="LIMITS.restarts.min" :max="LIMITS.restarts.max" step="1" @change="saveRestarts" />
+            <span class="unit">restarts within</span>
+            <input id="loop-window" v-model="fields.window" @input="editing.add('window')" aria-label="Minutes" class="input num" type="number" inputmode="numeric" :min="LIMITS.windowMinutes.min" :max="LIMITS.windowMinutes.max" step="1" @change="saveWindow" />
+            <span class="unit">minutes</span>
+          </div>
+        </div>
+        <div class="row">
+          <div class="what">
+            <label class="name" for="keep">Keep resolved issues and process history for</label>
+            <span class="hint">At least 7 days. Open issues are always kept. A shorter time deletes older entries once you confirm.</span>
+            <span v-if="notes.retention" class="note" role="status">{{ notes.retention }}</span>
+          </div>
+          <div class="ctl">
+            <input id="keep" v-model="fields.retention" class="input num" @input="editing.add('retention')" type="number" inputmode="numeric" :min="LIMITS.retentionDays.min" :max="LIMITS.retentionDays.max" step="1" @keydown.enter="applyRetention" @keydown.esc="cancelRetention" />
+            <span class="unit">days</span>
+            <template v-if="retention.kind === 'raise' || retention.kind === 'lower'">
+              <button type="button" class="btn sm" :disabled="retentionBusy" @click="cancelRetention">Cancel</button>
+              <button type="button" class="btn sm primary" :disabled="retentionBusy" @click="applyRetention">{{ retentionBusy ? 'Applying…' : 'Apply' }}</button>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <ConfirmDialog
       v-if="confirmRetention"
@@ -658,71 +641,59 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 16px; container-type: inline-size; }
+/* Board 12 (SettingsNew): one column of cards; every row has the label and
+   help on the left and the control on the right, like System Settings. */
+.page { display: flex; flex-direction: column; gap: 18px; max-width: 860px; container-type: inline-size; }
+header { display: flex; flex-direction: column; gap: 6px; }
+.title { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+h1 { margin: 0; font-family: var(--display); font-optical-sizing: auto; font-size: 30px; font-weight: 650; line-height: 1.1; letter-spacing: -0.015em; }
+.intro { margin: 0; color: var(--ink2); }
 .cards { display: flex; flex-direction: column; gap: 16px; }
-/* Wide windows: the other cards sit in two columns, under Connection. */
-.more, .col { display: flex; flex-direction: column; gap: 16px; }
-@container (min-width: 1100px) {
-  .more { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+.card { border: 1px solid var(--line); border-radius: 10px; background: var(--raised); }
+.card-title { margin: 0; font-size: 15px; font-weight: 600; }
+.card > .card-title { padding: 14px 18px 4px; }
+.card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 10px; padding: 14px 18px 4px; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 16px; row-gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); }
+.row.wide { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
+.card-title + .row, .card-head + .row { border-top: 0; }
+/* A narrow window stacks each row: the control goes under its label. */
+@container (max-width: 600px) {
+  .row, .row.wide { grid-template-columns: minmax(0, 1fr); }
+  .ctl, .ctl.end { justify-content: flex-start; align-items: flex-start; }
+  .ctl.end .value { text-align: left; }
 }
-header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
-h1 { margin: 0; font-size: 22px; font-weight: 650; }
-h2 { margin: 0; font-size: 14px; font-weight: 650; }
-.intro { margin: 4px 0 0; max-width: 600px; color: var(--text-muted); }
-.saved { color: var(--text-muted); font-size: 12px; }
-.card { border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-.card-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
-.row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding-top: 10px; border-top: 1px solid var(--stopped-bg); }
-.card > h2 + .row, .card-head + .row { border-top: 0; padding-top: 2px; }
-.what { flex: 1 1 260px; min-width: 0; }
+.what { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .name { font-weight: 600; }
-.hint { margin: 2px 0 0; color: var(--text-muted); font-size: 12px; }
-.note { margin: 4px 0 0; color: var(--warning-fg); font-size: 12px; }
-.ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.ctl.wide { flex: 1 1 320px; justify-content: flex-end; }
-.stack { flex-direction: column; align-items: stretch; }
-.stack .what { flex: none; }
-.stack .ctl.wide { flex: none; justify-content: flex-start; }
-.ctl.wide input { flex: 1 1 260px; min-width: 0; max-width: 560px; }
-.btns { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.mono { font-family: var(--font-mono); font-size: 12px; }
-.value { overflow-wrap: anywhere; user-select: text; }
-.pw-saved { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); }
-.unit { color: var(--text-muted); }
-input[type='text'], input[type='password'], input[type='number'] { min-height: 32px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; }
-input[type='text'], input[type='password'] { width: 220px; }
-input.mono { font-family: var(--font-mono); font-size: 12px; }
-input[readonly] { background: var(--bg-subtle); }
-input:disabled { color: var(--text-muted); }
-input.num { width: 72px; text-align: right; }
-.switch { appearance: none; position: relative; width: 38px; height: 22px; margin: 0; border-radius: 999px; background: var(--line-strong); cursor: pointer; transition: background 0.15s; }
-.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); transition: transform 0.15s; }
+.hint { color: var(--ink3); font-size: 12.5px; }
+.hint-action { padding-top: 4px; }
+.note { color: var(--warn); font-size: 12.5px; }
+.ctl { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
+.ctl.end { flex-direction: column; align-items: flex-end; gap: 6px; }
+.btns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+.value { text-align: right; overflow-wrap: anywhere; user-select: text; }
+.pw-saved { display: inline-flex; align-items: center; gap: 6px; color: var(--ink2); }
+.field { width: 260px; max-width: 100%; }
+/* Number fields: narrow, right-aligned, tabular, the unit after. */
+.num { width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
+.num::-webkit-inner-spin-button, .num::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.unit { color: var(--ink2); }
+.switch { appearance: none; position: relative; flex: none; width: 38px; height: 22px; margin: 0; border-radius: 999px; background: var(--line2); cursor: pointer; transition: background 0.15s; }
+.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--on-accent); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); transition: transform 0.15s; }
 .switch:checked { background: var(--accent); }
 .switch:checked::after { transform: translateX(16px); }
-.switch:disabled { opacity: 0.5; cursor: default; }
-.types { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 4px 0 0 2px; border: 0; }
-.types:disabled { color: var(--text-faint); }
+.switch:disabled { opacity: 0.55; cursor: default; }
+/* The four kinds sit under "Send notifications" and dim with it. */
+.types { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0 18px 12px 34px; border: 0; min-width: 0; }
+.types:disabled { opacity: 0.55; }
 .check { display: flex; align-items: center; gap: 8px; }
 .check input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); }
-.foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 10px; border-top: 1px solid var(--stopped-bg); }
-.btn { display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; white-space: nowrap; cursor: pointer; }
-.btn:hover:not(:disabled) { background: var(--bg-hover); }
-.btn:disabled { color: var(--text-faint); cursor: default; }
-.btn.primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
-.btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
-.badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
-.badge.wrap { white-space: normal; }
-.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-.running { background: var(--running-bg); color: var(--running-fg); }
-.running .dot { background: var(--running-dot); }
-.failing { background: var(--failing-bg); color: var(--failing-fg); }
-.failing .dot { background: var(--failing-dot); }
-.stopped { background: var(--stopped-bg); color: var(--stopped-fg); }
-.stopped .dot { background: var(--stopped-dot); }
-.alert { margin: 0; padding: 12px; border: 1px solid var(--failing-dot); border-radius: var(--radius-md); background: var(--failing-bg); color: var(--failing-fg); }
-.alert p { margin: 4px 0 0; user-select: text; }
-.warn { margin: 0; padding: 12px; border: 1px solid var(--warning-dot); border-radius: var(--radius-md); background: var(--warning-bg); color: var(--warning-fg); }
-.warn p { margin: 4px 0 0; user-select: text; }
-.server-error { margin: 0; color: var(--failing-fg); font-size: 12px; user-select: text; }
+.foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 10px 18px 14px; border-top: 1px solid var(--line); }
+.badge.wrap { height: auto; min-height: 22px; padding: 2px 8px; white-space: normal; }
+.alert { margin: 0; padding: 12px; border: 1px solid var(--error-card-border); border-radius: var(--radius-md); background: var(--bad-soft); color: var(--bad); }
+.alert.inset { margin: 0 18px 12px; }
+.alert p, .warn p { margin: 4px 0 0; user-select: text; }
+.warn { margin: 0; padding: 12px; border: 1px solid var(--warn-dot); border-radius: var(--radius-md); background: var(--warn-soft); color: var(--warn); }
+.server-error { margin: 0; padding: 0 18px 12px; color: var(--bad); font-size: 12.5px; user-select: text; }
 .sr-only { position: absolute; left: -9999px; }
 </style>

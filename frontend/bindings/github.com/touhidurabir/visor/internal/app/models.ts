@@ -3,6 +3,9 @@
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as config$0 from "../config/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as doctor$0 from "../doctor/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -83,6 +86,18 @@ export interface ConnectionInput {
     "Username": string;
     "Password": string;
     "SetPassword": boolean;
+}
+
+/**
+ * CopyDraftView is a new config drafted from an existing one: its file name
+ * and content for Create, what was renamed, and the settings still naming
+ * the original (Doubts) for the editor to point at.
+ */
+export interface CopyDraftView {
+    "FileName": string;
+    "Content": string;
+    "Renames": config$0.Rename[] | null;
+    "Doubts": config$0.CopyDoubt[] | null;
 }
 
 /**

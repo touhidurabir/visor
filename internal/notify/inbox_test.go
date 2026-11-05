@@ -23,7 +23,7 @@ func TestInboxRecordAndRepeat(t *testing.T) {
 	c := &fakeClock{time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)}
 	b := OpenInbox(t.TempDir(), c.now)
 	e, err := b.Record(exitIssue("i1", 1, c.t))
-	if err != nil || e.Read || e.Title != "flaky exited unexpectedly" || e.Detail != "Exited with status 2" || e.Config != "/c/flaky.ini" {
+	if err != nil || e.Read || e.Title != "flaky exited unexpectedly" || e.Detail != "It exited with status 2." || e.Config != "/c/flaky.ini" {
 		t.Fatalf("Record = %+v, %v", e, err)
 	}
 	c.t = c.t.Add(time.Minute)
@@ -81,7 +81,7 @@ func TestInboxRecoveredIsRead(t *testing.T) {
 	b := OpenInbox("", c.now)
 	down := issues.Issue{ID: "u", Kind: issues.KindUnreachable, OpenedAt: c.t.Add(-8 * time.Second), ClosedAt: c.t, Status: issues.StatusResolvedAuto}
 	e, _ := b.Recovered(down)
-	if !e.Read || e.Title != "supervisord is responding again" || e.Detail != "It was unreachable for 8 seconds" || b.Unread() != 0 || e.Level() != Info {
+	if !e.Read || e.Title != "supervisord is responding again" || e.Detail != "It was unreachable for 8 seconds." || b.Unread() != 0 || e.Level() != Info {
 		t.Fatalf("Recovered = %+v", e)
 	}
 }

@@ -95,7 +95,8 @@ test.describe('config editor', () => {
     await expect(lines).toContainText('process_name')
     const save = page.getByRole('button', { name: 'Save & apply' })
     await expect(save).toBeDisabled()
-    await expect(save).toHaveAttribute('title', /Fix 1 line to save/)
+    await expect(page.getByTestId('save-bar').getByRole('status')).toHaveText(/^Fix line \d+ to save\.$/)
+    await expect(page.getByRole('group', { name: 'To fix before saving' })).toContainText('process_name')
     expect(readFileSync(FILE, 'utf8')).toBe(original)
 
     await lines.getByRole('button', { name: 'Apply fix' }).click()
@@ -141,6 +142,8 @@ test.describe('config editor', () => {
     await openApp(page, `/config/${encodeURIComponent(FILE)}`)
     await expect(page.getByRole('region', { name: 'What this config does' })).toContainText('notes-indexer')
     const lines = page.getByRole('region', { name: 'Line by line' })
+    // notes.ini has a suggestion, so the Overview opens on Only problems.
+    await lines.getByRole('button', { name: 'All lines' }).click()
     await expect(lines).toContainText('[program:notes-indexer]')
     await expect(lines).toContainText('What it runs')
     // A missing setting shows the default that applies.

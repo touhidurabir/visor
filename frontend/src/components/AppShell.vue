@@ -3,6 +3,7 @@
 // health comes from the same visor:overview feed as every other view.
 import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { connectionBadge, connectionProblem } from '../lib/connection'
 import { useOverview } from '../lib/overview'
 import { followMenu } from '../lib/menu'
 import Sidebar from './Sidebar.vue'
@@ -29,11 +30,14 @@ const name = computed(() => overview.value?.Server.Name ?? 'Local')
 const health = computed(() => overview.value?.Server.Health ?? 'unknown')
 const failing = computed(() => overview.value?.Stats.Failing ?? 0)
 const openIssues = computed(() => overview.value?.Stats.OpenIssues ?? 0)
+// "Not running", "Not answering" or "Not connected" beside the server's
+// name, as the dashboard and popover word the problem; null while connected.
+const connection = computed(() => connectionBadge(connectionProblem(overview.value?.Server)))
 </script>
 
 <template>
   <div class="shell">
-    <Sidebar :name="name" :health="health" :failing="failing" :open-issues="openIssues" />
+    <Sidebar :name="name" :health="health" :failing="failing" :open-issues="openIssues" :connection="connection" />
     <main class="content"><slot /></main>
     <ToastHost />
   </div>

@@ -84,6 +84,23 @@ export function createDraft(codec: Codec) {
       baseline = state.content
     },
 
+    /**
+     * Starts from a copy of another config: its text, under the file name
+     * the copy chose (kept, as if typed, so it no longer follows the
+     * program name). No template is selected.
+     */
+    loadCopy(fileName: string, content: string) {
+      renderSeq++ // a render still on its way is stale
+      state.templateId = ''
+      state.values = {}
+      state.content = content
+      state.name = firstProgramName(content)
+      state.fileName = fileName
+      state.fileNameEdited = fileName.trim() !== ''
+      followName()
+      baseline = content
+    },
+
     /** True when the text holds edits a new template would overwrite. */
     isDirty(): boolean {
       return state.content.trim() !== '' && state.content !== baseline

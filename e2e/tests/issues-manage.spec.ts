@@ -34,16 +34,17 @@ async function ensureResolvedFlaky(page: Page) {
 const dialog = (page: Page) => page.getByRole('alertdialog')
 
 test.describe('issues page', () => {
-  test('stats add up and the tabs are links', async ({ page }) => {
+  test('the summary adds up and the tabs are links', async ({ page }) => {
     await page.goto('/#/issues')
-    const stats = page.getByRole('list', { name: 'Issue totals' }).or(page.locator('dl[aria-label="Issue totals"]'))
-    for (const label of ['Total', 'Open', 'Resolved', 'Last 24 hours', 'Last 7 days', 'Last 30 days']) {
+    const stats = page.getByRole('group', { name: 'Issue totals' })
+    for (const label of ['open', 'resolved', 'in the last 24 hours', 'in 7 days', 'in 30 days']) {
       await expect(stats.getByText(label, { exact: true })).toBeVisible()
     }
-    const value = async (label: string) => Number(await stats.locator('.tile', { hasText: label }).locator('dd').innerText())
+    const value = async (label: string) => Number(await stats.locator('.part', { hasText: label }).locator('strong').innerText())
     // A new issue can land between two reads, so poll until the numbers agree.
     await expect(async () => {
-      expect(await value('Total')).toBe((await value('Open')) + (await value('Resolved')))
+      expect(await value('in 7 days')).toBeGreaterThanOrEqual(await value('in the last 24 hours'))
+      expect(await value('in 30 days')).toBeGreaterThanOrEqual(await value('in 7 days'))
     }).toPass()
 
     await page.getByRole('link', { name: 'supervisord log' }).click()
@@ -52,6 +53,13 @@ test.describe('issues page', () => {
     await page.getByRole('navigation', { name: 'Issues sections' }).getByRole('link', { name: 'Issues' }).click()
     await expect(page).toHaveURL(/#\/issues$/)
     await expect(stats).toBeVisible()
+
+    // The All tab's total is open plus resolved.
+    await page.getByRole('button', { name: 'All' }).click()
+    await expect(async () => {
+      const total = Number((await page.locator('.table .foot').innerText()).match(/of (\d+) issues/)![1])
+      expect(total).toBe((await value('open')) + (await value('resolved')))
+    }).toPass()
   })
 
   test('the kind filter keeps only that kind', async ({ page }) => {
@@ -59,9 +67,9 @@ test.describe('issues page', () => {
     await expect(rowsOf(page).filter({ hasText: 'mailer-digest' }).first()).toBeVisible({ timeout: 30_000 })
     await page.getByLabel('Kind', { exact: true }).selectOption({ label: "Can't start" })
     await expect(rowsOf(page).first()).toBeVisible()
-    await expect(rowsOf(page).filter({ hasNotText: 'FATAL' })).toHaveCount(0)
+    await expect(rowsOf(page).locator('.kind').filter({ hasNotText: "Can't start" })).toHaveCount(0)
     await page.getByLabel('Kind', { exact: true }).selectOption({ label: 'supervisord unreachable' })
-    await expect(rowsOf(page).filter({ hasNotText: 'UNREACHABLE' })).toHaveCount(0)
+    await expect(rowsOf(page).locator('.kind').filter({ hasNotText: 'Unreachable' })).toHaveCount(0)
     await page.getByLabel('Kind', { exact: true }).selectOption({ label: 'All kinds' })
     await expect(rowsOf(page).filter({ hasText: 'mailer-digest' }).first()).toBeVisible()
   })

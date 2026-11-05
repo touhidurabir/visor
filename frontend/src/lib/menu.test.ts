@@ -37,6 +37,12 @@ describe('menu bar choices', () => {
     expect(takePendingMenu('reload')).toBe(false)
   })
 
+  it('takes the popover’s Open Doctor to Doctor', () => {
+    send('doctor')
+    expect(push).toHaveBeenCalledWith('/doctor')
+    expect(takePendingMenu('doctor')).toBe(false)
+  })
+
   it('ignores Find where there is nothing to search', () => {
     send('find')
     expect(push).not.toHaveBeenCalled()

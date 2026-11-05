@@ -22,6 +22,32 @@ test.describe('navigation', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Local' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'shop-api.ini', exact: true })).toBeVisible()
 
+    await nav.getByRole('link', { name: 'Add new' }).click()
+    await expect(page).toHaveURL(/#\/new$/)
+    await expect(page.getByRole('heading', { level: 1, name: 'Add a new config' })).toBeVisible()
+
+    await nav.getByRole('link', { name: 'Doctor' }).click()
+    await expect(page).toHaveURL(/#\/doctor$/)
+    await expect(page.getByRole('heading', { level: 1, name: 'Your Mac is ready' })).toBeVisible()
+
+    expect(errors).toEqual([])
+  })
+
+  test('the sidebar marks the current page and keeps remote servers for later', async ({ page }) => {
+    const errors = collectErrors(page)
+    await page.goto('/#/issues')
+    const nav = page.getByRole('navigation', { name: 'Servers' })
+    await expect(nav.getByRole('link', { name: /^Issues/ })).toHaveClass(/\bon\b/)
+    await expect(nav.getByRole('link', { name: 'Dashboard' })).not.toHaveClass(/\bon\b/)
+
+    // A config's page belongs under Dashboard.
+    await page.goto('/')
+    await page.getByRole('link', { name: 'notes.ini', exact: true }).click()
+    await expect(page.getByRole('heading', { level: 1, name: 'notes.ini' })).toBeVisible()
+    await expect(nav.getByRole('link', { name: 'Dashboard' })).toHaveClass(/\bon\b/)
+
+    await expect(nav.getByRole('button', { name: /Add a server/ })).toBeDisabled()
+    await expect(nav.getByText('Soon')).toBeVisible()
     expect(errors).toEqual([])
   })
 

@@ -20,7 +20,8 @@ import { openLog, openPath, reveal } from '../lib/finder'
 import { setPendingEdit } from '../lib/pending-edit'
 import { describeError } from '../lib/faults'
 import { bulkConfirm, type BulkConfirm } from '../lib/menus'
-import { sinceLabel } from '../lib/format'
+import { chipSince } from '../lib/format'
+import { stateLook } from '../lib/state'
 import type { Stream } from '../lib/logview'
 import { useOverview } from '../lib/overview'
 import { configRoute } from '../lib/links'
@@ -67,9 +68,9 @@ const selectedLogs = computed(() => detail.value?.Logs?.find((l) => l.Process ==
 const failing = computed(() => procs.value.filter((p) => p.Status === 'failing').length)
 const running = computed(() => procs.value.filter((p) => p.Status === 'running').length)
 const programs = computed(() => detail.value?.Programs ?? new Set(procs.value.map((p) => p.Program || p.Group)).size)
-const subtitle = computed(() => {
+const counts = computed(() => {
   const n = procs.value.length
-  return [path.value, `${programs.value} ${programs.value === 1 ? 'program' : 'programs'}`, `${n} ${n === 1 ? 'process' : 'processes'}`].join(' · ')
+  return `${programs.value} ${programs.value === 1 ? 'program' : 'programs'} · ${n} ${n === 1 ? 'process' : 'processes'}`
 })
 
 /** ?stream= picks the log; else a failing process opens on stderr, where its errors are, when stderr has its own log. */
@@ -214,7 +215,7 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
 </script>
 
 <template>
-  <div class="page">
+  <div :class="['page', { fill: tab === 'logs' && !!config }]">
     <nav class="crumbs" aria-label="Breadcrumb">
       <RouterLink to="/">{{ overview?.Server.Name ?? 'Local' }}</RouterLink> / {{ config?.FileName ?? path.split('/').pop() }}
     </nav>
@@ -236,27 +237,30 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
         <div class="title">
           <div class="h1row">
             <h1>{{ config.FileName }}</h1>
-            <span v-if="failing > 0" class="badge failing"><span class="dot" aria-hidden="true" />{{ failing }} failing</span>
-            <span v-else-if="procs.length && running === procs.length" class="badge running"><span class="dot" aria-hidden="true" />all running</span>
-            <span v-if="config.Changed" class="badge warning">changed on disk</span>
+            <span v-if="failing > 0" class="badge b-bad"><span class="dot d-bad" aria-hidden="true" />{{ failing }} failing</span>
+            <span v-else-if="procs.length && running === procs.length" class="badge b-ok"><span class="dot d-ok" aria-hidden="true" />All running</span>
+            <span v-if="config.Changed" class="badge b-warn">Changed on disk</span>
           </div>
-          <div class="mono sub">{{ subtitle }}</div>
+          <p class="meta sub"><span class="mono">{{ path }}</span> · {{ counts }}</p>
         </div>
         <div class="tools">
           <button
             type="button"
             :class="['btn', { 'watch-on': config.Watched }]"
             :aria-pressed="config.Watched"
-            :title="config.Watched ? 'Visor notifies you when a process in this file fails' : 'Visor stays quiet about this file'"
+            :title="config.Watched ? 'Watching: Visor notifies you when a process in this file fails' : 'Watch: Visor stays quiet about this file until you do'"
             @click="toggleWatch"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0" /></svg>
-            {{ config.Watched ? 'Watching: notify on failure' : 'Watch for failures' }}
+            <svg v-if="config.Watched" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
+            <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0" /></svg>
+            {{ config.Watched ? 'Watching' : 'Watch' }}
           </button>
-          <button type="button" class="btn" :disabled="busy" @click="bulk('start')">Start all</button>
-          <button type="button" class="btn" :disabled="busy" @click="bulk('stop')">Stop all</button>
-          <button type="button" class="btn" :disabled="busy" @click="bulk('restart')">Restart all</button>
-          <button type="button" class="btn" @click="reveal(config.Path)">Reveal in Finder</button>
+          <div class="bulk" role="group" :aria-label="`All processes in ${config.FileName}`">
+            <button type="button" class="btn quiet" :disabled="busy" @click="bulk('start')">Start all</button>
+            <button type="button" class="btn quiet" :disabled="busy" @click="bulk('stop')">Stop all</button>
+            <button type="button" class="btn quiet" :disabled="busy" @click="bulk('restart')">Restart all</button>
+          </div>
+          <button type="button" class="btn quiet" @click="reveal(config.Path)">Reveal in Finder</button>
         </div>
       </header>
 
@@ -265,25 +269,22 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
         <p>{{ overview.Server.Error }}</p>
       </div>
 
-      <section class="chips-wrap" aria-labelledby="procs-label">
-        <span id="procs-label" class="label">Processes in this config</span>
-        <p v-if="!procs.length" class="muted">supervisord runs no process from this file. Apply it to load its programs.</p>
-        <div v-else class="chips" role="group" aria-labelledby="procs-label">
-          <button
-            v-for="p in procs"
-            :key="p.FullName"
-            type="button"
-            :class="['chip', { on: p.FullName === selected?.FullName }]"
-            :aria-pressed="p.FullName === selected?.FullName"
-            :title="`${p.FullName} · ${p.State}`"
-            @click="go({ process: p.FullName })"
-          >
-            <span :class="['dot', p.Status]" aria-hidden="true" />
-            <span class="mono">{{ p.Name }}</span>
-            <span class="since">{{ sinceLabel(p, nowMs) || p.State }}</span>
-          </button>
-        </div>
-      </section>
+      <p v-if="!procs.length" class="muted">supervisord runs no process from this file. Apply it to load its programs.</p>
+      <div v-else class="chips" role="group" aria-label="Processes in this config">
+        <button
+          v-for="p in procs"
+          :key="p.FullName"
+          type="button"
+          :class="['btn', 'chip', { on: p.FullName === selected?.FullName, failing: p.Status === 'failing' }]"
+          :aria-pressed="p.FullName === selected?.FullName"
+          :title="`${p.FullName} · ${p.State}`"
+          @click="go({ process: p.FullName })"
+        >
+          <span :class="['dot', `d-${stateLook(p.State, p.Status).tone}`]" aria-hidden="true" />
+          <span class="mono name">{{ p.Name }}</span>
+          <span :class="['since', { 't-bad': p.Status === 'failing' }]">{{ chipSince(p, nowMs) }}</span>
+        </button>
+      </div>
 
       <div class="tabs" role="tablist" aria-label="Config views">
         <button
@@ -293,7 +294,7 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
           ref="tabEls"
           type="button"
           role="tab"
-          :class="['tab', { on: tab === t.id }]"
+          :class="{ on: tab === t.id }"
           :aria-selected="tab === t.id"
           :aria-controls="`panel-${t.id}`"
           :tabindex="tab === t.id ? 0 : -1"
@@ -304,7 +305,7 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
         </button>
       </div>
 
-      <div :id="`panel-${tab}`" role="tabpanel" :aria-labelledby="`tab-${tab}`">
+      <div :id="`panel-${tab}`" :class="['panel', { fill: tab === 'logs' }]" role="tabpanel" :aria-labelledby="`tab-${tab}`">
         <div v-if="detailError" class="alert detail-error" role="alert">
           <span>Couldn’t read this config’s details. {{ detailError }}</span>
           <button type="button" class="btn" @click="loadDetail">Retry</button>
@@ -322,6 +323,7 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
           />
           <ExplainSummary :view="detail ? detail.Explain : null" :failed="detail?.ExplainError || null" />
           <LineByLine
+            :key="config.Path"
             :view="detail ? detail.Explain : null"
             :failed="detail?.ExplainError || null"
             mode="overview"
@@ -382,44 +384,41 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 18px; }
-.crumbs { color: var(--text-muted); }
-.crumbs a { color: var(--accent-text); }
-header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.title { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.page { display: flex; flex-direction: column; gap: 16px; }
+/* The Logs tab: the log pane takes the rest of the window and scrolls itself. */
+.page.fill { height: 100%; min-height: 560px; }
+.panel.fill { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; }
+.crumbs { color: var(--ink3); font-size: 12.5px; }
+.crumbs a { color: var(--accent-text); text-decoration: none; }
+.crumbs a:hover { text-decoration: underline; }
+header { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; }
+.title { display: flex; flex-direction: column; gap: 4px; margin-right: auto; min-width: 0; }
 .h1row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-h1 { margin: 0; font-size: 22px; font-weight: 650; }
-.sub { color: var(--text-muted); overflow-wrap: anywhere; user-select: text; }
-.mono { font-family: var(--font-mono); font-size: 12px; }
-.muted { margin: 0; color: var(--text-muted); }
-.small { font-size: 12px; }
-.tools { display: flex; flex-wrap: wrap; gap: 8px; }
-.btn { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; text-decoration: none; white-space: nowrap; cursor: pointer; box-sizing: border-box; }
-.btn:hover:not(:disabled) { background: var(--bg-hover); }
-.btn:disabled { color: var(--text-faint); cursor: default; }
-.btn.watch-on, .btn.watch-on:hover { background: var(--selected-bg); border-color: var(--watch-on-border); color: var(--watch-on-fg); }
-.badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
-.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; background: var(--stopped-dot); }
-.badge.failing { background: var(--failing-bg); color: var(--failing-fg); }
-.badge.running { background: var(--running-bg); color: var(--running-fg); }
-.badge.warning { background: var(--warning-bg); color: var(--warning-fg); }
-.failing .dot, .dot.failing { background: var(--failing-dot); }
-.running .dot, .dot.running { background: var(--running-dot); }
-.dot.other { background: var(--warning-dot); }
-.chips-wrap { display: flex; flex-direction: column; gap: 8px; }
-.label { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
-.chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
-.chip:hover { background: var(--bg-hover); }
-.chip.on, .chip.on:hover { border-color: var(--accent-text); background: var(--selected-bg); }
-.since { color: var(--text-muted); }
-.tabs { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
-.tab { min-height: 36px; padding: 0 4px; margin-right: 18px; border: 0; border-bottom: 2px solid transparent; background: transparent; font: inherit; color: var(--stopped-fg); cursor: pointer; }
-.tab.on { border-bottom-color: var(--accent-text); color: var(--text); font-weight: 600; }
+h1 { margin: 0; font-family: var(--display); font-optical-sizing: auto; font-size: 30px; font-weight: 650; line-height: 1.1; letter-spacing: -0.015em; }
+.meta { margin: 0; color: var(--ink3); font-size: 12.5px; }
+.sub { overflow-wrap: anywhere; user-select: text; }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+.muted { margin: 0; color: var(--ink2); }
+.tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.btn.watch-on, .btn.watch-on:hover:not(:disabled) { background: var(--accent-soft); border-color: transparent; color: var(--accent-text); }
+/* Start / Stop / Restart all: one quiet group, as on the dashboard. */
+.bulk { display: inline-flex; border: 1px solid var(--line2); border-radius: var(--radius-sm); overflow: hidden; }
+.bulk .btn { border-radius: 0; }
+.bulk .btn + .btn { border-left: 1px solid var(--line2); }
+.bulk .btn:disabled { background: var(--sunken); }
+/* Process chips: plain, except the failing one, tinted with its state and
+   time in words. The picked one gets a ring. */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.chip .name { font-size: 12.5px; }
+.chip .since { color: var(--ink3); font-size: 12.5px; }
+.chip.failing, .chip.failing:hover:not(:disabled) { background: var(--bad-soft); border-color: transparent; }
+.chip.failing .name, .chip.failing .since { font-weight: 600; }
+.chip.failing .since { color: var(--bad); }
+.chip.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.chip.failing.on { border-color: var(--bad-dot); box-shadow: 0 0 0 1px var(--bad-dot); }
+.tabs { flex-wrap: wrap; }
 .overview { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.card { border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-.card-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
-.alert { margin: 0; padding: 12px; border: 1px solid var(--failing-dot); border-radius: var(--radius-md); background: var(--failing-bg); color: var(--failing-fg); }
+.alert { margin: 0; padding: 12px; border: 1px solid var(--bad-dot); border-radius: var(--radius-md); background: var(--bad-soft); color: var(--bad); }
 .detail-error { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 16px; }
 .alert p { margin: 4px 0 8px; user-select: text; }
 </style>

@@ -86,17 +86,18 @@ export type NotifyPermission = 'allowed' | 'denied' | 'unavailable' | ''
 
 /**
  * notifyPermission words the notification permission for Settings, with
- * the badge style to show it in. '' means it is still being checked.
+ * the badge tone to show it in (the shared b-* and d-* classes). '' means
+ * it is still being checked.
  */
-export function notifyPermission(status: string): { text: string; cls: 'running' | 'failing' | 'stopped' } {
+export function notifyPermission(status: string): { text: string; tone: 'ok' | 'bad' | 'idle' } {
   switch (status) {
     case 'allowed':
-      return { text: 'Allowed', cls: 'running' }
+      return { text: 'Allowed', tone: 'ok' }
     case 'denied':
       // Not answered yet, or turned off: macOS reports both the same way.
-      return { text: 'Not allowed. Allow Visor in System Settings → Notifications.', cls: 'failing' }
+      return { text: 'Not allowed. Allow Visor in System Settings → Notifications.', tone: 'bad' }
     case 'unavailable':
-      return { text: 'Not available in this build', cls: 'stopped' }
+      return { text: 'Not available in this build', tone: 'idle' }
   }
-  return { text: 'Checking…', cls: 'stopped' }
+  return { text: 'Checking…', tone: 'idle' }
 }

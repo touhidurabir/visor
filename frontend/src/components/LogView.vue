@@ -178,43 +178,58 @@ onBeforeUnmount(() => {
 <template>
   <div class="logs">
     <div class="bar">
-      <span class="mono name">{{ process }}</span>
-      <div class="seg-group" role="group" aria-label="Log stream">
+      <!-- Left: what you are watching. Right: what you can do with the file. -->
+      <div class="watching">
+        <div class="seg" role="group" aria-label="Log stream">
+          <button
+            v-for="s in (['stdout', 'stderr'] as const)"
+            :key="s"
+            type="button"
+            :class="{ on: stream === s }"
+            :aria-pressed="stream === s"
+            @click="stream = s"
+          >
+            {{ s }}
+          </button>
+        </div>
+        <button type="button" class="btn sm" :disabled="!!noLog || !!error || !!lost" @click="togglePause">
+          <svg v-if="paused" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5v14l12-7z" /></svg>
+          <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
+          {{ paused ? 'Resume' : 'Pause' }}
+        </button>
+        <label for="logq" class="sr-only">Search log</label>
+        <input id="logq" ref="search" v-model="query" class="input search" type="search" placeholder="Search log" autocomplete="off" />
+        <span v-if="query" class="meta" aria-live="polite">{{ matches === 0 ? 'No matches' : matches === 1 ? '1 match' : `${matches} matches` }}</span>
+        <span class="meta follow" role="status" data-testid="follow-state">
+          <template v-if="paused">
+            <span class="dot d-warn" aria-hidden="true" /><span title="New lines are buffered and appear when you resume.">Paused{{ waiting > 0 ? ` · ${waiting} new ${waiting === 1 ? 'line' : 'lines'} waiting` : '' }}</span>
+          </template>
+          <template v-else-if="!noLog && !error && !lost">
+            <span class="dot d-ok" aria-hidden="true" /><span title="New lines appear as they are written.">Following live</span>
+          </template>
+        </span>
+      </div>
+      <div class="file">
+        <button type="button" class="btn quiet sm" :disabled="!!noLog || saving" @click="save">{{ saving ? 'Saving…' : 'Save…' }}</button>
         <button
-          v-for="s in (['stdout', 'stderr'] as const)"
-          :key="s"
           type="button"
-          :class="['seg', { on: stream === s }]"
-          :aria-pressed="stream === s"
-          @click="stream = s"
+          class="btn quiet sm"
+          :disabled="!editorPath"
+          :title="editorPath || 'This stream has no log file'"
+          @click="openInEditor"
         >
-          {{ s }}
+          Open in editor
+        </button>
+        <button
+          type="button"
+          class="btn quiet sm danger"
+          :disabled="!running"
+          :title="running ? 'Empties the stdout and stderr logs of this process' : 'supervisord can clear the logs of a running process only'"
+          @click="confirmClear = true"
+        >
+          Clear
         </button>
       </div>
-      <button type="button" class="btn" :disabled="!!noLog || !!error || !!lost" @click="togglePause">{{ paused ? 'Resume' : 'Pause' }}</button>
-      <label for="logq" class="sr-only">Search log</label>
-      <input id="logq" ref="search" v-model="query" type="search" placeholder="Search log" autocomplete="off" />
-      <span v-if="query" class="count" aria-live="polite">{{ matches === 0 ? 'No matches' : matches === 1 ? '1 match' : `${matches} matches` }}</span>
-      <span class="spacer" />
-      <button
-        type="button"
-        class="btn"
-        :disabled="!running"
-        :title="running ? undefined : 'supervisord can clear the logs of a running process only'"
-        @click="confirmClear = true"
-      >
-        Clear
-      </button>
-      <button type="button" class="btn" :disabled="!!noLog || saving" @click="save">{{ saving ? 'Saving…' : 'Save…' }}</button>
-      <button
-        type="button"
-        class="btn"
-        :disabled="!editorPath"
-        :title="editorPath || 'This stream has no log file'"
-        @click="openInEditor"
-      >
-        Open in editor
-      </button>
     </div>
 
     <div v-if="lost && !noLog && !error" class="lost" role="alert">
@@ -234,6 +249,8 @@ onBeforeUnmount(() => {
       <p>{{ error }}</p>
       <button type="button" class="btn" @click="follow">Try again</button>
     </div>
+    <!-- One block per line: the number column is its own, so a long line
+         wraps under its text, not under the number. -->
     <pre
       v-else
       ref="pre"
@@ -242,12 +259,7 @@ onBeforeUnmount(() => {
       :aria-label="`${stream} log of ${process}`"
       :aria-busy="loading"
       @scroll="onScroll"
-    ><template v-if="loading">Loading…</template><template v-else-if="!shown.length"><span class="faint">No output yet. New lines appear here as they are written.</span></template><template v-else><template v-for="l in shown" :key="l.id"><span v-if="l.note" class="note">— {{ l.text }} —</span><template v-else><span class="ln" aria-hidden="true">{{ l.n }}</span><template v-for="(s, j) in highlight(l.text, query)" :key="j"><mark v-if="s.match">{{ s.text }}</mark><template v-else>{{ s.text }}</template></template></template>
-</template></template></pre>
-    <div class="follow-note" aria-live="polite">
-      <template v-if="paused">Paused. New lines are buffered and appear when you resume.{{ waiting > 0 ? ` ${waiting} new ${waiting === 1 ? 'line' : 'lines'} waiting.` : '' }}</template>
-      <template v-else-if="!noLog && !error && !lost">Following live. New lines appear as they are written.</template>
-    </div>
+    ><span v-if="loading" class="note">Loading…</span><span v-else-if="!shown.length" class="note">No output yet. New lines appear here as they are written.</span><template v-else><template v-for="l in shown" :key="l.id"><span v-if="l.note" class="line"><span class="ln" aria-hidden="true" /><span class="note">— {{ l.text }} —</span></span><span v-else class="line"><span class="ln" aria-hidden="true">{{ l.n }}</span><span class="tx"><template v-for="(s, j) in highlight(l.text, query)" :key="j"><mark v-if="s.match">{{ s.text }}</mark><template v-else>{{ s.text }}</template></template></span></span></template></template></pre>
 
     <ConfirmDialog
       v-if="confirmClear"
@@ -261,41 +273,39 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.logs { display: flex; flex-direction: column; gap: 10px; }
-.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.mono { font-family: var(--font-mono); font-size: 12px; }
-.name { font-weight: 600; }
-.seg-group { display: flex; gap: 3px; padding: 3px; background: var(--seg-bg); border-radius: 8px; }
-.seg { min-height: 28px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; font: inherit; font-size: 12px; color: var(--stopped-fg); cursor: pointer; }
-.seg.on { background: var(--seg-on); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
-input[type='search'] { min-height: 32px; flex: 1 1 180px; max-width: 260px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; }
-.count { color: var(--text-muted); font-size: 12px; }
-.spacer { flex: 1; }
-.btn { display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; white-space: nowrap; cursor: pointer; }
-.btn:hover:not(:disabled) { background: var(--bg-hover); }
-.btn:disabled { color: var(--text-faint); cursor: default; }
+.logs { display: flex; flex: 1 1 auto; flex-direction: column; gap: 12px; min-height: 0; }
+.bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.watching, .file { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.file { gap: 4px; }
+.search { width: 220px; height: var(--control-sm); }
+.meta { color: var(--ink3); font-size: 12.5px; }
+.follow { display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; }
+.follow:empty { display: none; }
+/* The log fills what is left of the window (the page sets the height) and
+   scrolls itself. */
 .log {
+  flex: 1 1 0;
   margin: 0;
   min-height: 300px;
-  max-height: max(300px, calc(100vh - 440px));
-  padding: 14px;
+  padding: 14px 0;
   overflow: auto;
   background: var(--log-bg);
-  color: var(--log-fg);
-  border-radius: var(--radius-md);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
+  color: var(--log-ink);
+  border-radius: 10px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.7;
   white-space: pre-wrap;
-  word-break: break-word;
   user-select: text;
 }
-.ln { display: inline-block; min-width: 28px; margin-right: 14px; text-align: right; color: var(--log-muted); user-select: none; }
-.note, .faint { color: var(--log-muted); font-style: italic; }
+.line { display: grid; grid-template-columns: 52px minmax(0, 1fr); column-gap: 14px; padding-right: 14px; }
+.tx { overflow-wrap: anywhere; }
+.ln { text-align: right; color: var(--log-dim); font-variant-numeric: tabular-nums; user-select: none; }
+.log > .note { display: block; padding: 0 14px 0 80px; }
+.note { color: var(--log-dim); font-style: italic; }
 mark { background: var(--log-mark-bg); color: var(--log-mark-fg); border-radius: 2px; }
-.empty-pane { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 120px; padding: 16px; border: 1px dashed var(--line-strong); border-radius: var(--radius-md); }
-.empty-pane p { margin: 0; color: var(--text-muted); }
-.lost { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border: 1px solid var(--failing-dot); border-radius: var(--radius-md); background: var(--failing-bg); color: var(--failing-fg); user-select: text; }
-.follow-note { color: var(--text-muted); min-height: 1.4em; }
+.empty-pane { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 120px; padding: 16px; border: 1px dashed var(--line2); border-radius: var(--radius-md); }
+.empty-pane p { margin: 0; color: var(--ink2); }
+.lost { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border: 1px solid var(--bad-dot); border-radius: var(--radius-md); background: var(--bad-soft); color: var(--bad); user-select: text; }
 .sr-only { position: absolute; left: -9999px; }
 </style>

@@ -11,6 +11,14 @@
 import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wailsio/runtime";
 
 /**
+ * OpenDoctor shows the main window at Doctor (and the Dock icon) and hides
+ * the menu-bar popover: the popover's Open Doctor.
+ */
+export function OpenDoctor(): $CancellablePromise<void> {
+    return $Call.ByID(976692872);
+}
+
+/**
  * OpenNotifications shows the main window with its notification list open.
  */
 export function OpenNotifications(): $CancellablePromise<void> {
