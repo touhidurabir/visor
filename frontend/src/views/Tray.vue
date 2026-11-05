@@ -1,9 +1,10 @@
 <script setup lang="ts">
 // The menu-bar popover (#/tray). Failing processes come first, in a "Needs
 // attention" group; the rest follow under their config file, each with its
-// Watch switch (lib/tray.ts). A row shows only the actions that apply to
-// its state. The footer has Restart all, a config change check and a way
-// into the main window. Kept live by the visor:overview event. The bell
+// Watch bell (lib/tray.ts). A row has two lines (the name; the state and
+// time) and only the word buttons that apply to its state. Copies of one
+// program are one "name ×N" row that unfolds, and its buttons act on every
+// copy. The footer has Restart all, Apply changes and Open Visor…. Kept live by the visor:overview event. The bell
 // shows the unread count (visor:notifications) and opens the notifications,
 // so a failure is noticed even when macOS shows no banner. Laid out as one
 // section per server: this Mac for now; remote servers add sections.
@@ -13,8 +14,7 @@ import { errorMessage, useOverview } from '../lib/overview'
 import { useApplyFlow } from '../lib/apply-flow'
 import { connectionProblem } from '../lib/connection'
 import { useNotifications } from '../lib/notifications'
-import { stateLabel } from '../lib/state'
-import { VERB_LABEL, downLine, footerReason, rowLook, rowName, trayActions, trayGroups, trayHeader, type TrayVerb } from '../lib/tray'
+import { VERB_LABEL, actionTargets, downLine, foldLabel, footerReason, itemActions, itemLook, rowLook, trayActions, trayGroups, trayHeader, type TrayItem, type TrayVerb } from '../lib/tray'
 
 const { overview, error: loadError, reload } = useOverview()
 const flow = useApplyFlow(() => reload())
@@ -41,17 +41,32 @@ const sections = computed(() => [
 ])
 
 const groups = computed(() =>
-  trayGroups(overview.value?.Configs ?? []).map((g) => ({
+  trayGroups(overview.value?.Configs ?? []).map((g, gi) => ({
     ...g,
-    rows: g.processes.map((p) => ({ p, label: rowName(g, p), look: rowLook(p), actions: trayActions(p.State) })),
+    rows: g.items.map((item, ri) => ({
+      item,
+      // The state line's id, for the fold button's description (a path may hold spaces).
+      subId: `tray-sub-${gi}-${ri}`,
+      look: itemLook(item),
+      actions: itemActions(item),
+      copies: item.multi ? item.procs.map((p) => ({ p, look: rowLook(p), actions: trayActions(p.State) })) : [],
+    })),
   })),
 )
+
+// Rows of copies the user unfolded, by TrayItem.key.
+const unfolded = ref(new Set<string>())
+function toggleFold(key: string) {
+  const next = new Set(unfolded.value)
+  if (!next.delete(key)) next.add(key)
+  unfolded.value = next
+}
 
 function openNotifications() {
   void ShellService.OpenNotifications()
 }
 
-const isBusy = (p: ProcessView) => restartingAll.value || busy.value.has(p.FullName)
+const isBusy = (procs: ProcessView[]) => restartingAll.value || procs.some((p) => busy.value.has(p.FullName))
 
 const calls: Record<TrayVerb, (name: string) => Promise<void>> = {
   start: (n) => ServerService.Start(n),
@@ -59,17 +74,27 @@ const calls: Record<TrayVerb, (name: string) => Promise<void>> = {
   restart: (n) => ServerService.Restart(n),
 }
 
-async function act(verb: TrayVerb, p: ProcessView, label: string) {
-  const name = p.FullName
-  busy.value = new Set(busy.value).add(name)
+/**
+ * Runs a row's button: on its process, or on every copy it applies to
+ * (actionTargets), side by side with the per-process calls; never the
+ * group calls, as a [group:x] can hold other programs.
+ */
+async function act(verb: TrayVerb, item: Pick<TrayItem, 'name' | 'procs' | 'multi'>) {
+  const targets = actionTargets(verb, item)
+  if (!targets.length) return
+  const names = targets.map((p) => p.FullName)
+  busy.value = new Set([...busy.value, ...names])
   try {
-    await calls[verb](name)
-    if (notice.value?.kind === 'error') notice.value = null
-  } catch (e) {
-    notice.value = { kind: 'error', text: `Couldn't ${verb} ${label}: ${errorMessage(e)}` }
+    const results = await Promise.allSettled(names.map((n) => calls[verb](n)))
+    const failed = results.flatMap((r, i) => (r.status === 'rejected' ? [{ p: targets[i], e: r.reason as unknown }] : []))
+    if (failed.length) {
+      const who = item.multi ? failed[0].p.Name : item.name
+      const more = failed.length > 1 ? ` (and ${failed.length - 1} more)` : ''
+      notice.value = { kind: 'error', text: `Couldn't ${verb} ${who}: ${errorMessage(failed[0].e)}${more}` }
+    } else if (notice.value?.kind === 'error') notice.value = null
   } finally {
     const next = new Set(busy.value)
-    next.delete(name)
+    for (const n of names) next.delete(n)
     busy.value = next
   }
 }
@@ -183,49 +208,85 @@ function openVisor() {
       <p v-else-if="groups.length === 0" class="meta pad">No processes yet.</p>
       <section v-for="g in problem ? [] : groups" :key="g.key" :aria-label="g.name" class="group">
         <div class="group-head">
-          <h2 :class="['gname', { 't-bad': !g.config }]">{{ g.name }}</h2>
+          <h2 :class="['eyebrow', { 't-bad': !g.config }]">{{ g.name }}</h2>
           <button
             v-if="g.config?.Path"
             type="button"
-            :class="['btn quiet sm watch', { on: g.config.Watched }]"
+            :class="['btn quiet icon watch', { on: g.config.Watched }]"
             :aria-pressed="g.config.Watched"
-            :aria-label="`Watch ${g.config.FileName}`"
+            :aria-label="`${g.config.Watched ? 'Watching' : 'Watch'} ${g.config.FileName}`"
             :title="g.config.Watched ? 'Visor notifies you about problems in this file. Click to stop.' : 'Visor stays quiet about this file. Click to watch it.'"
             :disabled="watching.has(g.config.Path)"
             @click="toggleWatch(g.config)"
           >
-            <svg v-if="g.config.Watched" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <svg v-if="g.config.Watched" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" fill="none" />
             </svg>
-            <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M8.7 3A6 6 0 0 1 18 8c0 2.7.4 4.7.9 6.1" /><path d="M17 17H3s3-2 3-9c0-.5.1-1 .2-1.5" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /><path d="M2 2l20 20" />
             </svg>
-            {{ g.config.Watched ? 'Watching' : 'Watch' }}
           </button>
         </div>
         <p v-if="!g.rows.length && g.moved" class="meta moved">Listed under Needs attention</p>
-        <div v-for="{ p, label, look, actions } in g.rows" :key="p.FullName" :class="['prow', { bad: look.failing }]" data-testid="tray-row">
-          <span :class="['dot', `d-${look.tone}`]" aria-hidden="true" />
-          <span class="name" :title="p.FullName">{{ label }}</span>
-          <span :class="['time', look.timeClass]" :title="stateLabel(p.State)" data-testid="tray-time">{{ look.time }}</span>
-          <span class="acts-row">
+        <div v-for="{ item, subId, look, actions, copies } in g.rows" :key="item.key">
+          <div :class="['prow', { bad: look.failing }]" data-testid="tray-row">
+            <span :class="['dot', `d-${look.tone}`]" aria-hidden="true" />
             <button
-              v-for="v in actions"
-              :key="v"
+              v-if="item.multi"
               type="button"
-              class="btn quiet icon sm act"
-              :aria-label="`${VERB_LABEL[v]} ${label}`"
-              :title="`${VERB_LABEL[v]} ${label}`"
-              :disabled="isBusy(p)"
-              @click="act(v, p, label)"
+              class="fold"
+              :aria-expanded="unfolded.has(item.key)"
+              :aria-label="foldLabel(item, unfolded.has(item.key))"
+              :aria-describedby="subId"
+              @click="toggleFold(item.key)"
             >
-              <svg v-if="v === 'start'" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l12.5-7.5z" /></svg>
-              <svg v-else-if="v === 'stop'" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5.5" y="5.5" width="13" height="13" rx="2" /></svg>
-              <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M20 12a8 8 0 1 1-2.3-5.7" /><path d="M20 4v5h-5" />
-              </svg>
+              <span class="name">
+                <span class="n">{{ item.name }}</span><span class="count-x">×{{ item.procs.length }}</span>
+                <svg :class="['chev', { open: unfolded.has(item.key) }]" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+              </span>
+              <span :id="subId" :class="['sub', look.lineClass]" data-testid="tray-time">{{ look.line }}</span>
             </button>
-          </span>
+            <div v-else class="who-col">
+              <span class="name" :title="item.procs[0].FullName"><span class="n">{{ item.name }}</span></span>
+              <span :class="['sub', look.lineClass]" data-testid="tray-time">{{ look.line }}</span>
+            </div>
+            <span class="acts-row">
+              <button
+                v-for="v in actions"
+                :key="v"
+                type="button"
+                class="btn sm"
+                :aria-label="`${VERB_LABEL[v]} ${item.name}`"
+                :title="item.multi ? `${VERB_LABEL[v]} every copy of ${item.name}` : undefined"
+                :disabled="isBusy(item.procs)"
+                @click="act(v, item)"
+              >
+                {{ VERB_LABEL[v] }}
+              </button>
+            </span>
+          </div>
+          <div v-if="item.multi && unfolded.has(item.key)" class="copies" role="group" :aria-label="`Copies of ${item.name}`">
+            <div v-for="c in copies" :key="c.p.FullName" :class="['prow copy', { bad: c.look.failing }]" data-testid="tray-row">
+              <span :class="['dot', `d-${c.look.tone}`]" aria-hidden="true" />
+              <div class="who-col">
+                <span class="name" :title="c.p.FullName"><span class="n">{{ c.p.Name }}</span></span>
+                <span :class="['sub', c.look.lineClass]" data-testid="tray-time">{{ c.look.line }}</span>
+              </div>
+              <span class="acts-row">
+                <button
+                  v-for="v in c.actions"
+                  :key="v"
+                  type="button"
+                  class="btn sm"
+                  :aria-label="`${VERB_LABEL[v]} ${c.p.Name}`"
+                  :disabled="isBusy([c.p])"
+                  @click="act(v, { name: c.p.Name, procs: [c.p], multi: false })"
+                >
+                  {{ VERB_LABEL[v] }}
+                </button>
+              </span>
+            </div>
+          </div>
         </div>
       </section>
     </div>
@@ -261,15 +322,19 @@ function openVisor() {
         <button type="button" class="btn sm" :disabled="restartingAll || !overview || !!problem" :title="offline" @click="restartAll">
           {{ restartingAll ? 'Restarting…' : 'Restart all' }}
         </button>
-        <button type="button" class="btn sm" :disabled="flow.running.value || !!pending || !overview || !!problem" :title="offline" @click="flow.applyAll">
-          {{ flow.running.value ? 'Working…' : 'Apply config changes' }}
+        <button
+          type="button"
+          class="btn sm"
+          :disabled="flow.running.value || !!pending || !overview || !!problem"
+          :title="offline ?? 'Apply config changes'"
+          @click="flow.applyAll"
+        >
+          {{ flow.running.value ? 'Working…' : 'Apply changes' }}
         </button>
+        <span class="spacer" />
+        <button type="button" class="btn sm" @click="openVisor">Open Visor…</button>
       </div>
       <span v-if="problem" class="meta reason" data-testid="tray-offline">{{ footerReason(problem) }}</span>
-      <button type="button" class="open" @click="openVisor">
-        Open Visor…
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8" /></svg>
-      </button>
     </footer>
   </div>
 </template>
@@ -323,57 +388,99 @@ function openVisor() {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 6px 6px 8px;
+  padding: 4px 6px 8px;
 }
 .pad { margin: 0; padding: 8px; }
+.group { padding-top: 6px; }
 .group-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: var(--control-sm);
-  padding: 6px 0 1px 8px;
+  min-height: var(--control);
+  padding: 2px 2px 0 10px;
 }
-.gname {
+/* The config's name as a small eyebrow; Needs attention in red. */
+.eyebrow {
   margin: 0;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--ink3);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
 }
-.gname.t-bad { color: var(--bad); }
-.watch { flex: none; gap: 4px; padding: 0 7px; color: var(--ink3); font-size: 12px; }
+.eyebrow.t-bad { color: var(--bad); }
+.watch { flex: none; color: var(--ink3); }
 .watch.on, .watch.on:hover:not(:disabled) { color: var(--accent-text); }
-.moved { margin: 0; padding: 2px 8px 6px; font-size: 12px; }
+.watch:disabled { color: var(--idle-dot); }
+.moved { margin: 0; padding: 2px 10px 6px; font-size: 12px; }
+
+/* A row: dot, the name over the state and time, the word buttons. */
 .prow {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 32px;
-  padding: 0 4px 0 8px;
-  border-radius: 6px;
+  gap: 10px;
+  padding: 7px 8px 7px 10px;
+  border-radius: 8px;
 }
 .prow:hover { background: var(--hover); }
 .prow.bad { background: var(--bad-soft); }
-.name {
+.who-col, .fold {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
   min-width: 0;
-  overflow: hidden;
+}
+.fold {
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.fold:hover .n { text-decoration: underline; }
+.name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  color: var(--ink);
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.count-x { flex: none; color: var(--ink3); font-weight: 400; }
+.chev { flex: none; color: var(--ink3); transition: transform .15s; }
+.chev.open { transform: rotate(90deg); }
+.sub {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.time { font-size: 12px; white-space: nowrap; }
-.time.t-bad { font-weight: 600; }
-.acts-row { display: inline-flex; flex: none; justify-content: flex-end; width: calc(2 * var(--control-sm)); }
-.act { color: var(--ink2); }
-.prow.bad .act:hover:not(:disabled) { background: var(--raised); }
-/* Off while an action runs: pale, not just faded. */
-.act:disabled { color: var(--idle-dot); }
+.sub.t-bad { font-weight: 600; }
+.acts-row { display: inline-flex; flex: none; gap: 6px; }
+.prow.bad .btn:hover:not(:disabled) { background: var(--raised); }
+/* The copies of a "name ×N" row, indented under it on a guide line. */
+.copies { margin: 0 0 4px 22px; padding-left: 8px; border-left: 1px solid var(--line); }
+.prow.copy { padding-top: 5px; padding-bottom: 5px; }
+.prow.copy .name { font-size: 12.5px; font-weight: 400; }
+@media (prefers-reduced-motion: reduce) {
+  .chev { transition: none; }
+}
 
 .card {
   display: flex;
@@ -422,26 +529,10 @@ summary { width: max-content; cursor: pointer; }
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 8px;
+  padding: 8px 10px;
   border-top: 1px solid var(--line);
 }
-.row { display: flex; gap: 6px; }
-.row .btn { flex: 1; font-weight: 400; }
-.reason { padding: 0 4px; }
-.open {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: var(--control);
-  padding: 0 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--ink);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-.open:hover { background: var(--hover); }
-.open svg { color: var(--ink3); }
+.row { display: flex; align-items: center; gap: 6px; }
+.spacer { flex: 1; }
+.reason { padding: 0 2px; }
 </style>

@@ -58,7 +58,7 @@ What it covers (`e2e/tests`):
 - `config-editor.spec.ts`, `add-new.spec.ts`, `apply-changes.spec.ts`: editing with diff and backup, adding a config by form or by hand (the fix list and save bar), copying an existing config, applying changes made on disk, removing and restoring.
 - `supervisord-log.spec.ts`: the supervisord log tab, its level filters, search and Follow.
 - `menus.spec.ts`: process action menus, keyboard use, copying a command.
-- `notifications.spec.ts`, `tray.spec.ts`: the bell and its unread count, the menu-bar popover (Needs attention, row actions, footer) and its Watch switches, and the popover with supervisord down, whose Open Doctor takes the main window to Doctor (its own Visor on port 8778).
+- `notifications.spec.ts`, `tray.spec.ts`: the bell and its unread count, the menu-bar popover (Needs attention, two-line rows with word buttons, copies folded into a "×N" row whose Restart restarts every copy, the footer and its Apply changes) and its Watch bells, a failing copy under Needs attention (its own Visor and supervisord on port 8779), and the popover with supervisord down, whose Open Doctor takes the main window to Doctor (its own Visor on port 8778).
 - `theme.spec.ts`: System, Light and Dark (the switch is only in Settings), in the window and the popover.
 - `connection.spec.ts`: a saved password shows as saved, can be changed and removed; with supervisord down, the dashboard and sidebar say so plainly (its own Visor on port 8777).
 - `doctor.spec.ts`: first launch, Start supervisord (it really starts one), a config supervisord refuses, no config, Doctor opening when the first connection fails. It runs its own Visors on ports 8771–8775 with fresh state.
@@ -77,7 +77,7 @@ hand on a Mac before a release, with `wails3 task dev`, or the packaged app
 - [ ] App icon (packaged app): the Pulse icon (ring and mint pulse) in the Dock, Finder and the app switcher, not the Wails logo.
 - [ ] Menu-bar icon: the ring and pulse, with no badge when all is well, a hollow badge for a warning and a filled badge for an error, as processes change (stop one, break a command, let one go FATAL). It reads in a light and a dark menu bar.
 - [ ] Clicking the icon opens the popover; clicking elsewhere closes it; it opens over another Space and over a full-screen app.
-- [ ] In the popover, failing processes are first, under Needs attention, and each config file shows Watching or Watch; switching it there shows the same on the dashboard, and the bell opens the notifications in the main window.
+- [ ] In the popover, failing processes are first, under Needs attention; each row has its name over its state and time, and only the buttons that apply. `mailer-worker ×2` unfolds to its two copies, and its Restart restarts both. Each config's bell is filled (watching) or crossed out (quiet); switching it there shows the same on the dashboard, and the header's bell opens the notifications in the main window. The footer fits on one row in the 360 px popover.
 - [ ] Popover with supervisord down (shut it down from the dashboard): it says supervisord isn't running, and Open Doctor brings the main window forward on Doctor.
 - [ ] Right-click menu: Open Visor, Preferences…, Launch at login, Quit. Launch at login is greyed out in `wails3 task dev` (no app bundle) and works in a packaged build; its check mark matches Settings → General.
 - [ ] Closing the main window hides it and the Dock icon; Visor stays in the menu bar; Open Visor brings both back.

@@ -40,6 +40,19 @@ export function rollUp(procs: ProcessView[]): CardState {
   return { state: lead.State, status: lead.Status, label }
 }
 
+/**
+ * copiesLine is the roll-up of several copies of one program in words
+ * that count: "2 of 2 running", or "3 of 4 running · 1 failing". It counts
+ * running and failing the way rollUp does (RUNNING, and Go's "failing"
+ * status), so a popover row and the program's card agree.
+ */
+export function copiesLine(procs: Pick<ProcessView, 'State' | 'Status'>[]): string {
+  const running = procs.filter((p) => p.State === 'RUNNING').length
+  const failing = procs.filter((p) => p.Status === 'failing').length
+  const line = `${running} of ${procs.length} running`
+  return failing ? `${line} · ${failing} failing` : line
+}
+
 /** The card's title: a program by its name, any other section by its kind and name ("Group", "shop"). */
 export function cardTitle(s: ExplainSectionView): { kind: string; name: string } {
   if (s.Program) return { kind: '', name: s.Program }

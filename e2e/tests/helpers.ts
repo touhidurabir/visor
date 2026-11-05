@@ -43,12 +43,8 @@ export async function processAction(page: Page, fullName: string, item: string) 
   await page.getByRole('menuitem', { name: new RegExp(`^${item}`) }).click()
 }
 
-/**
- * Asks the sandbox supervisord directly (XML-RPC over its unix socket) for
- * every process's state, so a test can check what really happened, not just
- * what the dashboard shows.
- */
-export async function supervisorStates(): Promise<Record<string, string>> {
+/** Every process's info from the sandbox supervisord (XML-RPC over its unix socket), as raw <struct> bodies. */
+async function allProcessInfo(): Promise<string[]> {
   const body = '<?xml version="1.0"?><methodCall><methodName>supervisor.getAllProcessInfo</methodName></methodCall>'
   const xml = await new Promise<string>((resolve, reject) => {
     const req = http.request(
@@ -63,15 +59,37 @@ export async function supervisorStates(): Promise<Record<string, string>> {
     req.on('error', reject)
     req.end(body)
   })
-  const field = (s: string, name: string) => s.match(new RegExp(`<name>${name}</name>\\s*<value><string>([^<]*)</string>`))?.[1]
+  return xml.split('<struct>').slice(1)
+}
+
+const field = (s: string, name: string, type = 'string') => s.match(new RegExp(`<name>${name}</name>\\s*<value><${type}>([^<]*)</${type}>`))?.[1]
+
+/** Each process's "group:name", from a struct. */
+const fullName = (s: string) => {
+  const group = field(s, 'group')
+  const name = field(s, 'name')
+  return group && name ? `${group}:${name}` : ''
+}
+
+/**
+ * Asks the sandbox supervisord directly (XML-RPC over its unix socket) for
+ * every process's state, so a test can check what really happened, not just
+ * what the dashboard shows.
+ */
+export async function supervisorStates(): Promise<Record<string, string>> {
   const states: Record<string, string> = {}
-  for (const s of xml.split('<struct>').slice(1)) {
-    const group = field(s, 'group')
-    const name = field(s, 'name')
+  for (const s of await allProcessInfo()) {
     const state = field(s, 'statename')
-    if (name && state) states[`${group}:${name}`] = state
+    if (fullName(s) && state) states[fullName(s)] = state
   }
   return states
+}
+
+/** Every process's PID from the sandbox supervisord (0 when not running), to tell a restart happened. */
+export async function supervisorPids(): Promise<Record<string, number>> {
+  const pids: Record<string, number> = {}
+  for (const s of await allProcessInfo()) if (fullName(s)) pids[fullName(s)] = Number(field(s, 'pid', 'int') ?? 0)
+  return pids
 }
 
 /** The config row of a file on the dashboard. */

@@ -6,6 +6,7 @@ import {
   cardOfLine,
   cardTitle,
   codeTokens,
+  copiesLine,
   emptyOpen,
   hiddenNote,
   nextOpen,
@@ -24,6 +25,18 @@ const section = (Name: string, lines: ExplainLineView[]): ExplainSectionView => 
 })
 const view = (sections: ExplainSectionView[], o: Partial<ExplainView> = {}): ExplainView => ({
   Summary: '', Errors: 0, SaveErrors: 0, Suggestions: 0, Settings: 0, Paths: 0, ParseError: null, FileProblems: null, Sections: sections, ...o,
+})
+
+describe('copiesLine', () => {
+  it('counts the running copies, and the failing ones when there are any', () => {
+    expect(copiesLine([proc('a', 'RUNNING', 'running', 0), proc('a', 'RUNNING', 'running', 1)])).toBe('2 of 2 running')
+    const four = [proc('a', 'RUNNING', 'running', 0), proc('a', 'RUNNING', 'running', 1), proc('a', 'BACKOFF', 'failing', 2), proc('a', 'RUNNING', 'running', 3)]
+    expect(copiesLine(four)).toBe('3 of 4 running · 1 failing')
+    // The same running count rollUp says for a mix.
+    const mix = [proc('a', 'RUNNING', 'running', 0), proc('a', 'STOPPED', 'stopped', 1)]
+    expect(copiesLine(mix)).toBe('1 of 2 running')
+    expect(rollUp(mix).label).toBe('1 of 2 running')
+  })
 })
 
 describe('rollUp', () => {
