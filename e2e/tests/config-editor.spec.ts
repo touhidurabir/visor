@@ -38,8 +38,8 @@ test.describe('config editor', () => {
     const before = await supervisorStates()
     const save = page.getByRole('button', { name: 'Save & apply' })
     await expect(save).toBeDisabled() // nothing to save yet
-    await expect(page.getByRole('region', { name: 'Line by line' })).toContainText('What it runs')
-    await expect(page.getByRole('region', { name: 'Line by line' })).not.toContainText('Error.')
+    await expect(page.getByRole('region', { name: 'What this config does' })).toContainText('What it runs')
+    await expect(page.getByRole('region', { name: 'What this config does' })).not.toContainText('Error.')
 
     await setText(page, original.replace('sleep 2', 'sleep 3'))
     await expect(page.getByText('Unsaved changes')).toBeVisible()
@@ -90,7 +90,7 @@ test.describe('config editor', () => {
   test('an error blocks saving until its fix is applied', async ({ page }) => {
     await openEditor(page)
     await setText(page, '[program:notes-indexer]\ncommand=sleep 1\nnumprocs=2\n')
-    const lines = page.getByRole('region', { name: 'Line by line' })
+    const lines = page.getByRole('region', { name: 'What this config does' })
     await expect(lines).toContainText('Error.')
     await expect(lines).toContainText('process_name')
     const save = page.getByRole('button', { name: 'Save & apply' })
@@ -141,7 +141,7 @@ test.describe('config editor', () => {
   test('the overview explains the config line by line', async ({ page }) => {
     await openApp(page, `/config/${encodeURIComponent(FILE)}`)
     await expect(page.getByRole('region', { name: 'What this config does' })).toContainText('notes-indexer')
-    const lines = page.getByRole('region', { name: 'Line by line' })
+    const lines = page.getByRole('region', { name: 'What this config does' })
     // notes.ini has a suggestion, so the Overview opens on Only problems.
     await lines.getByRole('button', { name: 'All lines' }).click()
     await expect(lines).toContainText('[program:notes-indexer]')

@@ -86,7 +86,7 @@ test.describe('add new config', () => {
     const editor = page.getByRole('textbox', { name: 'Config contents' })
     await expect(editor).toContainText('[program:acme-queue]')
     const save = page.getByTestId('save-new')
-    const lines = page.getByRole('region', { name: 'Line by line' })
+    const lines = page.getByRole('region', { name: 'What this config does' })
 
     // A file name outside the include pattern is an error.
     await page.getByLabel('File name').fill('e2e-task.conf')
@@ -102,7 +102,9 @@ test.describe('add new config', () => {
     await expect(save).toHaveText('Save & apply')
     await expect(save).toBeEnabled()
     await expect(lines).not.toContainText('Error.')
-    await expect(page.getByTestId('explain-summary')).toContainText('e2e-task runs the program at /bin/sleep')
+    // The program's card: its name, and what it does in one sentence.
+    await expect(lines.getByRole('button', { name: /^Program e2e-task/ })).toBeVisible()
+    await expect(lines).toContainText('Runs the program at /bin/sleep and starts with supervisord.')
     await expect(lines).toContainText('Runs it inside /tmp.')
     const notes = readFileSync('/tmp/visor-e2e/conf.d/notes.ini', 'utf8')
     await save.click()
@@ -127,7 +129,7 @@ test.describe('add new config', () => {
     await page.keyboard.press('ControlOrMeta+a')
     await page.keyboard.insertText('[program:e2e-task]\ncommand=/bin/sleep 600\ndirectory=/tmp\nnumprocs=2\nautostart=false\n')
 
-    // The problem is listed above the full line-by-line list, with its line.
+    // The problem is listed above the program's card, with its line.
     const toFix = page.getByRole('group', { name: 'To fix before saving' })
     await expect(toFix).toContainText('Line 4')
     await expect(toFix).toContainText('process_name')
@@ -137,7 +139,7 @@ test.describe('add new config', () => {
     await expect(bar.getByRole('button', { name: 'Save & apply' })).toBeDisabled()
     await expect(bar.getByRole('status')).toHaveText('Fix line 4 to save.')
     // The summary above stays neutral.
-    await expect(page.getByTestId('explain-summary')).not.toContainText('can’t be saved')
+    await expect(page.getByTestId('explain-counts')).not.toContainText('can’t be saved')
 
     // The error line has an icon in the gutter, not only a tint.
     const icon = page.getByTestId('ini-editor').locator('.cm-mark-icon[data-mark="error"]')
@@ -174,15 +176,18 @@ test.describe('add new config', () => {
     // The preview marks that line too.
     await expect(page.getByLabel('File contents').locator('.pline.warning')).toContainText('directory=/tmp/visor-e2e-no-such-folder')
 
-    // The full line by line is folded under "Explain every line".
-    const lines = page.getByRole('region', { name: 'Line by line' })
-    const every = page.getByText(/^Explain every line/)
-    await expect(lines).toBeHidden()
-    await every.click()
-    await expect(lines).toBeVisible()
+    // Every line is explained in the program's card, which folds. The only
+    // card starts open; a new file has no live state.
+    const lines = page.getByRole('region', { name: 'What this config does' })
+    const card = lines.getByRole('button', { name: /^Program acme-task/ })
+    await expect(card).toHaveAttribute('aria-expanded', 'true')
     await expect(lines).toContainText('Runs it inside')
-    await every.click()
-    await expect(lines).toBeHidden()
+    await expect(card.locator('.state')).toHaveCount(0)
+    await card.click()
+    await expect(card).toHaveAttribute('aria-expanded', 'false')
+    await expect(lines).not.toContainText('Runs it inside')
+    await card.click()
+    await expect(lines).toContainText('Runs it inside')
 
     // The same bar as Write it.
     await expect(page.getByTestId('save-bar').getByRole('button', { name: 'Save & apply' })).toBeVisible()

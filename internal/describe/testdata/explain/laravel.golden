@@ -1,6 +1,7 @@
-summary: This file sets up one background program. acme-queue runs three copies of a Laravel queue worker and starts with supervisord. Its output goes to /var/log/acme/queue.log.
+summary: This file sets up one program.
 
 [program:acme-queue] program="acme-queue"
+  summary: Runs three copies of a Laravel queue worker and starts with supervisord.
   2 section [program:acme-queue]
     => Starts a program section. Visor and supervisorctl call it acme-queue.
   3 key     command=php artisan queue:work redis --queue=high,default --tries=3 --max-time=3600
@@ -31,6 +32,7 @@ summary: This file sets up one background program. acme-queue runs three copies 
     => supervisord doesn’t know this setting, so it ignores it.
 
 [group:acme] program=""
+  summary: Starts and stops acme-queue together as acme.
  18 section [group:acme]
     => A group: its programs can be started and stopped together as acme.
  19 key     programs=acme-queue

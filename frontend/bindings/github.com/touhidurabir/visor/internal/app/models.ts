@@ -201,11 +201,15 @@ export interface ExplainLineView {
 
 /**
  * ExplainSectionView is one [name] block; Program is "" unless it is a
- * [program:x].
+ * [program:x]. Summary is one short sentence about what it does, without
+ * its name. Failure is what supervisord says about the program failing
+ * right now ("Can’t run: exited too quickly…"), "" when nothing is.
  */
 export interface ExplainSectionView {
     "Name": string;
     "Program": string;
+    "Summary": string;
+    "Failure": string;
     "Lines": ExplainLineView[] | null;
 }
 

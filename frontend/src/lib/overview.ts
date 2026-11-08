@@ -48,11 +48,13 @@ export function useOverview(): {
 }
 
 /**
- * opensOnProblems is where a config's Overview starts its "Line by line"
+ * opensOnProblems is where a config's Overview starts its explanation
  * (flow 2, approved 2026-11-04): on "Only problems" when the file has an
  * error, a warning or a suggestion, so what needs you is first; on "All
  * lines" when it has none, or before it has loaded, or when it can't be
  * read (that error shows instead of the lines). The user can still switch.
+ * With one card per program, "Only problems" leaves out the cards with no
+ * problem line, but never a failing one (buildCards in explain-cards).
  */
 export function opensOnProblems(view: ExplainView | null): boolean {
   if (!view || view.ParseError) return false

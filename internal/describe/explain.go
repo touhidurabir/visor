@@ -19,10 +19,13 @@ type Explanation struct {
 }
 
 // Section is one [name] block. Program is the program's name for a
-// [program:x] section and "" for any other kind.
+// [program:x] section and "" for any other kind. Summary is one short
+// sentence about what the section does, without its name: "Runs a
+// Laravel queue worker and starts with supervisord."
 type Section struct {
 	Name    string // as written: "program:web", "group:shop"
 	Program string
+	Summary string
 	Lines   []Line
 }
 
@@ -65,12 +68,13 @@ func Explain(content string, h Hints) (Explanation, error) {
 	}
 	raw := strings.Split(content, "\n")
 	var ex Explanation
-	var progs []string
+	progs := 0
 	for _, s := range f.Sections {
-		sec := Section{Name: s.Name}
+		sec := Section{Name: s.Name, Summary: sectionSummary(s)}
 		if name, ok := strings.CutPrefix(s.Name, "program:"); ok {
 			sec.Program = name
-			progs = append(progs, programSummary(s))
+			sec.Summary = programSummary(s)
+			progs++
 		}
 		sec.Lines = append(sec.Lines, Line{Line: s.Line, Text: rawLine(raw, s.Line), Kind: KindSection, Meaning: sectionMeaning(s)})
 		o := opts{s}
@@ -128,44 +132,62 @@ func count(n int, one, many string) string {
 	return w + " " + many
 }
 
-func fileSummary(progs []string) string {
-	if len(progs) == 0 {
+// fileSummary is one short sentence for the whole file; each section
+// says what it does in its own Summary.
+func fileSummary(progs int) string {
+	if progs == 0 {
 		return "This file has no [program:x] section, so it starts nothing."
 	}
-	return "This file sets up " + count(len(progs), "background program", "background programs") + ". " + strings.Join(progs, " ")
+	return "This file sets up " + count(progs, "program", "programs") + "."
 }
 
-// programSummary is one sentence about a program: what it runs, when it
-// starts, and where its output goes.
+// programSummary is one short sentence about a program, without its name:
+// what it runs and when it starts. Where its output goes is on its lines.
 func programSummary(s config.Section) string {
 	o := opts{s}
-	name := strings.TrimPrefix(s.Name, "program:")
 	n := max(o.integer("numprocs", 1), 1)
 	what := purpose(o.str("command"))
 	if what == "" {
-		return name + " has no command yet."
+		return "Has no command yet."
 	}
 	var b strings.Builder
-	b.WriteString(name + " runs ")
+	b.WriteString("Runs ")
 	if n > 1 {
 		b.WriteString(count(n, "copy", "copies") + " of ")
 	}
 	b.WriteString(what)
 	if o.boolean("autostart", true) {
-		b.WriteString(" and starts with supervisord")
+		b.WriteString(" and starts with supervisord.")
 	} else {
-		b.WriteString(" and waits for you to start it")
+		b.WriteString(" and waits for you to start it.")
 	}
-	if out := o.str("stdout_logfile"); !isAuto(out) && !isNone(out) && !strings.EqualFold(out, "syslog") {
-		b.WriteString(". Its output goes to " + out)
+	return b.String()
+}
+
+// sectionSummary is one short sentence about a section that isn't a
+// [program:x]: a group names its programs.
+func sectionSummary(s config.Section) string {
+	if name, ok := strings.CutPrefix(s.Name, "group:"); ok {
+		var progs []string
+		if v, ok := s.Get("programs"); ok {
+			for _, p := range strings.Split(v, ",") {
+				if p = strings.TrimSpace(p); p != "" {
+					progs = append(progs, p)
+				}
+			}
+		}
+		if len(progs) > 0 {
+			return "Starts and stops " + joinAnd(progs) + " together as " + name + "."
+		}
 	}
-	return b.String() + "."
+	return sectionMeaning(s)
 }
 
 var (
 	queueWork  = regexp.MustCompile(`artisan\s+queue:(work|listen)\b`)
 	horizon    = regexp.MustCompile(`artisan\s+horizon\b`)
 	schedule   = regexp.MustCompile(`artisan\s+schedule:work\b`)
+	artisan    = regexp.MustCompile(`(?:^|[\s/])artisan\s+([A-Za-z][\w:.-]*)`)
 	flagNumber = func(name string) *regexp.Regexp { return regexp.MustCompile(`--` + name + `[= ](\d+)`) }
 	triesFlag  = flagNumber("tries")
 	maxTime    = flagNumber("max-time")
@@ -173,8 +195,8 @@ var (
 )
 
 // purpose names what a command is, as plainly as Visor can tell: "a
-// Laravel queue worker", "a Node.js app", "a shell command", else the
-// program's file name.
+// Laravel queue worker", "the Laravel command ocpp:watch", "a Node.js
+// app", "a shell command", else the program's file name.
 func purpose(cmd string) string {
 	cmd = strings.TrimSpace(cmd)
 	switch {
@@ -186,6 +208,9 @@ func purpose(cmd string) string {
 		return "a Laravel queue worker"
 	case schedule.MatchString(cmd):
 		return "Laravel’s scheduler"
+	}
+	if m := artisan.FindStringSubmatch(cmd); m != nil {
+		return "the Laravel command " + m[1]
 	}
 	full := firstField(cmd)
 	bin := filepath.Base(full)

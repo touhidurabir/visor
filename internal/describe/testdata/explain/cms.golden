@@ -1,0 +1,44 @@
+summary: This file sets up two programs.
+
+[program:cms-watcher] program="cms-watcher"
+  summary: Runs the Laravel command ocpp:watch-ceilings and starts with supervisord.
+  2 section [program:cms-watcher]
+    => Starts a program section. Visor and supervisorctl call it cms-watcher.
+  3 key     command=php /srv/cms/artisan ocpp:watch-ceilings
+    => What it runs: the Laravel command ocpp:watch-ceilings.
+  4 key     process_name=%(program_name)s
+    => The process is named cms-watcher.
+  5 key     autostart=true
+    => Starts when supervisord starts.
+  6 key     autorestart=true
+    => Restarts it whenever it stops, even after a clean exit.
+  7 key     stdout_logfile=/var/log/cms/watcher.log
+    => Its output and errors go to this file. supervisord writes it, and the Logs tab reads it.
+  8 key     redirect_stderr=true
+    => Errors go into the same file as its output.
+
+[program:cms-queue] program="cms-queue"
+  summary: Runs two copies of a Laravel queue worker and starts with supervisord.
+ 10 section [program:cms-queue]
+    => Starts a program section. Visor and supervisorctl call it cms-queue.
+ 11 key     command=php /srv/cms/artisan queue:work --queue=high,default --tries=3
+    => What it runs: a Laravel queue worker. It takes jobs from the high and default queues, in that order. A failed job is tried up to 3 times.
+ 12 key     numprocs=2
+    => Runs 2 copies side by side, so 2 jobs can be handled at once.
+ 13 key     process_name=%(program_name)s_%(process_num)02d
+    => How each copy is named: cms-queue_00 and _01.
+ 14 key     stdout_logfile=/var/log/cms/queue.log
+    => Its output and errors go to this file. supervisord writes it, and the Logs tab reads it.
+ 15 key     redirect_stderr=true
+    => Errors go into the same file as its output.
+ 15 unset   not set: autostart, autorestart
+    => Defaults apply: it starts with supervisord and it’s restarted only if it exits with an unexpected code.
+
+[group:cms] program=""
+  summary: Starts and stops cms-watcher and cms-queue together as cms.
+ 17 section [group:cms]
+    => A group: its programs can be started and stopped together as cms.
+ 18 key     programs=cms-watcher,cms-queue
+    => The programs in this group: cms-watcher, cms-queue.
+ 19 key     priority=10
+    => Start order of the group: lower numbers start first and stop last.

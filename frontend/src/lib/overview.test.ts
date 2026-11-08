@@ -98,7 +98,7 @@ describe('opensOnProblems', () => {
   const line = (Level: string): ExplainLineView => ({ Line: 1, Text: 'x=1', Key: 'x', Kind: 'key', Meaning: '', Level, Problems: null, Suggest: '', Add: null, Paths: null })
   const explain = (o: Partial<ExplainView> = {}): ExplainView => ({
     Summary: '', Errors: 0, SaveErrors: 0, Suggestions: 0, Settings: 1, Paths: 0, ParseError: null, FileProblems: null,
-    Sections: [{ Name: 'program:a', Program: 'a', Lines: [line('')] }],
+    Sections: [{ Name: 'program:a', Program: 'a', Summary: '', Failure: '', Lines: [line('')] }],
     ...o,
   })
 
@@ -113,7 +113,7 @@ describe('opensOnProblems', () => {
     expect(opensOnProblems(explain({ FileProblems: [{ Level: 'warning', Live: false, Line: 0, Message: 'm', Fix: '', Edit: null }] }))).toBe(true)
   })
   it('opens on "Only problems" when a line is flagged, whatever the counts say', () => {
-    expect(opensOnProblems(explain({ Sections: [{ Name: 'program:a', Program: 'a', Lines: [line(''), line('suggestion')] }] }))).toBe(true)
+    expect(opensOnProblems(explain({ Sections: [{ Name: 'program:a', Program: 'a', Summary: '', Failure: '', Lines: [line(''), line('suggestion')] }] }))).toBe(true)
   })
   it('opens on "All lines" before the explanation loads, or when the file cannot be read', () => {
     expect(opensOnProblems(null)).toBe(false)

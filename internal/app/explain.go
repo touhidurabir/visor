@@ -35,10 +35,14 @@ type ExplainView struct {
 }
 
 // ExplainSectionView is one [name] block; Program is "" unless it is a
-// [program:x].
+// [program:x]. Summary is one short sentence about what it does, without
+// its name. Failure is what supervisord says about the program failing
+// right now ("Can’t run: exited too quickly…"), "" when nothing is.
 type ExplainSectionView struct {
 	Name    string
 	Program string
+	Summary string
+	Failure string
 	Lines   []ExplainLineView
 }
 
@@ -157,9 +161,8 @@ func (r *Runtime) explain(fileName, content, selfPath string) ExplainView {
 	used := map[int]bool{}
 
 	v.Summary = ex.Summary
-	var failures []string
 	for _, s := range ex.Sections {
-		sv := ExplainSectionView{Name: s.Name, Program: s.Program}
+		sv := ExplainSectionView{Name: s.Name, Program: s.Program, Summary: s.Summary}
 		var sec config.Section
 		if k := slices.IndexFunc(parsed.Sections, func(x config.Section) bool { return x.Name == s.Name }); k >= 0 {
 			sec = parsed.Sections[k]
@@ -179,7 +182,7 @@ func (r *Runtime) explain(fileName, content, selfPath string) ExplainView {
 		}
 		if s.Program != "" {
 			if msg := liveFailure(&sv, prog, procs, inv); msg != "" {
-				failures = append(failures, s.Program+" can’t run: "+msg)
+				sv.Failure = "Can’t run: " + msg
 			}
 		}
 		v.Sections = append(v.Sections, sv)
@@ -222,9 +225,6 @@ func (r *Runtime) explain(fileName, content, selfPath string) ExplainView {
 		} else {
 			v.Suggestions++
 		}
-	}
-	if len(failures) > 0 {
-		v.Summary += " " + strings.Join(failures, " ")
 	}
 	return v
 }

@@ -8,7 +8,7 @@
 // chooses what to do with them.
 //
 // As in Add new, Save sits in the sticky bar at the bottom with where saving
-// stands, and Line by line starts with "To fix before saving".
+// stands, and the explanation starts with "To fix before saving".
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import {
@@ -19,6 +19,7 @@ import {
   type ExplainView,
   type FileView,
   type LoadedDiffView,
+  type ProcessView,
 } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { classifySaveError, saveErrorText } from '../lib/config-errors'
 import { addLines, applyEdit, explainMarks, fixToSave } from '../lib/explain'
@@ -33,14 +34,14 @@ import { historyTime } from '../lib/format'
 import { showToast } from '../lib/toast'
 import DialogShell from './DialogShell.vue'
 import DiffView from './DiffView.vue'
-import ExplainSummary from './ExplainSummary.vue'
+import ExplainPanel from './ExplainPanel.vue'
 import IniEditor from './IniEditor.vue'
-import LineByLine from './LineByLine.vue'
 import RestoreDialog from './RestoreDialog.vue'
 import SaveBar from './SaveBar.vue'
 
-// line (from ?line=N) is the line to show when the editor opens.
-const props = defineProps<{ path: string; fileName: string; changed: boolean; uncertain: boolean; line?: number }>()
+// line (from ?line=N) is the line to show when the editor opens. processes
+// are the file's processes from the live overview, for each card's state.
+const props = defineProps<{ path: string; fileName: string; changed: boolean; uncertain: boolean; line?: number; processes?: ProcessView[] }>()
 
 const CHECK_DELAY_MS = 300
 
@@ -112,7 +113,7 @@ async function load(keepEdits = false) {
     // Its line numbers are the file's, so not when unsaved edits came back.
     const pending = keepEdits ? undefined : takePendingEdit(props.path)
     if (pending && f.Writable && restoredDraft.value) {
-      showToast('The fix was not applied because your unsaved edits are back in the editor. Apply it from Line by line instead.', 'info')
+      showToast('The fix was not applied because your unsaved edits are back in the editor. Apply it again from the explanation beside the editor.', 'info')
     } else if (pending && f.Writable) {
       text.value = 'edit' in pending ? applyEdit(text.value, pending.edit) : addLines(text.value, pending.after, pending.lines)
     }
@@ -193,7 +194,7 @@ watch(text, () => {
   timer = setTimeout(() => void runChecks(), CHECK_DELAY_MS)
 })
 
-// Fixes from Line by line change the text; saving still shows the diff.
+// Fixes from the explanation change the text; saving still shows the diff.
 function fix(e: EditView) {
   text.value = applyEdit(text.value, e)
   void nextTick(() => editor.value?.goToLine(e.Insert ? e.Line + 1 : e.Line))
@@ -451,10 +452,10 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
           </div>
         </section>
 
-        <ExplainSummary :view="explained" :failed="checkFailed" />
-        <LineByLine
+        <ExplainPanel
           :view="explained"
           :failed="checkFailed"
+          :processes="processes ?? []"
           mode="editor"
           fix-list
           :read-only="!writable || !!busy || checkedText !== text"
