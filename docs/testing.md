@@ -114,3 +114,26 @@ hand on a Mac before a release, with `wails3 task dev`, or the packaged app
   7. Settings → Notifications shows "Allowed"; Send a test notification shows one. Turn Visor off in System Settings → Notifications: the page says so when you come back to it.
   8. Turn off "A process can't start" (or turn Watch off for mailer-digest's config), Resolve its issue and Start it again from Visor: it goes FATAL again with no notification. supervisord not responding notifies even when no config is watched.
   9. Quit Visor, then `VISOR_SANDBOX_DIR=/tmp/visor-notify scripts/sandbox.sh down`. macOS asks only once; change the answer later in System Settings → Notifications → Visor.
+
+## Manual Linux checklist
+
+Check these on Ubuntu 24.04 (GNOME, Wayland) and Fedora 40+ (KDE Plasma)
+before a release. `scripts/linux-check.sh build` then `open` gives an
+installed copy (the AppImage) against the sandbox; the items marked **.deb**
+or **.rpm** need the package installed (`sudo apt install ./bin/visor.deb`,
+`sudo dnf install ./bin/visor.rpm`), which is a real install.
+
+- [ ] AppArmor (Ubuntu): the AppImage's first run stops before the window, prints the profile and the two `sudo` commands, saves them in `~/.config/Visor/apparmor-fix.txt` (the sandbox run: `/tmp/visor-linuxcheck/state/apparmor-fix.txt`) and shows a notification. After running them, it opens. The **.deb** opens straight away (`aa-status | grep dev.getvisor.visor`).
+- [ ] Window: no in-window menu bar. The title bar follows Settings → Appearance; with System, switching the desktop between light and dark switches Visor live. The dock or task bar shows Visor's icon (**.deb**/**.rpm**: also in the app grid as Visor).
+- [ ] Shortcuts: Ctrl+, Ctrl+N Ctrl+1 Ctrl+2 open their pages; Ctrl+F focuses the dashboard search and a log's search; Ctrl+R checks for config changes; Ctrl+W hides the window; Ctrl+Q quits; Ctrl+C copies selected log text. The hints say Ctrl, not ⌘.
+- [ ] Tray icon: the coloured ring with the pulse; a badge with the unread count (9+ past nine) in red, orange or blue; a dot for a warning or an error with nothing unread; grey with no pulse before it connects. "Show the unread count on the tray icon" off: no number. The tooltip says Visor.
+- [ ] Tray menu: Show status…, Open Visor, Preferences…, Notifications (N) with the same N as the bell, Launch at login, Quit. GNOME: a click opens this menu. KDE: a left click opens the popover.
+- [ ] Popover: Show status… opens it and stays open when you click elsewhere; Esc, its close button or Show status… again close it. On Wayland it opens where the desktop puts it.
+- [ ] Notifications: banners show Visor's name and icon (**.deb**/**.rpm**; a dev build shows dev.getvisor.visor), with the 🔴/🟠/🔵 title and a one-sentence body; a body with `&&` or `<…>` reads right. Clicking one opens Visor on Issues. Settings → Notifications says Allowed.
+- [ ] Launch at login: on from the tray or Settings writes `~/.config/autostart/dev.getvisor.visor.desktop` (Exec is the AppImage file or `/usr/bin/visor`, with `--login`); log out and in: Visor starts quietly in the tray. An AppImage in `/tmp` can't turn it on and Doctor warns.
+- [ ] One Visor: start the installed copy again: no second tray icon, the window comes forward. With `--login`: nothing comes forward.
+- [ ] Files: Show in file manager opens Nautilus or Dolphin with the file selected; Open in file manager opens the folder; Open log in editor opens the default text editor and Visor doesn't wait for it to close.
+- [ ] Keyring: saving a password in Settings → Connection says "Saved in your keyring" (GNOME Keyring, KWallet); remove it again. With the keyring locked or absent, saving says no keyring is running and the connection still works until you quit.
+- [ ] Doctor with the distro's supervisord (**.deb**: `sudo apt install supervisor`): it finds `/etc/supervisor/supervisord.conf`; stopped (`sudo systemctl stop supervisor`), it shows `sudo systemctl enable --now supervisor` to copy; running, "won't let Visor in" with the group steps. Run them (Doctor never does), log in again: Doctor goes to "can watch, but not edit" with the `chgrp`/`chmod` command for `/etc/supervisor/conf.d`, and the dashboard says "Read-only: … belongs to root". Run it: everything is green and configs can be added.
+- [ ] GNOME without the AppIndicator extension (Fedora before installing it): Doctor warns that there is no tray, with the `dnf` command.
+
