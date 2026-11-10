@@ -12,3 +12,7 @@ func TestSystemServiceDescribesCurrentOS(t *testing.T) {
 		t.Errorf("Platform() = %+v, want %+v", got, want)
 	}
 }
+
+// secretStoreWord is how this OS names the password store in messages:
+// "Keychain" on macOS, "keyring" on Linux.
+func secretStoreWord() string { return platform.Describe(platform.Current()).SecretStore }

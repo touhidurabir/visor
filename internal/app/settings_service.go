@@ -12,6 +12,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/touhidurabir/visor/internal/config"
+	"github.com/touhidurabir/visor/internal/platform"
 	"github.com/touhidurabir/visor/internal/settings"
 )
 
@@ -28,9 +29,12 @@ type SettingsView struct {
 	// Socket is supervisord's address from that config: a socket path or
 	// an http:// URL ("" if the config has none).
 	Socket string
-	// HasPassword says a password is saved in the Keychain for the saved
-	// username and this config.
+	// HasPassword says a password is saved in the Keychain (or keyring)
+	// for the saved username and this config.
 	HasPassword bool
+	// PasswordThisSession says that password is kept only until Visor
+	// quits: no keyring was running when it was saved (Linux).
+	PasswordThisSession bool
 	// LoadError is set when settings.json could not be read at launch, so
 	// the defaults are in use.
 	LoadError string
@@ -97,6 +101,11 @@ func (s *SettingsService) view() SettingsView {
 			s.pwKnown, s.pwAccount, s.pwSaved = true, path, err == nil && pw != ""
 		}
 		v.HasPassword = s.pwSaved
+		if so, ok := s.keychain.(interface {
+			SessionOnly(service, account string) bool
+		}); ok && v.HasPassword {
+			v.PasswordThisSession = so.SessionOnly(settings.KeychainService, path)
+		}
 	}
 	return v
 }
@@ -216,7 +225,7 @@ func (s *SettingsService) SaveConnection(in ConnectionInput) (SettingsView, erro
 	if setting {
 		switch {
 		case s.keychain == nil:
-			return s.view(), errors.New("cannot save the password: the Keychain is not available")
+			return s.view(), fmt.Errorf("cannot save the password: the %s is not available", platform.Describe(platform.Current()).SecretStore)
 		case findErr != nil:
 			return s.view(), fmt.Errorf("cannot save the password: %w. Choose the config file first", findErr)
 		}
@@ -343,3 +352,11 @@ func (s *SettingsService) ChooseConfig() (string, error) {
 // Call it once the app is running (main does, on ApplicationStarted): the
 // main thread does not run before that.
 func ApplyStartupAppearance(appearance string) { setNativeAppearance(appearance) }
+
+// unlockHint says how to let Visor read a saved password again.
+func unlockHint() string {
+	if platform.Current() == platform.Darwin {
+		return "Allow Visor to use the Keychain item"
+	}
+	return "Unlock your keyring"
+}

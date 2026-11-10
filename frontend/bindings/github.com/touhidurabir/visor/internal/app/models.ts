@@ -610,10 +610,16 @@ export interface SettingsView {
     "Socket": string;
 
     /**
-     * HasPassword says a password is saved in the Keychain for the saved
-     * username and this config.
+     * HasPassword says a password is saved in the Keychain (or keyring)
+     * for the saved username and this config.
      */
     "HasPassword": boolean;
+
+    /**
+     * PasswordThisSession says that password is kept only until Visor
+     * quits: no keyring was running when it was saved (Linux).
+     */
+    "PasswordThisSession": boolean;
 
     /**
      * LoadError is set when settings.json could not be read at launch, so

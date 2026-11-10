@@ -441,7 +441,7 @@ func (r *Runtime) connect() {
 	savedPass := ""
 	if prefs.Username != "" && r.opts.Keychain != nil {
 		if savedPass, err = settings.Password(r.opts.Keychain, d.ConfigPath); err != nil {
-			fail(d, fmt.Errorf("%w. Allow Visor to use the Keychain item, or enter the password again in Settings", err))
+			fail(d, fmt.Errorf("%w. %s, or enter the password again in Settings", err, unlockHint()))
 			return
 		}
 	}
