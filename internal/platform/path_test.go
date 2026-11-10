@@ -74,3 +74,25 @@ func TestLoginPATHRunnerError(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+func TestExtraPATHPerOS(t *testing.T) {
+	none := func(string) bool { return false }
+	if got := extraPATH("darwin", none); !slices.Equal(got, []string{"/opt/homebrew/bin", "/usr/local/bin"}) {
+		t.Errorf("darwin = %q", got)
+	}
+	if got := extraPATH("linux", none); !slices.Equal(got, []string{"/usr/local/bin", "/usr/bin", "/bin"}) {
+		t.Errorf("linux = %q", got)
+	}
+	brew := func(p string) bool { return p == "/home/linuxbrew/.linuxbrew/bin" }
+	if got := extraPATH("linux", brew); !slices.Equal(got, []string{"/usr/local/bin", "/usr/bin", "/bin", "/home/linuxbrew/.linuxbrew/bin"}) {
+		t.Errorf("linux with Homebrew = %q", got)
+	}
+}
+
+func TestLoginPATHOnLinuxPutsTheShellFirst(t *testing.T) {
+	run := func(ctx context.Context) (string, error) { return "/home/ana/.local/bin:/usr/bin", nil }
+	got := loginPATHFor(run, time.Second, extraPATH("linux", func(string) bool { return false }))
+	if want := []string{"/home/ana/.local/bin", "/usr/bin", "/usr/local/bin", "/bin"}; !slices.Equal(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

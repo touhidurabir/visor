@@ -1,6 +1,7 @@
 package app
 
 import (
+	"runtime"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -76,8 +77,17 @@ func (s *Shell) ShowLoginStatus(st platform.LoginItemStatus) {
 	}
 	item.SetChecked(loginView(st).On)
 	item.SetEnabled(st != platform.LoginUnsupported)
-	if menu != nil {
-		menu.Update()
+	updateTrayMenu(menu)
+}
+
+// updateTrayMenu redraws the tray menu after one of its items changed, on
+// macOS. On Linux the item setters already reach the D-Bus menu the panel
+// shows, and Menu.Update would rebuild it as a GTK menu, cutting the items
+// off from the tray: later labels and check marks would never show (the
+// spike's "bell 4, Notifications (2)").
+func updateTrayMenu(m *application.Menu) {
+	if m != nil && runtime.GOOS == "darwin" {
+		m.Update()
 	}
 }
 
@@ -184,9 +194,7 @@ func (s *Shell) drawUnread() {
 			text += " (" + label + ")"
 		}
 		item.SetLabel(text)
-		if menu != nil {
-			menu.Update()
-		}
+		updateTrayMenu(menu)
 	}
 }
 

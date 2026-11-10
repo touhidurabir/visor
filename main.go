@@ -67,7 +67,7 @@ func main() {
 	// put SaveConnection's supervisord password in the log.
 	wails := application.New(application.Options{
 		Name:        "Visor",
-		Description: "A macOS menu-bar app for managing supervisord",
+		Description: "A menu-bar and tray app for managing supervisord",
 		Services: []application.Service{
 			// Before ServerService, so notifications are ready by the first poll.
 			application.NewService(notifier),
@@ -89,11 +89,19 @@ func main() {
 			Handler: application.AssetFileServerFS(assets),
 		},
 		// One Visor per user: a second launch hands over to this one.
-		SingleInstance: app.SingleInstance(platform.BundlePath(), shell),
+		SingleInstance: app.SingleInstance(platform.Installed(), shell),
 		Mac: application.MacOptions{
 			// Closing the main window hides it; Visor lives on in the menu
 			// bar until Quit.
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
+		},
+		Linux: application.LinuxOptions{
+			// The same on Linux: Visor lives on in the tray.
+			DisableQuitOnLastWindowClosed: true,
+			// The GTK application id, which is also the Wayland app_id and
+			// the window class, so the desktop matches windows to
+			// dev.getvisor.visor.desktop and its icon.
+			ApplicationID: "dev.getvisor.visor",
 		},
 	})
 

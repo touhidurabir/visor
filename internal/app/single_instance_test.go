@@ -2,11 +2,11 @@ package app
 
 import "testing"
 
-func TestSingleInstanceOnlyForThePackagedApp(t *testing.T) {
-	if o := SingleInstance("", NewShell()); o != nil {
-		t.Errorf("a dev or server build (no bundle) got %+v; it must be able to run beside the app", o)
+func TestSingleInstanceOnlyForAnInstalledCopy(t *testing.T) {
+	if o := SingleInstance(false, NewShell()); o != nil {
+		t.Errorf("a dev or server build got %+v; it must be able to run beside the app", o)
 	}
-	o := SingleInstance("/Applications/Visor.app", NewShell())
+	o := SingleInstance(true, NewShell())
 	if o == nil || o.UniqueID != "dev.getvisor.visor" || o.OnSecondInstanceLaunch == nil {
 		t.Fatalf("packaged app = %+v", o)
 	}

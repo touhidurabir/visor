@@ -13,11 +13,12 @@ import (
 const LoginArg = platform.LoginArg
 
 // SingleInstance keeps one Visor per user: a second launch (opening the
-// app again, or macOS starting the login item when it's switched on in
-// System Settings) exits and hands over to the running one. Only the
-// packaged app (bundle != ""): dev and server builds may run beside it.
-func SingleInstance(bundle string, shell *Shell) *application.SingleInstanceOptions {
-	if bundle == "" {
+// app again, or the login item starting it) exits and hands over to the
+// running one. Only an installed copy (platform.Installed: the .app, the
+// AppImage or a packaged binary): dev and server builds may run beside it.
+// On Linux Wails claims the D-Bus name dev.getvisor.visor.SingleInstance.
+func SingleInstance(installed bool, shell *Shell) *application.SingleInstanceOptions {
+	if !installed {
 		return nil
 	}
 	return &application.SingleInstanceOptions{

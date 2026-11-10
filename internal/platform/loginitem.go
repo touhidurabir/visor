@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // LoginItemStatus is whether Visor opens when the user logs in.
@@ -17,15 +18,29 @@ const (
 	LoginDisabled         LoginItemStatus = "disabled"
 	LoginRequiresApproval LoginItemStatus = "requires_approval" // macOS wants the user's OK in Login Items
 	LoginNotMoved         LoginItemStatus = "not_moved"         // running from the disk image or a quarantine copy
-	LoginUnsupported      LoginItemStatus = "unsupported"       // not a packaged app, or not macOS
+	LoginUnsupported      LoginItemStatus = "unsupported"       // not an installed copy (a dev build)
 )
 
 var (
 	// ErrNotMoved: launch at login would point at a copy that goes away.
-	ErrNotMoved = errors.New("move Visor to Applications first")
-	// ErrLoginUnsupported: this build can't open at login (dev build, not macOS).
-	ErrLoginUnsupported = errors.New("launch at login needs the packaged Visor.app")
+	ErrNotMoved = errors.New(notMovedText())
+	// ErrLoginUnsupported: this build can't open at login (a dev build).
+	ErrLoginUnsupported = errors.New(loginUnsupportedText())
 )
+
+func loginUnsupportedText() string {
+	if runtime.GOOS == "darwin" {
+		return "launch at login needs the packaged Visor.app"
+	}
+	return "launch at login needs an installed Visor (the package or the AppImage)"
+}
+
+func notMovedText() string {
+	if runtime.GOOS == "darwin" {
+		return "move Visor to Applications first"
+	}
+	return "move the AppImage out of /tmp first, and keep it executable"
+}
 
 // LoginItem turns "open Visor when I log in" on and off.
 type LoginItem interface {
@@ -177,15 +192,15 @@ func appServiceStatus(code int) LoginItemStatus {
 // until M5's signing check shows SMAppService accepts an unsigned Visor.
 var useAppService = false
 
-// DefaultLoginItem is the login item for the running app.
+// DefaultLoginItem is the login item for the running app: a LaunchAgent
+// on macOS, an XDG autostart entry on Linux.
 func DefaultLoginItem() LoginItem {
+	home, _ := os.UserHomeDir()
+	if runtime.GOOS != "darwin" {
+		return NewXDGAutostart(Executable(), xdgConfigHome(os.Getenv("XDG_CONFIG_HOME"), home), Installed(), Moved)
+	}
 	if useAppService {
 		return NewAppService(Moved)
 	}
-	exe, _ := os.Executable()
-	if p, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = p
-	}
-	home, _ := os.UserHomeDir()
-	return NewLaunchAgent(exe, home, Moved)
+	return NewLaunchAgent(Executable(), home, Moved)
 }

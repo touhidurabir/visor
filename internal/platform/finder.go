@@ -1,7 +1,9 @@
-// Package platform holds the few macOS integrations Visor needs outside
-// supervisord: showing files in Finder and opening them with their default
-// app (logs: the default text editor), and opening System Settings at
-// Notifications. It runs /usr/bin/open and nothing else.
+// Package platform holds the few desktop integrations Visor needs outside
+// supervisord: showing files in Finder or the file manager and opening them
+// with their default app (logs: the default text editor), launch at login,
+// and on macOS opening System Settings at Notifications. On macOS it runs
+// /usr/bin/open and nothing else; on Linux, the file manager's D-Bus
+// interface, xdg-open and gio launch (finder_xdg.go).
 package platform
 
 import (
@@ -10,9 +12,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 )
+
+// revealLabel is the button that shows a file in a folder window, as the
+// frontend words it (lib/platform.ts revealLabel).
+func revealLabel() string {
+	if runtime.GOOS == "darwin" {
+		return "Reveal in Finder"
+	}
+	return "Show in file manager"
+}
 
 var (
 	// ErrNotAbsolute: only absolute paths are opened, so a path can never
@@ -22,7 +34,7 @@ var (
 	ErrMissing = errors.New("does not exist")
 	// ErrExecutable: opening an executable file with its default app would
 	// run it, so Open refuses; Reveal still works.
-	ErrExecutable = errors.New("is a program, so Visor will not open it; use Reveal in Finder instead")
+	ErrExecutable = errors.New("is a program, so Visor will not open it; use " + revealLabel() + " instead")
 	// ErrNotFile: OpenText opens files only, not folders or devices.
 	ErrNotFile = errors.New("is not a file, so it cannot open in a text editor")
 )
@@ -43,8 +55,16 @@ func NotificationSettingsCmd() *exec.Cmd {
 	return exec.Command("open", "x-apple.systempreferences:com.apple.Notifications-Settings.extension")
 }
 
-// OpenNotificationSettings opens System Settings at Notifications.
-func OpenNotificationSettings() error { return run(NotificationSettingsCmd()) }
+// ErrUnsupported: this OS has no settings page Visor can open.
+var ErrUnsupported = errors.New("not available on this system")
+
+// OpenNotificationSettings opens System Settings at Notifications (macOS).
+func OpenNotificationSettings() error {
+	if runtime.GOOS != "darwin" {
+		return ErrUnsupported
+	}
+	return run(NotificationSettingsCmd())
+}
 
 // LoginItemsSettingsCmd opens System Settings at General → Login Items,
 // where macOS asks the user to approve an app that opens at login.
@@ -52,11 +72,19 @@ func LoginItemsSettingsCmd() *exec.Cmd {
 	return exec.Command("open", "x-apple.systempreferences:com.apple.LoginItems-Settings.extension")
 }
 
-// OpenLoginItemsSettings opens System Settings at Login Items.
-func OpenLoginItemsSettings() error { return run(LoginItemsSettingsCmd()) }
+// OpenLoginItemsSettings opens System Settings at Login Items (macOS).
+func OpenLoginItemsSettings() error {
+	if runtime.GOOS != "darwin" {
+		return ErrUnsupported
+	}
+	return run(LoginItemsSettingsCmd())
+}
 
-// Reveal shows path in Finder.
+// Reveal shows path in Finder or the file manager.
 func Reveal(path string) error {
+	if runtime.GOOS != "darwin" {
+		return linuxFiles.reveal(path)
+	}
 	if err := check(path, false); err != nil {
 		return err
 	}
@@ -68,6 +96,9 @@ func Reveal(path string) error {
 // bundles and file types macOS would run (.command, .jar, .pkg, …) in
 // Finder instead.
 func Open(path string) error {
+	if runtime.GOOS != "darwin" {
+		return linuxFiles.open(path)
+	}
 	cmd, err := openCmdFor(path)
 	if err != nil {
 		return err
@@ -79,6 +110,9 @@ func Open(path string) error {
 // extension or mode, so no other handler can run it. It refuses folders
 // and devices.
 func OpenText(path string) error {
+	if runtime.GOOS != "darwin" {
+		return linuxFiles.openText(path)
+	}
 	cmd, err := openTextCmdFor(path)
 	if err != nil {
 		return err
