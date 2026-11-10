@@ -16,6 +16,7 @@ import (
 
 	"github.com/touhidurabir/visor/internal/issues"
 	"github.com/touhidurabir/visor/internal/notify"
+	"github.com/touhidurabir/visor/internal/platform"
 	"github.com/touhidurabir/visor/internal/settings"
 	"github.com/touhidurabir/visor/internal/supervisor/supervisortest"
 )
@@ -237,7 +238,7 @@ func TestNotifyService(t *testing.T) {
 	}{
 		{NotifyAllowed, ""},
 		{NotifyDenied, "System Settings → Notifications → Visor"},
-		{NotifyUnavailable, "packaged Visor.app"},
+		{NotifyUnavailable, unavailableReason(application.System.IsServer(), platform.Current()).Error()},
 	} {
 		native := &fakeNative{perm: tc.perm}
 		svc := &NotifyService{native: native}
@@ -264,8 +265,8 @@ func TestNotifyService(t *testing.T) {
 	}
 }
 
-// The server build's notifier, and a desktop one outside Visor.app, show
-// nothing and say so.
+// The server build's notifier, a macOS one outside Visor.app and a Linux
+// one with no running app (a test binary), show nothing and say so.
 func TestNotifierUnavailableWithoutBundle(t *testing.T) {
 	if application.System.IsServer() {
 		svc := NewNotifyService(nil)
@@ -273,8 +274,8 @@ func TestNotifierUnavailableWithoutBundle(t *testing.T) {
 			t.Error("server notifier is not a no-op")
 		}
 	}
-	// A test binary has no bundle identifier, like `task dev`: starting
-	// leaves notifications off instead of failing or crashing.
+	// A test binary has no bundle identifier, like `task dev`, and no Wails
+	// app: starting leaves notifications off instead of failing or crashing.
 	svc := NewNotifyService(nil)
 	if err := svc.ServiceStartup(context.Background(), application.ServiceOptions{}); err != nil {
 		t.Fatalf("ServiceStartup = %v, want nil", err)

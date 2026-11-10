@@ -37,6 +37,11 @@ async function checkWords(page: Page, platform: Platform, base: string) {
   // The macOS-only notification row (System Settings) is not on Linux.
   const notifications = page.getByRole('group', { name: 'Notifications' })
   await expect(notifications.getByRole('button', { name: 'Open Notification Settings' })).toHaveCount(platform === 'darwin' ? 1 : 0)
+
+  // The popover closes on focus loss on macOS; on Linux it has a close button.
+  await page.goto(`${base}/#/tray`)
+  await expect(page.getByText(/\d+ failing/)).toBeVisible()
+  await expect(page.getByTestId('tray-close')).toHaveCount(platform === 'darwin' ? 0 : 1)
 }
 
 test.describe('platform wording', () => {

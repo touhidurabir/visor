@@ -103,7 +103,7 @@ test.describe('settings', () => {
     const card = page.getByRole('group', { name: 'Notifications' })
     await expect(card.getByTestId('notify-permission')).toHaveText('Not available in this build')
     await card.getByRole('button', { name: 'Send a test notification' }).click()
-    await expect(page.getByText(/aren't available in this build\. Run the packaged Visor\.app/)).toBeVisible()
+    await expect(page.getByText(/aren't available in this build/)).toBeVisible()
     await expect(card.getByRole('button', { name: 'Send a test notification' })).toBeEnabled()
   })
 })

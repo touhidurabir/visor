@@ -9,6 +9,8 @@
 // so a failure is noticed even when macOS shows no banner. Laid out as one
 // section per server: this Mac for now; remote servers add sections.
 import { computed, ref } from 'vue'
+import { Window } from '@wailsio/runtime'
+import { isMac } from '../lib/platform'
 import { ServerService, ShellService, type ConfigView, type ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { errorMessage, useOverview } from '../lib/overview'
 import { useApplyFlow } from '../lib/apply-flow'
@@ -158,6 +160,11 @@ async function openDoctor() {
 function openVisor() {
   void ShellService.OpenVisor()
 }
+
+/** Hides the popover (Linux, where losing focus doesn't). */
+function closePopover() {
+  void Window.Hide()
+}
 </script>
 
 <template>
@@ -183,6 +190,10 @@ function openVisor() {
           <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
         </svg>
         <span v-if="unread" class="count" aria-hidden="true">{{ unread > 99 ? '99+' : unread }}</span>
+      </button>
+      <!-- Linux: the popover stays open when it loses focus, so it has a close button. -->
+      <button v-if="!isMac()" type="button" class="btn quiet icon" data-testid="tray-close" aria-label="Close" title="Close (Esc)" @click="closePopover">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
       </button>
     </header>
 

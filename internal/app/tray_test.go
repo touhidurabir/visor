@@ -147,3 +147,15 @@ func TestOpenDoctorShowsTheMainWindowThere(t *testing.T) {
 		t.Fatalf("server: shown %q, emitted %q; want nothing shown, emitted [doctor]", shown, emitted)
 	}
 }
+
+func TestBadgeCountFollowsTheSetting(t *testing.T) {
+	if got := badgeCount(3, false); got != 3 {
+		t.Errorf("3 unread = %d", got)
+	}
+	if got := badgeCount(3, true); got != 0 {
+		t.Errorf("count turned off = %d", got)
+	}
+	if got := badgeCount(-1, false); got != 0 {
+		t.Errorf("negative = %d", got)
+	}
+}
