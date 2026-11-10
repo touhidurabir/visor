@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Status, Step } from '../../bindings/github.com/touhidurabir/visor/internal/doctor'
-import { chownCommand, lensText, mkdirCommand, rootFixes, situationCopy, stepLook } from './doctor'
+import { chownCommand, installCommandsFor, lensText, mkdirCommand, rootFixes, situationCopy, stepLook } from './doctor'
 
 const step = (s: string): Step => ({ ID: '', Title: '', Detail: '', Status: s as Status })
 
@@ -50,5 +50,21 @@ describe('stepLook', () => {
   })
   it('reads an unknown status as waiting', () => {
     expect(stepLook('later')).toEqual({ glyph: '', word: 'Waiting', tone: 'idle' })
+  })
+})
+
+describe('Doctor on Linux', () => {
+  const linux = (install: string, service: string) => ({ Linux: { Install: install, Service: service } as never })
+  it('says computer, package manager and system service', () => {
+    expect(situationCopy('ready', false).headline).toBe('Your computer is ready')
+    expect(situationCopy('nosup', false).lede).toMatch(/package manager/)
+    expect(situationCopy('denied', false).lede).toMatch(/system service/)
+    expect(situationCopy('down', false)).toEqual(situationCopy('down'))
+    expect(situationCopy('ready').headline).toBe('Your Mac is ready')
+  })
+  it('installs and starts with the distro’s commands', () => {
+    expect(installCommandsFor(null)).toEqual(['brew install supervisor', 'brew services start supervisor'])
+    expect(installCommandsFor(linux('sudo apt install supervisor', 'supervisor'))).toEqual(['sudo apt install supervisor', 'sudo systemctl enable --now supervisor'])
+    expect(installCommandsFor(linux('pip install supervisor (or your package manager’s supervisor package)', 'supervisord'))).toHaveLength(1)
   })
 })

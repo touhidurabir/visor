@@ -32,6 +32,7 @@ import { configRoute } from '../lib/links'
 import { showToast } from '../lib/toast'
 import { onMenu, takePendingMenu } from '../lib/menu'
 import { modKeyHint, shortcutHint } from '../lib/shortcuts'
+import ReadOnlyBanner from '../components/ReadOnlyBanner.vue'
 
 const router = useRouter()
 const { overview, error: loadError, reload } = useOverview()
@@ -323,6 +324,7 @@ function sendSignal(sig: string) {
         <p>Check that supervisord is running, or open Doctor to find out why.</p>
       </div>
 
+      <ReadOnlyBanner />
       <ChangedBanner v-if="configs.some((c) => c.Changed || c.Uncertain)" :configs="configs" :busy="flow.running.value" @apply="flow.applyAll" />
       <ApplyReport v-if="flow.report.value" :report="flow.report.value" :busy="flow.running.value" @undo="flow.undo" @dismiss="flow.dismiss" />
 

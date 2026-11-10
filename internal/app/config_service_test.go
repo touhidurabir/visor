@@ -510,3 +510,24 @@ func TestCopyDraftMatchesTheIncludePattern(t *testing.T) {
 		}
 	}
 }
+
+func TestFolderViewForTheReadOnlyBanner(t *testing.T) {
+	dir := t.TempDir()
+	root := func(os.FileInfo) string { return "root" }
+	if v := folderView(dir, os.Stat, func(string) bool { return true }, root); !v.Writable || v.Owner != "" || v.Dir != dir {
+		t.Errorf("writable = %+v", v)
+	}
+	if v := folderView(dir, os.Stat, func(string) bool { return false }, root); v.Writable || v.Owner != "root" || v.Missing {
+		t.Errorf("root's folder = %+v", v)
+	}
+	if v := folderView(filepath.Join(dir, "gone"), os.Stat, func(string) bool { return true }, root); v.Writable || !v.Missing {
+		t.Errorf("missing = %+v", v)
+	}
+	if v := folderView("", os.Stat, func(string) bool { return false }, root); !v.Writable {
+		t.Errorf("no include folder = %+v", v)
+	}
+	fi, _ := os.Stat(dir)
+	if ownerName(fi) == "" {
+		t.Error("ownerName of a temp dir is empty")
+	}
+}

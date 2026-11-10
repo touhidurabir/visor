@@ -2,11 +2,15 @@
 // Config files removed from supervisor that are not back, newest first, each
 // with Restore (I-5): the way back once the report's Undo is gone. Hidden
 // when there are none.
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ConfigService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { saveErrorText } from '../lib/config-errors'
 import { removedRows, type RemovedRow } from '../lib/removed'
 import { showToast } from '../lib/toast'
+import { readOnlyReason, useFolder } from '../lib/folder'
+
+const folder = useFolder()
+const readOnly = computed(() => readOnlyReason(folder.value))
 
 /** stamp: change it to load the list again (after a remove elsewhere). */
 const props = defineProps<{ stamp: number }>()
@@ -50,7 +54,7 @@ async function restore(r: RemovedRow) {
       <li v-for="r in rows" :key="r.path">
         <span class="name mono">{{ r.fileName }}</span>
         <span class="meta">{{ r.when }} · <span class="mono">{{ r.folder }}</span></span>
-        <button type="button" class="btn sm" :disabled="busy !== null" :aria-label="`Restore ${r.fileName}`" @click="restore(r)">
+        <button type="button" class="btn sm" :disabled="busy !== null || !!readOnly" :title="readOnly || undefined" :aria-label="`Restore ${r.fileName}`" @click="restore(r)">
           {{ busy === r.path ? 'Restoring…' : 'Restore' }}
         </button>
       </li>

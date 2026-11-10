@@ -102,7 +102,7 @@ test.describe('dashboard', () => {
       // Nothing runs yet, so Visor opens on Doctor: start supervisord there.
       await page.goto(visor.url + '/#/')
       await page.getByRole('button', { name: 'Start supervisord' }).click({ timeout: 15_000 })
-      await expect(page.getByRole('heading', { name: 'Your Mac is ready' })).toBeVisible({ timeout: 20_000 })
+      await expect(page.getByRole('heading', { name: words.ready })).toBeVisible({ timeout: 20_000 })
       await page.getByRole('button', { name: 'Open dashboard' }).click()
       await expect(page.getByText(/supervisord 4\.\d+/).first()).toBeVisible()
 

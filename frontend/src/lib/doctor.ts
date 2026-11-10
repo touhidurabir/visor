@@ -15,9 +15,17 @@ const copy: Record<Situation, [headline: string, lede: string]> = {
   notwritable: ['Visor can watch, but not edit', 'supervisord is running and Visor can control it. The folder your programs live in isn’t writable for you, so adding and editing configs is off.'],
 }
 
+// Where Linux says it differently: no Mac, no Homebrew, and a root socket
+// that comes from the system service, not from sudo.
+const linuxCopy: Partial<Record<Situation, [headline: string, lede: string]>> = {
+  ready: ['Your computer is ready', copy.ready[1]],
+  nosup: ['supervisord isn’t installed yet', 'Visor manages supervisord, so it needs to be on this computer first. Your package manager installs it in about a minute.'],
+  denied: ['supervisord won’t let Visor in', 'supervisord runs as a system service, and its socket belongs to root, so your user can’t connect to it. Letting a group use the socket fixes it.'],
+}
+
 /** The headline and lede for a situation; anything unknown reads as ready. */
-export function situationCopy(s: string): { headline: string; lede: string } {
-  const [headline, lede] = copy[s as Situation] ?? copy.ready
+export function situationCopy(s: string, mac = true): { headline: string; lede: string } {
+  const [headline, lede] = (!mac && linuxCopy[s as Situation]) || copy[s as Situation] || copy.ready
   return { headline, lede }
 }
 
@@ -45,6 +53,14 @@ export function stepLook(status: string): { glyph: string; word: string; tone: '
 }
 
 export const installCommands = ['brew install supervisor', 'brew services start supervisor']
+
+/** The commands that install and start supervisord: Homebrew's on macOS, the distro's on Linux. */
+export function installCommandsFor(v: Pick<DoctorView, 'Linux'> | null): string[] {
+  const l = v?.Linux
+  if (!l) return installCommands
+  if (!l.Install.startsWith('sudo ')) return [l.Install]
+  return [l.Install, `sudo systemctl enable --now ${l.Service}`]
+}
 export const startCommand = 'brew services start supervisor'
 
 /** What usually stops supervisord from starting, shown under its output. */

@@ -26,6 +26,7 @@ import { useOverview } from '../lib/overview'
 import { configRoute } from '../lib/links'
 import { showToast } from '../lib/toast'
 import { revealLabel } from '../lib/platform'
+import ReadOnlyBanner from '../components/ReadOnlyBanner.vue'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -262,6 +263,7 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
           <button type="button" class="btn quiet" @click="reveal(config.Path)">{{ revealLabel() }}</button>
         </div>
       </header>
+      <ReadOnlyBanner />
 
       <div v-if="overview.Server.Error" class="alert" role="alert">
         <strong>Can’t reach supervisord</strong>

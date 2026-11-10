@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { collectErrors, downConfig, SANDBOX, startVisor, stopSupervisord } from './helpers'
+import { collectErrors, downConfig, SANDBOX, startVisor, stopSupervisord, words } from './helpers'
 
 // First-run Doctor needs a Visor that hasn't finished setup, so these tests
 // start their own server-mode Visors (helpers.ts startVisor) beside the
@@ -20,7 +20,7 @@ test.describe('Doctor', () => {
     try {
       const errors = collectErrors(page)
       await page.goto(visor.url + '/#/')
-      await expect(page.getByRole('heading', { name: 'Your Mac is ready' })).toBeVisible({ timeout: 15_000 })
+      await expect(page.getByRole('heading', { name: words.ready })).toBeVisible({ timeout: 15_000 })
       expect(await stepStatuses(page)).toEqual(['ok', 'ok', 'ok', 'ok', 'ok'])
       expect(await stepWords(page)).toEqual(['Done', 'Done', 'Done', 'Done', 'Done'])
       await expect(page.getByText('5 of 5 checks passed')).toBeVisible()
@@ -35,7 +35,7 @@ test.describe('Doctor', () => {
       await expect(page.getByText(/supervisord 4\.\d+/).first()).toBeVisible()
       await page.reload()
       await expect(page.getByText(/supervisord 4\.\d+/).first()).toBeVisible()
-      await expect(page.getByRole('heading', { name: 'Your Mac is ready' })).toHaveCount(0)
+      await expect(page.getByRole('heading', { name: words.ready })).toHaveCount(0)
       expect(errors).toEqual([])
     } finally {
       await visor.stop()
@@ -60,7 +60,7 @@ test.describe('Doctor', () => {
       await expect(page.getByText('Run supervisord as yourself (recommended)')).toBeVisible()
 
       await page.getByRole('button', { name: 'Start supervisord' }).click()
-      await expect(page.getByRole('heading', { name: 'Your Mac is ready' })).toBeVisible({ timeout: 20_000 })
+      await expect(page.getByRole('heading', { name: words.ready })).toBeVisible({ timeout: 20_000 })
       expect(await stepStatuses(page)).toEqual(['ok', 'ok', 'ok', 'ok', 'ok'])
       expect(await stepWords(page)).toEqual(['Done', 'Done', 'Done', 'Done', 'Done'])
       expect(errors).toEqual([])
@@ -125,7 +125,7 @@ test.describe('Doctor', () => {
   test('the Doctor page in the sidebar shows the checks beside the app', async ({ page }) => {
     const errors = collectErrors(page)
     await page.goto('/#/doctor')
-    await expect(page.getByRole('heading', { name: 'Your Mac is ready' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: words.ready })).toBeVisible()
     expect(await stepWords(page)).toEqual(['Done', 'Done', 'Done', 'Done', 'Done'])
     await expect(page.getByRole('link', { name: 'Issues' }).first()).toBeVisible()
     // Setup is done, so no first-run toggles.

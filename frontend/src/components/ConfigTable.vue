@@ -14,6 +14,7 @@ import { configMenu, processMenu, withoutSupervisord, type MenuItem } from '../l
 import { configRoute } from '../lib/links'
 import ActionMenu from './ActionMenu.vue'
 import StateText from './StateText.vue'
+import { readOnlyReason, useFolder } from '../lib/folder'
 
 const props = defineProps<{ configs: ConfigView[]; nowMs: number; offline?: string; note?: string }>()
 const emit = defineEmits<{
@@ -24,8 +25,15 @@ const emit = defineEmits<{
 
 const NEEDS_FILE = ['open-config', 'describe', 'reveal', 'open-log', 'apply', 'remove']
 const online = (items: MenuItem[]) => (props.offline ? withoutSupervisord(items, props.offline) : items)
+// Removing moves the file out of the config folder, so a read-only folder
+// turns it off, with the reason as its tooltip.
+const folder = useFolder()
 const fileMenu = (c: ConfigView) =>
-  online(configMenu(c)).map((i) => (c.Path || !NEEDS_FILE.includes(i.id) ? i : { ...i, disabled: true, title: 'This process has no config file in the include folder' }))
+  online(configMenu(c)).map((i) => {
+    if (!c.Path && NEEDS_FILE.includes(i.id)) return { ...i, disabled: true, title: 'This process has no config file in the include folder' }
+    const ro = readOnlyReason(folder.value)
+    return i.id === 'remove' && ro ? { ...i, disabled: true, title: ro } : i
+  })
 const collapsed = reactive<Record<string, boolean>>({})
 const key = (c: ConfigView) => c.Path || c.FileName
 const root = ref<HTMLElement>()

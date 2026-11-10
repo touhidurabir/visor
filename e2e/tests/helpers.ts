@@ -160,6 +160,7 @@ export const WORDS = {
     countSwitch: 'Show the unread count on the tray icon',
     loginUnsupported: /the package or the AppImage/,
     noBanners: 'This build can’t show desktop banners',
+    ready: 'Your computer is ready',
   },
   darwin: {
     mod: 'Meta',
@@ -171,6 +172,7 @@ export const WORDS = {
     countSwitch: 'Show the unread count in the menu bar',
     loginUnsupported: /installed Visor\.app/,
     noBanners: 'This build can’t show macOS banners',
+    ready: 'Your Mac is ready',
   },
 } as const
 export type Platform = keyof typeof WORDS

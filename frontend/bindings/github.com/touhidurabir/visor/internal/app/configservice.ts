@@ -79,6 +79,14 @@ export function Explain(fileName: string, content: string, selfPath: string): $C
 }
 
 /**
+ * Folder is the include folder's state for the read-only banner. With no
+ * include folder there is nothing to say, so it reads as writable.
+ */
+export function Folder(): $CancellablePromise<$models.FolderView> {
+    return $Call.ByID(2063065387);
+}
+
+/**
  * IncludeDir is the folder new configs are written to: the directory of the
  * first include pattern. It is empty when supervisord has no usable one.
  */

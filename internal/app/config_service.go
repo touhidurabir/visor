@@ -12,6 +12,7 @@ import (
 	"github.com/touhidurabir/visor/internal/apply"
 	"github.com/touhidurabir/visor/internal/config"
 	"github.com/touhidurabir/visor/internal/describe"
+	"github.com/touhidurabir/visor/internal/platform"
 	"github.com/touhidurabir/visor/internal/supervisor"
 	"github.com/touhidurabir/visor/internal/validate"
 )
@@ -366,6 +367,38 @@ func (s *ConfigService) ProgramValues(content string) (ProgramForm, error) {
 func (s *ConfigService) IncludeDir() string {
 	dir, _ := s.rt.newFileHome()
 	return dir
+}
+
+// FolderView says whether Visor may add, remove and restore configs: the
+// folder new configs go in, whether this user can write it (or it is
+// missing), and who owns it ("root").
+type FolderView struct {
+	Dir      string
+	Writable bool
+	Missing  bool
+	Owner    string
+}
+
+// Folder is the include folder's state for the read-only banner. With no
+// include folder there is nothing to say, so it reads as writable.
+func (s *ConfigService) Folder() FolderView {
+	dir, _ := s.rt.newFileHome()
+	return folderView(dir, os.Stat, platform.DirWritable, ownerName)
+}
+
+func folderView(dir string, stat func(string) (os.FileInfo, error), writable func(string) bool, owner func(os.FileInfo) string) FolderView {
+	v := FolderView{Dir: dir, Writable: true}
+	if dir == "" {
+		return v
+	}
+	fi, err := stat(dir)
+	switch {
+	case err != nil:
+		v.Writable, v.Missing = false, true
+	case !writable(dir):
+		v.Writable, v.Owner = false, owner(fi)
+	}
+	return v
 }
 
 // IncludeExt is the extension of the first include pattern (".ini", ".conf"),

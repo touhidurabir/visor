@@ -162,6 +162,11 @@ export interface DoctorView {
      * StartFailure says why the last Start supervisord didn't work.
      */
     "StartFailure": StartFailure | null;
+
+    /**
+     * Linux is the Linux advice (nil on macOS).
+     */
+    "Linux": LinuxAdvice | null;
 }
 
 /**
@@ -246,6 +251,18 @@ export interface FileView {
     "Content": string;
     "Hash": string;
     "Writable": boolean;
+}
+
+/**
+ * FolderView says whether Visor may add, remove and restore configs: the
+ * folder new configs go in, whether this user can write it (or it is
+ * missing), and who owns it ("root").
+ */
+export interface FolderView {
+    "Dir": string;
+    "Writable": boolean;
+    "Missing": boolean;
+    "Owner": string;
 }
 
 /**
@@ -337,6 +354,51 @@ export interface LinePathView {
     "Size": number;
     "Process": string;
     "Stream": string;
+}
+
+/**
+ * LinuxAdvice is what Doctor shows on Linux beside the checks: the commands
+ * for this distro, the fix for a socket root keeps, and warnings. Doctor
+ * shows the commands; it never runs them. Nil on macOS.
+ */
+export interface LinuxAdvice {
+    /**
+     * os-release NAME ("Ubuntu"), "" when unknown
+     */
+    "Distro": string;
+
+    /**
+     * platform.Family
+     */
+    "Family": string;
+
+    /**
+     * installs supervisord
+     */
+    "Install": string;
+
+    /**
+     * its systemd unit
+     */
+    "Service": string;
+
+    /**
+     * SystemService: the config is the system's (under /etc), so systemd
+     * runs supervisord and StartCommand is a systemctl one to copy.
+     */
+    "SystemService": boolean;
+
+    /**
+     * RootFix is the group fix when the socket isn't open to this user.
+     */
+    "RootFix": doctor$0.RootFix | null;
+
+    /**
+     * WritableFix lets the supervisor group write to a config folder root
+     * owns (when it isn't writable).
+     */
+    "WritableFix": string[] | null;
+    "Warnings": doctor$0.Warning[] | null;
 }
 
 /**

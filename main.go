@@ -26,6 +26,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	guardWebKitSandbox(stateDir)
 	// A settings file that cannot be read leaves the defaults in use; the
 	// Settings page says so.
 	prefs, loadErr := settings.Load(stateDir)
