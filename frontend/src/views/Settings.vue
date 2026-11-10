@@ -31,6 +31,7 @@ import {
 } from '../lib/settings'
 import { appearance } from '../lib/theme-sync'
 import { showToast } from '../lib/toast'
+import { isMac, platform, secretStore, trayIcon } from '../lib/platform'
 
 const { overview } = useOverview()
 const view = ref<SettingsView | null>(null)
@@ -426,14 +427,14 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
         <div class="row">
           <div class="what">
             <span class="name">Appearance</span>
-            <span class="hint">System follows your Mac’s light or dark setting.</span>
+            <span class="hint">System follows your {{ isMac() ? 'Mac’s' : 'desktop’s' }} light or dark setting.</span>
           </div>
           <div class="ctl"><ThemeSwitch /></div>
         </div>
         <div class="row">
           <div class="what">
-            <label class="name" for="menubar-count">Show the unread count in the menu bar</label>
-            <span class="hint">The number beside Visor’s menu-bar icon. The bell and the icon’s menu show it either way.</span>
+            <label class="name" for="menubar-count">{{ isMac() ? 'Show the unread count in the menu bar' : 'Show the unread count on the tray icon' }}</label>
+            <span class="hint">The number {{ isMac() ? 'beside' : 'on' }} Visor’s {{ trayIcon() }}. The bell and the icon’s menu show it either way.</span>
           </div>
           <div class="ctl">
             <input id="menubar-count" class="switch" type="checkbox" role="switch" :checked="s?.menuBarCount ?? true" @change="setMenuBarCount(($event.target as HTMLInputElement).checked)" />
@@ -493,13 +494,13 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
           <div class="what">
             <label class="name" for="conn-pass">Password</label>
             <span class="hint">
-              Kept in your Keychain, never in a file.<template v-if="view.HasPassword"> Removing it also clears the username, so the config’s credentials apply again.</template>
+              Kept in your {{ secretStore() }}, never in a file.<template v-if="view.HasPassword"> Removing it also clears the username, so the config’s credentials apply again.</template>
             </span>
           </div>
           <div v-if="view.HasPassword && !changingPassword" class="ctl">
             <span class="pw-saved" data-testid="password-saved">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
-              Saved in your Keychain
+              Saved in your {{ secretStore() }}
             </span>
             <button type="button" class="btn sm" :disabled="connBusy" @click="changePassword">Change…</button>
             <button type="button" class="btn sm" :disabled="connBusy" @click="removePassword">Remove password</button>
@@ -561,15 +562,15 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
         </fieldset>
         <div class="row">
           <div class="what">
-            <span class="name">macOS permission</span>
-            <span class="hint">Visor asks once, the first time it runs.</span>
+            <span class="name">{{ isMac() ? 'macOS permission' : 'Desktop banners' }}</span>
+            <span class="hint">{{ isMac() ? 'Visor asks once, the first time it runs.' : 'Shown by your desktop’s notification service.' }}</span>
           </div>
           <div class="ctl">
             <span :class="['badge', 'wrap', `b-${permissionView.tone}`]" data-testid="notify-permission"><span :class="['dot', `d-${permissionView.tone}`]" aria-hidden="true" />{{ permissionView.text }}</span>
             <button type="button" class="btn sm" :disabled="testBusy" @click="sendTest">Send a test notification</button>
           </div>
         </div>
-        <div class="row">
+        <div v-if="platform().systemSettings" class="row">
           <div class="what">
             <span class="name">Keep them on screen</span>
             <span class="hint">

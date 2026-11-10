@@ -5,7 +5,10 @@ import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { connectionBadge, connectionProblem } from '../lib/connection'
 import { useOverview } from '../lib/overview'
-import { followMenu } from '../lib/menu'
+import { Application, Window } from '@wailsio/runtime'
+import { followMenu, runMenu } from '../lib/menu'
+import { isMac } from '../lib/platform'
+import { shortcutOf } from '../lib/shortcuts'
 import Sidebar from './Sidebar.vue'
 import ToastHost from './ToastHost.vue'
 
@@ -15,13 +18,26 @@ const { overview } = useOverview()
 // Choices from Visor's menu bar (Find, Reload Config, Restart All…).
 followMenu(router)
 
-// ⌘N adds a new config (spec §4.5). In the app the menu bar has it too;
-// this handler takes the key first (and stops it), so it runs once, and it
-// keeps the shortcut in the browser build.
+// Visor's shortcuts (lib/shortcuts.ts). On macOS the menu bar takes its
+// keys before the page sees them, so these run in the browser build and for
+// ⌘N, which the page takes first so it runs once. Linux has no menu bar, so
+// every shortcut is carried out here, Close Window and Quit included. A key
+// an editor already handled (CodeMirror's own Ctrl+F) is left alone.
 function onKey(e: KeyboardEvent) {
-  if (e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey && e.key === 'n') {
-    e.preventDefault()
-    void router.push('/new')
+  const id = e.defaultPrevented ? null : shortcutOf(e)
+  if (!id) return
+  const nativeOnly = id === 'closeWindow' || id === 'quit'
+  if (nativeOnly && isMac()) return
+  e.preventDefault() // never the webview's own reload or find
+  switch (id) {
+    case 'newConfig': return void router.push('/new')
+    case 'settings': return void router.push('/settings')
+    case 'dashboard': return void router.push('/')
+    case 'issues': return void router.push('/issues')
+    case 'find': return runMenu('find')
+    case 'reload': return runMenu('reload')
+    case 'closeWindow': return void Window.Close()
+    case 'quit': return void Application.Quit()
   }
 }
 onMounted(() => window.addEventListener('keydown', onKey))

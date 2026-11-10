@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { collectErrors, waitForDashboard } from './helpers'
+import { collectErrors, waitForDashboard, words } from './helpers'
 
 test.describe('notifications', () => {
   test('the bell counts unread failures and leads to them', async ({ page }) => {
@@ -12,7 +12,7 @@ test.describe('notifications', () => {
 
     const panel = page.getByRole('dialog', { name: 'Notifications' })
     // The "no banners" note is one line in the footer, not a box above the list.
-    await expect(panel.locator('footer')).toContainText('This build can’t show macOS banners')
+    await expect(panel.locator('footer')).toContainText(words.noBanners)
 
     // Unread titles are bold.
     const anyUnread = panel.getByRole('button', { name: /, unread/ }).first()

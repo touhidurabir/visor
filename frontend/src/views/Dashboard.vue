@@ -31,6 +31,7 @@ import { copyText } from '../lib/clipboard'
 import { configRoute } from '../lib/links'
 import { showToast } from '../lib/toast'
 import { onMenu, takePendingMenu } from '../lib/menu'
+import { modKeyHint, shortcutHint } from '../lib/shortcuts'
 
 const router = useRouter()
 const { overview, error: loadError, reload } = useOverview()
@@ -50,8 +51,9 @@ const signalFor = ref<ProcessView | null>(null)
 const checking = ref(false)
 
 let tick: ReturnType<typeof setInterval>
-// Visor's menu bar: Find, Reload Config and Restart All… act here. A
-// choice made on another page waits for the dashboard's data.
+// Visor's menu bar (and on Linux its shortcuts, through AppShell): Find,
+// Reload Config and Restart All… act here. A choice made on another page
+// waits for the dashboard's data.
 const menuOffs: Array<() => void> = []
 function whenLoaded(run: () => void) {
   if (overview.value) return run()
@@ -63,7 +65,6 @@ function whenLoaded(run: () => void) {
 }
 onMounted(() => {
   tick = setInterval(() => (nowMs.value = Date.now()), 10_000)
-  window.addEventListener('keydown', onKey)
   menuOffs.push(
     onMenu('find', focusSearch),
     onMenu('reload', () => void checkForChanges()),
@@ -74,24 +75,12 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   clearInterval(tick)
-  window.removeEventListener('keydown', onKey)
   menuOffs.forEach((off) => off())
 })
 
 function focusSearch() {
   search.value?.focus()
   search.value?.select()
-}
-
-function onKey(e: KeyboardEvent) {
-  if (!e.metaKey || e.altKey || e.ctrlKey || e.shiftKey) return
-  if (e.key === 'f') {
-    e.preventDefault()
-    focusSearch()
-  } else if (e.key === 'r') {
-    e.preventDefault() // never reload the webview
-    void checkForChanges()
-  }
 }
 
 const configs = computed(() => overview.value?.Configs ?? [])
@@ -315,7 +304,7 @@ function sendSignal(sig: string) {
             <label for="q" class="sr-only">Search processes and config files</label>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
             <input id="q" ref="search" v-model="query" class="input" type="search" placeholder="Search" autocomplete="off" />
-            <span class="kbd" aria-hidden="true">⌘F</span>
+            <span class="kbd" aria-hidden="true">{{ shortcutHint('find') }}</span>
           </div>
           <button type="button" class="btn" :disabled="checking || !!offline" :title="offline" @click="checkForChanges">
             {{ checking ? 'Checking…' : 'Check for changes' }}
@@ -377,7 +366,7 @@ function sendSignal(sig: string) {
         </div>
         <p v-if="!configs.length" class="muted">No config files found. Add a program to get started.</p>
         <ConfigTable v-else ref="table" :configs="shown" :now-ms="nowMs" :offline="offline" :note="offline && BACK_NOTE" @process="onProcess" @config="onConfig" @watch="onWatch" />
-        <p class="meta">Each ⋯ menu shows the matching <span class="mono">supervisorctl</span> command in grey. Copy it with the button beside it, or ⌘C.</p>
+        <p class="meta">Each ⋯ menu shows the matching <span class="mono">supervisorctl</span> command in grey. Copy it with the button beside it, or {{ modKeyHint('c') }}.</p>
       </section>
 
       <RecentlyRemoved :stamp="removedStamp" @restored="reload" />

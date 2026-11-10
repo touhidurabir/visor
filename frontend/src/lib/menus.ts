@@ -2,6 +2,7 @@
 // equivalent, shown in grey so people can learn it. Wiring items to service
 // calls happens in the views that own them; ActionMenu only emits the id.
 import type { ConfigView, ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { revealLabel } from './platform'
 
 export interface MenuItem {
   id: string
@@ -73,7 +74,7 @@ export function configMenu(c: ConfigView): MenuItem[] {
     item('restart-all', 'Restart all in file', `supervisorctl restart ${star}`),
     item('open-config', 'Open / edit config', ''),
     item('describe', 'Describe', ''),
-    item('reveal', 'Reveal in Finder', ''),
+    item('reveal', revealLabel(), ''),
     item('open-log', 'Open log in editor', ''),
     item('apply', 'Apply changes', `supervisorctl update ${names}`, !(c.Changed || c.Uncertain)),
     item('remove', 'Remove from supervisor', `supervisorctl remove ${names}`, false, {

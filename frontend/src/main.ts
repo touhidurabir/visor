@@ -5,6 +5,9 @@ import '@fontsource-variable/bricolage-grotesque/opsz.css'
 import './style.css'
 import { startThemeSync } from './lib/theme-sync'
 
+import { loadPlatform } from './lib/platform'
+
 startThemeSync()
 
-createApp(App).use(createAppRouter()).mount('#app')
+// The wording (⌘ or Ctrl, Keychain or keyring…) is known before anything renders.
+void loadPlatform().then(() => createApp(App).use(createAppRouter()).mount('#app'))

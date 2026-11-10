@@ -87,6 +87,15 @@ describe('notifyPermission', () => {
     expect(notifyPermission('denied')).toEqual({ text: 'Not allowed. Allow Visor in System Settings → Notifications.', tone: 'bad' })
     expect(notifyPermission('unavailable')).toEqual({ text: 'Not available in this build', tone: 'idle' })
   })
+  it('points Linux at the desktop’s settings', async () => {
+    const { LINUX, MAC, setPlatform } = await import('./platform')
+    setPlatform(LINUX)
+    try {
+      expect(notifyPermission('denied').text).toBe('Not allowed. Allow Visor in your desktop’s notification settings.')
+    } finally {
+      setPlatform(MAC)
+    }
+  })
   it('says it is checking before the answer comes', () => {
     expect(notifyPermission('')).toEqual({ text: 'Checking…', tone: 'idle' })
     expect(notifyPermission('something new')).toEqual({ text: 'Checking…', tone: 'idle' })

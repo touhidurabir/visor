@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { collectErrors, configRow, expectState, openApp, processRow, removeConfig, supervisorStates, waitForDashboard } from './helpers'
+import { collectErrors, configRow, expectState, openApp, processRow, removeConfig, supervisorStates, waitForDashboard, words } from './helpers'
 
 // Creates e2e-task.ini (and mailer-copy.ini, a copy of mailer.ini) in the
 // sandbox's conf.d and takes them out again, so the 12 sample programs stay
@@ -229,9 +229,9 @@ test.describe('add new config', () => {
     await expect(configRow(page, 'mailer.ini')).toBeVisible()
   })
 
-  test('opens with ⌘N', async ({ page }) => {
+  test('opens with the New Config shortcut', async ({ page }) => {
     await waitForDashboard(page)
-    await page.keyboard.press('Meta+n')
+    await page.keyboard.press(`${words.mod}+n`)
     await expect(page).toHaveURL(/#\/new$/)
     await expect(page.getByRole('heading', { level: 1, name: 'Add a new config' })).toBeVisible()
   })

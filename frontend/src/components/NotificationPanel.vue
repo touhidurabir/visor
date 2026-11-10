@@ -11,6 +11,7 @@ import { NotifyService, type NotificationView } from '../../bindings/github.com/
 import { groupByDay, noticeIcon, noticeRoute, noticeTime, severityLevel, severityWord, useNotifications } from '../lib/notifications'
 import { describeError } from '../lib/faults'
 import { showToast } from '../lib/toast'
+import { isMac, platform } from '../lib/platform'
 
 const props = defineProps<{ anchor?: HTMLElement }>()
 const emit = defineEmits<{ close: [refocus: boolean] }>()
@@ -143,10 +144,10 @@ onBeforeUnmount(() => {
       <footer class="foot">
         <RouterLink to="/issues" class="all" @click="emit('close', false)">Open all issues</RouterLink>
         <p v-if="permission === 'denied'" class="note warn" data-testid="notify-blocked">
-          macOS is blocking Visor’s banners, so these only show here.
-          <button type="button" class="link" @click="allow">Allow in System Settings</button>
+          {{ isMac() ? 'macOS' : 'Your desktop' }} is blocking Visor’s banners, so these only show here.
+          <button v-if="platform().systemSettings" type="button" class="link" @click="allow">Allow in System Settings</button>
         </p>
-        <p v-else-if="permission === 'unavailable'" class="note">This build can’t show macOS banners, so notifications show only here.</p>
+        <p v-else-if="permission === 'unavailable'" class="note">This build can’t show {{ isMac() ? 'macOS' : 'desktop' }} banners, so notifications show only here.</p>
       </footer>
     </section>
   </Teleport>

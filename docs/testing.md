@@ -46,6 +46,8 @@ a test run never touches your real supervisord, `~/Library/Application
 Support/Visor` or the Keychain. The sandbox is removed when the run ends,
 including after a failure or Ctrl-C, and a sandbox left by a run that was killed outright is replaced at the next start. The binary refuses to start unless `VISOR_CONFIG` and `VISOR_STATE_DIR` are set.
 
+The shared Visor runs with `VISOR_PLATFORM=linux` (only the server build reads it), so the UI words things as on Linux: Ctrl+N, "Show in file manager", "keyring", "tray". Specs take those words from `WORDS` in `e2e/tests/helpers.ts`; `platform.spec.ts` also starts a Visor with `VISOR_PLATFORM=darwin` on the same sandbox and checks the macOS words.
+
 What it covers (`e2e/tests`):
 
 - `dashboard.spec.ts`: connection to supervisord 4.x, the config files, the health strip and Show them, failing rows first, the search shortcut and filter, and the shutdown toast's Open Doctor (its own Visor on port 8776).
@@ -53,6 +55,7 @@ What it covers (`e2e/tests`):
 - `config-detail.spec.ts`: Overview flags a missing command and opens on Only problems when there are any, Logs follows the chosen process, the header, History renders.
 - `issues.spec.ts`: the FATAL issue appears, filters and counts, resolving, search.
 - `issues-manage.spec.ts`: the summary line and tabs, kind and date filters, bulk resolve, and deleting one or many resolved issues (each with Cancel leaving things unchanged); works on `flaky`'s issues only.
+- `platform.spec.ts`: the OS-dependent words on both platforms (shortcut hints and keys, the file-manager button, the tray count switch, the password store, launch at login, the macOS-only notification row), the macOS ones on its own Visor on port 8780.
 - `settings.spec.ts`: config fixed by `VISOR_CONFIG`, the order of the cards and the label-left rows, polling interval and a notification toggle persist across a reload.
 - `navigation.spec.ts`: sidebar links, unknown routes, no console errors.
 - `config-editor.spec.ts`, `add-new.spec.ts`, `apply-changes.spec.ts`: editing with diff and backup, adding a config by form or by hand (the fix list and save bar), copying an existing config, applying changes made on disk, removing and restoring.

@@ -15,6 +15,7 @@ import { chownCommand, installCommands, lensText, mkdirCommand, rootFixes, situa
 import { describeError } from '../lib/faults'
 import { loginLocked, useLaunchAtLogin } from '../lib/login-item'
 import { showToast } from '../lib/toast'
+import { isMac, trayName } from '../lib/platform'
 
 const props = defineProps<{ firstRun?: boolean }>()
 const emit = defineEmits<{
@@ -167,7 +168,8 @@ function openSettings() {
   <div :class="['doctor', { embedded: !firstRun }]">
     <!-- First launch fills the window: a title bar strip under the traffic
          lights (hidden-inset title bar), so it reads as the app, not a page. -->
-    <div v-if="firstRun" class="titlebar"><span>Visor</span></div>
+    <!-- The macOS window has no title bar of its own (hidden inset); Linux's does. -->
+    <div v-if="firstRun && isMac()" class="titlebar"><span>Visor</span></div>
 
     <div class="body">
       <div v-if="loadError && !view" class="load-error" role="alert">
@@ -223,7 +225,7 @@ function openSettings() {
               </div>
               <div class="actions">
                 <button type="button" class="btn primary lg" :disabled="finishing" @click="openDashboard(true)">Open dashboard</button>
-                <span class="meta">Visor also lives in your menu bar.</span>
+                <span class="meta">Visor also lives in your {{ trayName() }}.</span>
               </div>
             </template>
 

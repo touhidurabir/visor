@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { words } from './helpers'
 
 test.describe('settings', () => {
   test('the config path is fixed by VISOR_CONFIG', async ({ page }) => {
@@ -19,11 +20,11 @@ test.describe('settings', () => {
     // The old separate cards are gone.
     for (const old of ['Polling', 'Crash loops', 'Issue history']) await expect(page.getByRole('group', { name: old, exact: true })).toHaveCount(0)
 
-    // General holds Launch at login, Appearance and the menu-bar count.
+    // General holds Launch at login, Appearance and the tray count.
     const general = page.getByRole('group', { name: 'General' })
     await expect(general.getByRole('switch', { name: 'Launch at login' })).toBeVisible()
     await expect(general.getByRole('radiogroup', { name: 'Appearance' })).toBeVisible()
-    await expect(general.getByRole('switch', { name: 'Show the unread count in the menu bar' })).toBeVisible()
+    await expect(general.getByRole('switch', { name: words.countSwitch })).toBeVisible()
 
     // One card checks and keeps history: the poll interval, crash loops and retention.
     const checking = page.getByRole('group', { name: 'Checking and history' })
@@ -37,7 +38,7 @@ test.describe('settings', () => {
     expect((await poll.boundingBox())!.width).toBeLessThanOrEqual(72)
 
     // The saved password row stays in Connection (connection.spec covers it).
-    await expect(page.getByRole('group', { name: 'Connection' }).getByText(/Kept in your Keychain/)).toBeVisible()
+    await expect(page.getByRole('group', { name: 'Connection' }).getByText(words.keptPassword)).toBeVisible()
   })
 
   test('each row has the label on the left and the control on the right', async ({ page }) => {

@@ -16,21 +16,28 @@ export const DOCTOR_MENU = 'doctor'
 const toRoute = new Map([[DOCTOR_MENU, '/doctor']])
 let pending: string | null = null
 let off: (() => void) | null = null
+let current: Router | null = null
 
 /** Starts listening for menu choices (once, from the app shell). */
 export function followMenu(router: Router) {
   off?.()
-  off = Events.On(VisorMenu, (ev: { data: unknown }) => {
-    const name = String(ev.data)
-    const run = handlers.get(name)
-    if (run) return run()
-    const route = toRoute.get(name)
-    if (route) return void router.push(route)
-    if (toDashboard.has(name)) {
-      pending = name
-      void router.push('/')
-    }
-  })
+  current = router
+  off = Events.On(VisorMenu, (ev: { data: unknown }) => runMenu(String(ev.data)))
+}
+
+/**
+ * Carries out a menu choice as if it came from the menu bar. Linux has no
+ * menu bar, so its keyboard shortcuts (lib/shortcuts.ts) come here.
+ */
+export function runMenu(name: string) {
+  const run = handlers.get(name)
+  if (run) return run()
+  const route = toRoute.get(name)
+  if (route) return void current?.push(route)
+  if (toDashboard.has(name)) {
+    pending = name
+    void current?.push('/')
+  }
 }
 
 /** Handles name while the calling page is showing; returns the undo. */
@@ -52,6 +59,7 @@ export function takePendingMenu(name: string): boolean {
 export function resetMenu() {
   off?.()
   off = null
+  current = null
   handlers.clear()
   pending = null
 }

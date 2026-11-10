@@ -18,6 +18,21 @@ vi.mock('@wailsio/runtime', async (original) => ({
 }))
 
 const { loginHint, loginLocked, useLaunchAtLogin } = await import('./login-item')
+const { LINUX, MAC, setPlatform } = await import('./platform')
+
+describe('launch at login wording on Linux', () => {
+  it('says tray, and names the AppImage and the packages', () => {
+    setPlatform(LINUX)
+    try {
+      expect(loginHint('enabled')).toBe('Visor opens in the tray when you log in.')
+      expect(loginHint('disabled')).toBe('Open Visor in the tray when you log in.')
+      expect(loginHint('not_moved')).toMatch(/^Move the AppImage out of \/tmp first/)
+      expect(loginHint('unsupported')).toBe('Works in the installed Visor (the package or the AppImage), not in this build.')
+    } finally {
+      setPlatform(MAC)
+    }
+  })
+})
 
 describe('launch at login wording', () => {
   it('says what each status means', () => {

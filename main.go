@@ -4,6 +4,7 @@ import (
 	"embed"
 	"log"
 	"os"
+	"runtime"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -82,6 +83,7 @@ func main() {
 			application.NewService(app.NewShellService(shell)),
 			application.NewService(loginService),
 			application.NewService(dockService),
+			application.NewService(app.NewSystemService()),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -110,8 +112,12 @@ func main() {
 	})
 	shell.Setup(wails, mainWindow, dockService)
 	// Visor's own menu bar, in place of Wails' default (whose Reload loses
-	// unsaved edits and whose Help loads wails.io into the window).
-	wails.Menu.SetApplicationMenu(app.BuildAppMenu(wails, shell))
+	// unsaved edits and whose Help loads wails.io into the window). macOS
+	// only: on Linux Wails would draw it inside every window, the popover
+	// too, so there the page carries out the shortcuts (lib/shortcuts.ts).
+	if runtime.GOOS == "darwin" {
+		wails.Menu.SetApplicationMenu(app.BuildAppMenu(wails, shell))
+	}
 	// The window chrome follows the saved appearance from launch on.
 	wails.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		app.ApplyStartupAppearance(prefs.Appearance)

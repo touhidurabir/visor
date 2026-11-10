@@ -25,6 +25,7 @@ import type { Stream } from '../lib/logview'
 import { useOverview } from '../lib/overview'
 import { configRoute } from '../lib/links'
 import { showToast } from '../lib/toast'
+import { revealLabel } from '../lib/platform'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -258,7 +259,7 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
             <button type="button" class="btn quiet" :disabled="busy" @click="bulk('stop')">Stop all</button>
             <button type="button" class="btn quiet" :disabled="busy" @click="bulk('restart')">Restart all</button>
           </div>
-          <button type="button" class="btn quiet" @click="reveal(config.Path)">Reveal in Finder</button>
+          <button type="button" class="btn quiet" @click="reveal(config.Path)">{{ revealLabel() }}</button>
         </div>
       </header>
 
