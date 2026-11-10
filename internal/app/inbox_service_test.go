@@ -86,8 +86,16 @@ func TestRepeatUpdatesInboxAndBanner(t *testing.T) {
 	if len(v.Items) != 1 || v.Items[0].Count != 3 || !strings.Contains(v.Items[0].Detail, "3rd time in 10 minutes") {
 		t.Fatalf("inbox = %+v", v.Items)
 	}
+	// Each banner is sent from its own goroutine, so they may arrive in
+	// either order: look for the repeat by its text, not its position.
 	msgs := sender.messages()
-	if len(msgs) != 2 || !strings.Contains(msgs[1].Body, "3rd time in 10 minutes") || msgs[0].ID == msgs[1].ID {
+	repeats := 0
+	for _, m := range msgs {
+		if strings.Contains(m.Body, "3rd time in 10 minutes") {
+			repeats++
+		}
+	}
+	if len(msgs) != 2 || repeats != 1 || msgs[0].ID == msgs[1].ID {
 		t.Errorf("banners = %+v", msgs)
 	}
 }

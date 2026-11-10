@@ -7,7 +7,7 @@
 //	go run ./scripts/appicon
 //
 // writes build/appicon.png (the whole icon on the light tile, for .icns and
-// Windows) and build/appicon.icon/Assets/lens.png (the ring, glass and pulse
+// Linux) and build/appicon.icon/Assets/lens.png (the ring, glass and pulse
 // alone, a layer for Icon Composer's Assets.car on macOS 26). Then run
 // `wails3 task common:generate:icons`.
 package main

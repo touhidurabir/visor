@@ -163,7 +163,7 @@ Only do it when that's what you want to test.
 
 ```sh
 go run ./scripts/appicon                  # draws build/appicon.png and build/appicon.icon/Assets/lens.png
-wails3 task common:generate:icons         # turns them into build/darwin/icons.icns (and the Windows .ico)
+wails3 task common:generate:icons         # turns them into build/darwin/icons.icns
 ```
 
 Then rebuild the app to see it.

@@ -2,7 +2,6 @@
 .task
 bin
 build/linux/appimage/build
-build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
 
 # Frontend. dist/.gitkeep stays so `go:embed all:frontend/dist` compiles
 # (go vet / go test) before the frontend has been built; Vite recreates it
