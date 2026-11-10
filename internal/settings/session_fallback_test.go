@@ -88,3 +88,24 @@ func TestSessionFallbackMovesToTheKeyringWhenItComesBack(t *testing.T) {
 		t.Errorf("Password = %q", pw)
 	}
 }
+
+func TestALockedKeyringIsAnErrorNotASessionPassword(t *testing.T) {
+	keyring.MockInitWithError(errors.New("failed to unlock correct collection '/org/freedesktop/secrets/aliases/default'"))
+	t.Cleanup(keyring.MockInit)
+	k := &SessionFallback{K: SystemKeychain{}}
+	err := SetPassword(k, "/etc/supervisor/supervisord.conf", "s3cret")
+	if err == nil || errors.Is(err, ErrNoKeyring) {
+		t.Fatalf("a dismissed unlock = %v, want the keyring's own error", err)
+	}
+	if k.SessionOnly(KeychainService, "/etc/supervisor/supervisord.conf") {
+		t.Error("kept in memory although a keyring is there")
+	}
+	for _, msg := range []string{
+		"The name org.freedesktop.secrets was not provided by any .service files",
+		"dial unix /run/user/1000/bus: connect: no such file or directory",
+	} {
+		if !keyringDown(errors.New(msg)) {
+			t.Errorf("%q should read as no keyring", msg)
+		}
+	}
+}

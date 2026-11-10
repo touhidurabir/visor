@@ -71,6 +71,15 @@ export const startTips = [
   'It was started with sudo before: see “supervisord runs as root?” below.',
 ]
 
+/** startTips for this OS: on Linux the last one is about the system service. */
+export function startTipsFor(mac: boolean): string[] {
+  if (mac) return startTips
+  return [
+    ...startTips.slice(0, 3),
+    'The system’s supervisord (sudo systemctl status supervisor or supervisord) already uses that socket: stop it, or point Visor at its config.',
+  ]
+}
+
 /** The command that gives this user the config folder ("" when it isn't known). */
 export function chownCommand(dir: string): string {
   return dir ? `sudo chown -R $(whoami) ${shellQuote(dir)}` : ''

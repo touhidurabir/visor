@@ -30,3 +30,12 @@ func TestParseOSRelease(t *testing.T) {
 		t.Errorf("name = %q", d.Name)
 	}
 }
+
+func TestParseOSReleaseFirstMatchWins(t *testing.T) {
+	if d := ParseOSRelease("ID=ubuntu\nID_LIKE=\"debian arch\"\n"); d.Family != FamilyDebian {
+		t.Errorf("ID decides: %s", d.Family)
+	}
+	if d := ParseOSRelease("ID=mystery\nID_LIKE=\"fedora arch\"\n"); d.Family != FamilyFedora {
+		t.Errorf("the first ID_LIKE that matches: %s", d.Family)
+	}
+}

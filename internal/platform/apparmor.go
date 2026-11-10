@@ -15,7 +15,15 @@ import (
 // WebKitSandboxBlocked reports whether that is the case for this process:
 // the restriction is on and no profile confines it (its AppArmor label is
 // plain "unconfined").
-func WebKitSandboxBlocked() bool { return sandboxBlocked(os.ReadFile) }
+//
+// WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 turns WebKit's sandbox off,
+// and with it the need for a user namespace: then nothing is blocked.
+func WebKitSandboxBlocked() bool {
+	if os.Getenv("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS") != "" {
+		return false
+	}
+	return sandboxBlocked(os.ReadFile)
+}
 
 func sandboxBlocked(read func(string) ([]byte, error)) bool {
 	v, err := read("/proc/sys/kernel/apparmor_restrict_unprivileged_userns")
@@ -79,9 +87,11 @@ func quoteProfilePath(p string) string {
 // AppArmorFix is the shell steps that install AppArmorProfile for exe.
 func AppArmorFix(exe string) string {
 	name := AppArmorProfileName
+	// The bare name is the .deb's own profile (/usr/bin/visor): any other
+	// copy gets a name of its own, so the fix never replaces that file.
 	if _, ok := inAppImage(exe); ok {
 		name += "-appimage"
-	} else if !strings.HasPrefix(exe, "/usr/") && !strings.HasPrefix(exe, "/opt/") {
+	} else if exe != "/usr/bin/visor" {
 		name += "-" + strings.ToLower(strings.Trim(strings.NewReplacer("/", "-", ".", "-", " ", "-").Replace(filepath.Dir(exe)), "-"))
 	}
 	file := "/etc/apparmor.d/" + name

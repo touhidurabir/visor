@@ -394,10 +394,10 @@ export interface LinuxAdvice {
     "RootFix": doctor$0.RootFix | null;
 
     /**
-     * WritableFix lets the supervisor group write to a config folder root
-     * owns (when it isn't writable).
+     * WritableFix lets a group you're in write a config folder root owns
+     * (when it isn't writable), joining the group first when needed.
      */
-    "WritableFix": string[] | null;
+    "WritableFix": doctor$0.FixStep[] | null;
     "Warnings": doctor$0.Warning[] | null;
 }
 

@@ -1,6 +1,8 @@
 package doctor
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -85,14 +87,30 @@ func TestGroupFixVariants(t *testing.T) {
 }
 
 func TestWritableFix(t *testing.T) {
-	if got := WritableFix("/etc/supervisor/conf.d"); !slices.Equal(got, []string{"sudo chgrp supervisor /etc/supervisor/conf.d && sudo chmod g+w /etc/supervisor/conf.d"}) {
-		t.Errorf("got %q", got)
+	cmds := func(steps []FixStep) []string {
+		var out []string
+		for _, s := range steps {
+			out = append(out, s.Command)
+		}
+		return out
 	}
-	if got := WritableFix("/etc/my confs"); !strings.Contains(got[0], "'/etc/my confs'") {
-		t.Errorf("quoting: %q", got)
+	// Already in the group and logged in again: one command.
+	in := WritableFix(FolderFacts{Dir: "/etc/supervisor/conf.d", User: "ana", Member: true, Active: true})
+	if !slices.Equal(cmds(in), []string{"sudo chgrp supervisor /etc/supervisor/conf.d && sudo chmod g+w /etc/supervisor/conf.d"}) {
+		t.Errorf("member = %q", cmds(in))
 	}
-	if WritableFix("") != nil {
-		t.Error("no dir, no command")
+	// Not in it: join first, then log in again.
+	out := WritableFix(FolderFacts{Dir: "/etc/supervisor/conf.d", User: "ana"})
+	if want := []string{"sudo groupadd -f supervisor && sudo usermod -aG supervisor ana", "sudo chgrp supervisor /etc/supervisor/conf.d && sudo chmod g+w /etc/supervisor/conf.d", ""}; !slices.Equal(cmds(out), want) {
+		t.Errorf("not a member = %q", cmds(out))
+	}
+	// The socket's own group, when the config names one.
+	g := WritableFix(FolderFacts{Dir: "/etc/my confs", User: "ana", Group: "devops", Member: true, Active: true})
+	if c := cmds(g); len(c) != 1 || !strings.Contains(c[0], "chgrp devops '/etc/my confs'") {
+		t.Errorf("configured group = %q", c)
+	}
+	if WritableFix(FolderFacts{}) != nil {
+		t.Error("no dir, no steps")
 	}
 }
 
@@ -112,7 +130,19 @@ func TestLinuxWarnings(t *testing.T) {
 	if len(w) != 1 || w[0].ID != "appimage" || !strings.Contains(w[0].Detail, "/tmp") {
 		t.Errorf("AppImage in /tmp = %+v", w)
 	}
-	if w := LinuxWarnings(true, "KDE", "/home/ana/Applications/Visor.AppImage", deb); len(w) != 0 {
-		t.Errorf("AppImage at home = %+v", w)
+	img := filepath.Join(t.TempDir(), "Visor.AppImage")
+	if err := os.WriteFile(img, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if w := LinuxWarnings(true, "KDE", img, deb); len(w) != 0 && !platform.InTempDir(img) {
+		t.Errorf("an executable AppImage outside /tmp = %+v", w)
+	}
+	if err := os.Chmod(img, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if w := LinuxWarnings(true, "KDE", img, deb); platform.InTempDir(img) || len(w) != 1 || !strings.Contains(w[0].Detail, "chmod +x") {
+		if !platform.InTempDir(img) {
+			t.Errorf("an AppImage without its execute bit = %+v", w)
+		}
 	}
 }

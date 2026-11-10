@@ -16,7 +16,36 @@ func Installed() bool {
 		return BundlePath() != ""
 	}
 	home, _ := os.UserHomeDir()
-	return installedOnLinux(Executable(), os.Getenv("APPIMAGE"), home)
+	return installedOnLinux(Executable(), AppImage(), home)
+}
+
+// AppImage is the AppImage file this process runs from, or "". The
+// AppImage runtime sets $APPIMAGE and $APPDIR (its mount), and every child
+// inherits them, so $APPIMAGE counts only when this binary is inside
+// $APPDIR: a .deb copy started from another AppImage (an editor, a
+// terminal) must not take that app for itself.
+func AppImage() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if p, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = p
+	}
+	return appImageOf(os.Getenv("APPIMAGE"), os.Getenv("APPDIR"), exe)
+}
+
+func appImageOf(appImage, appDir, exe string) string {
+	if appImage == "" || appDir == "" {
+		return ""
+	}
+	if real, err := filepath.EvalSymlinks(appDir); err == nil {
+		appDir = real
+	}
+	if !within(exe, appDir) {
+		return ""
+	}
+	return appImage
 }
 
 // installDirs are where a Linux package or a person puts Visor's binary.
@@ -49,7 +78,7 @@ func within(path, dir string) bool {
 // ($APPIMAGE, because /proc/self/exe points into its temporary mount),
 // otherwise the binary itself. Symlinks are resolved.
 func Executable() string {
-	if a := os.Getenv("APPIMAGE"); a != "" && runtime.GOOS != "darwin" {
+	if a := AppImage(); a != "" && runtime.GOOS != "darwin" {
 		return a
 	}
 	exe, err := os.Executable()
@@ -73,12 +102,21 @@ func appImageMoved(appImage string, isExec func(string) bool) bool {
 	if appImage == "" {
 		return true
 	}
+	return !InTempDir(appImage) && isExec(appImage)
+}
+
+// InTempDir reports whether path is in a folder that is emptied at boot.
+func InTempDir(path string) bool {
 	for _, d := range tempDirs {
-		if within(appImage, d) {
-			return false
+		if within(path, d) {
+			return true
 		}
 	}
-	return isExec(appImage)
+	return false
 }
+
+// AppImageMoved is appImageMoved for an AppImage file on disk (Doctor's
+// warning uses it, so it agrees with launch at login).
+func AppImageMoved(appImage string) bool { return appImageMoved(appImage, isExecutableFile) }
 
 func isExecutableFile(p string) bool { return executable(p) == nil }

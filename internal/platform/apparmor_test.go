@@ -68,3 +68,18 @@ func TestAppArmorFix(t *testing.T) {
 		t.Errorf("installed fix:\n%s", f)
 	}
 }
+
+func TestAppArmorFixNeverReplacesThePackagedProfile(t *testing.T) {
+	for _, exe := range []string{"/usr/local/bin/visor", "/opt/visor/visor"} {
+		if f := AppArmorFix(exe); strings.Contains(f, "/etc/apparmor.d/dev.getvisor.visor ") {
+			t.Errorf("%s: the fix would replace the .deb's profile:\n%s", exe, f)
+		}
+	}
+}
+
+func TestSandboxOffMeansNotBlocked(t *testing.T) {
+	t.Setenv("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1")
+	if WebKitSandboxBlocked() {
+		t.Error("with the sandbox off nothing is blocked")
+	}
+}

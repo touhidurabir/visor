@@ -54,7 +54,12 @@ test.describe('a read-only config folder', () => {
   test('Doctor gives the Linux fix: let the supervisor group write the folder', async ({ page }) => {
     await page.goto(visor!.url + '/#/doctor')
     await expect(page.getByRole('heading', { level: 1, name: 'Visor can watch, but not edit' })).toBeVisible({ timeout: 15_000 })
-    await expect(page.getByRole('heading', { name: 'To add and edit configs, let the supervisor group write the folder' })).toBeVisible()
-    await expect(page.locator('code').filter({ hasText: `sudo chgrp supervisor ${dir} && sudo chmod g+w ${dir}` })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'To add and edit configs, let a group you’re in write the folder' })).toBeVisible()
+    // Not in the group yet (the server build's facts): join it, let it write, log in again.
+    const steps = page.getByTestId('folder-fix').getByRole('listitem')
+    await expect(steps).toHaveCount(3)
+    await expect(steps.nth(0).locator('code')).toHaveText(/^sudo groupadd -f supervisor && sudo usermod -aG supervisor \S+$/)
+    await expect(steps.nth(1).locator('code')).toHaveText(`sudo chgrp supervisor ${dir} && sudo chmod g+w ${dir}`)
+    await expect(steps.nth(2)).toContainText('Log out and back in')
   })
 })

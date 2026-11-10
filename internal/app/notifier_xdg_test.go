@@ -13,7 +13,7 @@ func TestLinuxOptionsEscapeTheBody(t *testing.T) {
 		ID: "n1", IssueID: "i1", Thread: "/etc/supervisor/conf.d/web.ini",
 		Title: "🔴 web can't start",
 		Body:  "web.ini: sh -c 'a && b' exited <group> 2",
-	})
+	}, true)
 	if o.Body != "web.ini: sh -c 'a &amp;&amp; b' exited &lt;group&gt; 2" {
 		t.Errorf("body = %q", o.Body)
 	}
@@ -23,8 +23,12 @@ func TestLinuxOptionsEscapeTheBody(t *testing.T) {
 	if o.Subtitle != "" {
 		t.Errorf("Linux has no subtitle: %q", o.Subtitle)
 	}
-	if got := linuxOptions(notify.Message{Subtitle: "a & b", Body: "c"}).Body; got != "a &amp; b\nc" {
+	if got := linuxOptions(notify.Message{Subtitle: "a & b", Body: "c"}, true).Body; got != "a &amp; b\nc" {
 		t.Errorf("subtitle joins the body: %q", got)
+	}
+	// A server without body-markup shows the text as it is.
+	if got := linuxOptions(notify.Message{Body: "a && <b>"}, false).Body; got != "a && <b>" {
+		t.Errorf("plain-text server = %q", got)
 	}
 }
 

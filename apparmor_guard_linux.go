@@ -51,5 +51,7 @@ func notifyBlocked(how string) {
 		"org.freedesktop.Notifications.Notify", 0, "Visor", uint32(0), "dialog-warning",
 		"Visor can't open its window",
 		"AppArmor blocks the sandbox Visor's window needs. "+how,
-		[]string{}, map[string]dbus.Variant{}, int32(-1))
+		// Transient: the message is about this launch only; it shouldn't
+		// stay in the notification list and come back with later launches.
+		[]string{}, map[string]dbus.Variant{"transient": dbus.MakeVariant(true)}, int32(-1))
 }

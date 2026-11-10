@@ -50,17 +50,22 @@ func ParseOSRelease(data string) Distro {
 	d := Distro{ID: strings.ToLower(vals["ID"]), Name: vals["NAME"], Family: FamilyOther}
 	ids := append([]string{d.ID}, strings.Fields(strings.ToLower(vals["ID_LIKE"]))...)
 	for _, id := range ids {
-		switch {
-		case slices.Contains([]string{"debian", "ubuntu"}, id):
-			d.Family = FamilyDebian
-		case slices.Contains([]string{"fedora", "rhel", "centos"}, id):
-			d.Family = FamilyFedora
-		case id == "arch":
-			d.Family = FamilyArch
-		default:
-			continue
+		if f := familyOf(id); f != FamilyOther {
+			d.Family = f // the first that matches: ID, then ID_LIKE in order
+			break
 		}
-		break
 	}
 	return d
+}
+
+func familyOf(id string) Family {
+	switch {
+	case slices.Contains([]string{"debian", "ubuntu"}, id):
+		return FamilyDebian
+	case slices.Contains([]string{"fedora", "rhel", "centos"}, id):
+		return FamilyFedora
+	case id == "arch":
+		return FamilyArch
+	}
+	return FamilyOther
 }

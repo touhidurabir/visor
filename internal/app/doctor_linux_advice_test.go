@@ -39,9 +39,13 @@ func TestLinuxAdviceForARootSocket(t *testing.T) {
 
 func TestLinuxAdviceForARootConfigFolder(t *testing.T) {
 	r := doctor.Report{Situation: doctor.NotWritable, IncludeDir: "/etc/supervisor/conf.d"}
-	a := linuxAdvice(ubuntu(nil), r, config.Discovery{}, "ana")
-	if len(a.WritableFix) != 1 || a.WritableFix[0] != "sudo chgrp supervisor /etc/supervisor/conf.d && sudo chmod g+w /etc/supervisor/conf.d" {
-		t.Errorf("fix = %q", a.WritableFix)
+	member := func(string) (bool, bool) { return true, true }
+	a := linuxAdvice(ubuntu(member), r, config.Discovery{}, "ana")
+	if len(a.WritableFix) != 1 || a.WritableFix[0].Command != "sudo chgrp supervisor /etc/supervisor/conf.d && sudo chmod g+w /etc/supervisor/conf.d" {
+		t.Errorf("fix = %+v", a.WritableFix)
+	}
+	if a := linuxAdvice(ubuntu(nil), r, config.Discovery{}, "ana"); len(a.WritableFix) != 3 {
+		t.Errorf("not in the group: join, chgrp, log in again: %+v", a.WritableFix)
 	}
 	r.IncludeMissing = true
 	if a := linuxAdvice(ubuntu(nil), r, config.Discovery{}, "ana"); a.WritableFix != nil {

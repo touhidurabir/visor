@@ -5,6 +5,7 @@ package app
 import (
 	"context"
 	"log"
+	"slices"
 	"sync/atomic"
 
 	"github.com/godbus/dbus/v5"
@@ -23,6 +24,9 @@ type linuxNotifier struct {
 	ready atomic.Bool // ns started; set once, after ns
 	// hasServer says a notification server answers on the session bus.
 	hasServer func() bool
+	// markup: the server reads bodies as markup (GetCapabilities lists
+	// body-markup), so they are escaped.
+	markup atomic.Bool
 }
 
 func newNativeNotifier() nativeNotifier { return &linuxNotifier{hasServer: notificationServerRunning} }
@@ -50,15 +54,30 @@ func (n *linuxNotifier) start(ctx context.Context, onClick func()) {
 			go onClick()
 		}
 	})
+	n.markup.Store(serverHasCapability("body-markup"))
 	n.ns = ns
 	n.ready.Store(true)
+}
+
+// serverHasCapability asks the notification server (GetCapabilities).
+func serverHasCapability(c string) bool {
+	conn, err := dbus.SessionBus()
+	if err != nil {
+		return false
+	}
+	var caps []string
+	if conn.Object("org.freedesktop.Notifications", "/org/freedesktop/Notifications").
+		Call("org.freedesktop.Notifications.GetCapabilities", 0).Store(&caps) != nil {
+		return false
+	}
+	return slices.Contains(caps, c)
 }
 
 func (n *linuxNotifier) send(m notify.Message) error {
 	if !n.ready.Load() || !n.hasServer() {
 		return notify.ErrUnavailable
 	}
-	return n.ns.SendNotification(linuxOptions(m))
+	return n.ns.SendNotification(linuxOptions(m, n.markup.Load()))
 }
 
 func (n *linuxNotifier) status() string {

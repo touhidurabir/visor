@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -383,5 +384,33 @@ func TestApplyChangesClearsFlag(t *testing.T) {
 		if c.Changed || c.Uncertain {
 			t.Errorf("%s still flagged after applying (Changed=%v Uncertain=%v)", c.FileName, c.Changed, c.Uncertain)
 		}
+	}
+}
+
+// A file added and applied outside Visor (supervisorctl update) reads as
+// changed until supervisord says nothing differs: then the badge clears.
+func TestCheckForChangesClearsAFileAppliedElsewhere(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	rt, _ := startRuntime(t, confOf(inst), t.TempDir(), 100*time.Millisecond)
+	svc := NewServerService(rt)
+	waitRunning(t, svc, "sleeper:sleeper")
+
+	inst.WriteProgram(t, supervisortest.Program{Name: "elsewhere", Command: "sleep 3600"})
+	waitOverview(t, svc, 5*time.Second, "elsewhere flagged", func(OverviewView) bool { return flagged(changesOf(rt)) == 1 })
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := apply.Reload(ctx, inst.Client(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if cs := changesOf(rt); flagged(cs) != 1 {
+		t.Fatalf("before the check: %+v", cs)
+	}
+
+	diff, err := svc.CheckForChanges()
+	if err != nil || len(diff.Added)+len(diff.Changed)+len(diff.Removed) != 0 {
+		t.Fatalf("CheckForChanges = %+v, %v", diff, err)
+	}
+	if cs := changesOf(rt); flagged(cs) != 0 {
+		t.Errorf("still flagged after supervisord said nothing differs: %+v", cs)
 	}
 }

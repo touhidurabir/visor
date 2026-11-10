@@ -41,6 +41,7 @@ import { configRoute } from '../lib/links'
 import { useOverview } from '../lib/overview'
 import { currentSettings, loadSettings } from '../lib/settings'
 import { showToast } from '../lib/toast'
+import { isMac } from '../lib/platform'
 
 type Filter = StatusFilter
 const PAGE = 50
@@ -361,7 +362,7 @@ const empty = computed(() => {
       </div>
     </div>
     <p v-if="currentSettings" class="meta">
-      Resolved issues are kept on this Mac for {{ currentSettings.Settings.retentionDays }} days.
+      Resolved issues are kept on this {{ isMac() ? 'Mac' : 'computer' }} for {{ currentSettings.Settings.retentionDays }} days.
       <RouterLink to="/settings">Change in Settings</RouterLink>
     </p>
     <ConfirmDialog

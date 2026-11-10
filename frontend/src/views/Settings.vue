@@ -454,7 +454,7 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
             <span class="name">Config file</span>
             <span class="hint">
               <template v-if="envSet">Set by <span class="mono">VISOR_CONFIG</span>. Unset it to choose a file here.</template>
-              <template v-else-if="!conn.configPath">Auto-detect looks in the usual Homebrew and system locations.</template>
+              <template v-else-if="!conn.configPath">Auto-detect looks in the usual {{ isMac() ? 'Homebrew and system' : 'system (/etc/supervisor, /etc)' }} locations.</template>
               <template v-else>The supervisord.conf Visor reads.</template>
             </span>
           </div>

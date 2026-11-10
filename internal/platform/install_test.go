@@ -48,3 +48,17 @@ func TestAppImageMoved(t *testing.T) {
 		t.Error("/tmpfiles is not /tmp")
 	}
 }
+
+func TestAppImageOnlyFromItsOwnMount(t *testing.T) {
+	const img, mount = "/home/ana/Applications/Visor.AppImage", "/tmp/.mount_VisorAb12"
+	if got := appImageOf(img, mount, mount+"/usr/bin/visor"); got != img {
+		t.Errorf("Visor in its AppImage = %q", got)
+	}
+	// A .deb copy started from another AppImage inherits its variables.
+	if got := appImageOf("/home/ana/Apps/Editor.AppImage", "/tmp/.mount_EditorX", "/usr/bin/visor"); got != "" {
+		t.Errorf("inherited APPIMAGE = %q, want none", got)
+	}
+	if got := appImageOf(img, "", mount+"/usr/bin/visor"); got != "" {
+		t.Errorf("no APPDIR = %q", got)
+	}
+}

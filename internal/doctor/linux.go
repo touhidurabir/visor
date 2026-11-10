@@ -93,7 +93,7 @@ func GroupFix(s SocketFacts) RootFix {
 	if user == "" {
 		user = "$USER"
 	}
-	group := chownGroup(s.Chown)
+	group := ChownGroup(s.Chown)
 	restart := FixStep{Text: "Restart supervisord so the socket is made again with them.", Command: "sudo systemctl restart " + s.Service}
 	relogin := FixStep{Text: "Log out and back in (or restart), so your session has the new group. Then open Visor again."}
 	join := FixStep{Text: "Add yourself to that group.", Command: fmt.Sprintf("sudo usermod -aG %s %s", group, user)}
@@ -118,8 +118,8 @@ func GroupFix(s SocketFacts) RootFix {
 	}}
 }
 
-// chownGroup is the group of a chown= value ("user:group" or "user").
-func chownGroup(chown string) string {
+// ChownGroup is the group of a chown= value ("user:group" or "user").
+func ChownGroup(chown string) string {
 	_, g, ok := strings.Cut(strings.TrimSpace(chown), ":")
 	if !ok {
 		return ""
@@ -127,14 +127,42 @@ func chownGroup(chown string) string {
 	return strings.TrimSpace(g)
 }
 
-// WritableFix lets the supervisor group write programs into a config
-// folder root owns.
-func WritableFix(dir string) []string {
-	if dir == "" {
+// FolderFacts are what the fix for a config folder root owns depends on.
+type FolderFacts struct {
+	Dir, User string
+	// Group is the socket's group from chown= ("" when unset: the fix
+	// uses the supervisor group). Member: the user is in it (/etc/group);
+	// Active: this session has it.
+	Group          string
+	Member, Active bool
+}
+
+// WritableFix lets a group the user is in write programs into a config
+// folder root owns: the socket's group when the config names one, else
+// supervisor. When the user isn't in it yet, joining it (and logging in
+// again) comes first.
+func WritableFix(f FolderFacts) []FixStep {
+	if f.Dir == "" {
 		return nil
 	}
-	q := shellQuote(dir)
-	return []string{"sudo chgrp " + supervisorGroup + " " + q + " && sudo chmod g+w " + q}
+	group := f.Group
+	if group == "" || group == "root" {
+		group = supervisorGroup
+	}
+	user := f.User
+	if user == "" {
+		user = "$USER"
+	}
+	q := shellQuote(f.Dir)
+	var steps []FixStep
+	if !f.Member {
+		steps = append(steps, FixStep{Text: "Create the " + group + " group if it isn't there, and add yourself to it.", Command: fmt.Sprintf("sudo groupadd -f %s && sudo usermod -aG %s %s", group, group, user)})
+	}
+	steps = append(steps, FixStep{Text: "Let the group write the folder.", Command: "sudo chgrp " + group + " " + q + " && sudo chmod g+w " + q})
+	if !f.Active {
+		steps = append(steps, FixStep{Text: "Log out and back in (or restart), so your session has the group. Then open Visor again."})
+	}
+	return steps
 }
 
 // Warning is a Linux note beside the checks: something that works, but
@@ -156,19 +184,14 @@ func LinuxWarnings(trayHost bool, desktop string, appImage string, p Packages) [
 		}
 		w = append(w, t)
 	}
-	if appImage != "" && !appImageMoved(appImage) {
-		w = append(w, Warning{ID: "appimage", Title: "Visor runs from a temporary folder",
-			Detail: "This AppImage is in " + filepath.Dir(appImage) + ", which is emptied when the computer restarts, so launch at login stays off. Move it somewhere that stays, such as ~/Applications."})
+	if appImage != "" && !platform.AppImageMoved(appImage) {
+		detail := "This AppImage is in " + filepath.Dir(appImage) + ", which is emptied when the computer restarts, so launch at login stays off. Move it somewhere that stays, such as ~/Applications."
+		title := "Visor runs from a temporary folder"
+		if !platform.InTempDir(appImage) {
+			title = "The AppImage can't be started again"
+			detail = "Its file has lost its execute permission, so launch at login stays off. Run chmod +x on it."
+		}
+		w = append(w, Warning{ID: "appimage", Title: title, Detail: detail})
 	}
 	return w
-}
-
-// appImageMoved: an AppImage outside the temporary folders.
-func appImageMoved(p string) bool {
-	for _, d := range []string{"/tmp/", "/var/tmp/", "/dev/shm/"} {
-		if strings.HasPrefix(filepath.Clean(p)+"/", d) {
-			return false
-		}
-	}
-	return true
 }

@@ -5,7 +5,6 @@ import (
 	"os/user"
 	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/godbus/dbus/v5"
 
@@ -27,9 +26,9 @@ type LinuxAdvice struct {
 	SystemService bool
 	// RootFix is the group fix when the socket isn't open to this user.
 	RootFix *doctor.RootFix
-	// WritableFix lets the supervisor group write to a config folder root
-	// owns (when it isn't writable).
-	WritableFix []string
+	// WritableFix lets a group you're in write a config folder root owns
+	// (when it isn't writable), joining the group first when needed.
+	WritableFix []doctor.FixStep
 	Warnings    []doctor.Warning
 }
 
@@ -52,7 +51,7 @@ func realHostFacts() hostFacts {
 		Distro:   platform.ReadDistro(),
 		TrayHost: trayHostRunning(),
 		Desktop:  os.Getenv("XDG_CURRENT_DESKTOP"),
-		AppImage: os.Getenv("APPIMAGE"),
+		AppImage: platform.AppImage(),
 		InGroup:  inGroup,
 	}
 }
@@ -80,8 +79,12 @@ func inGroup(group string) (member, active bool) {
 			member = slices.Contains(ids, g.Gid)
 		}
 	}
-	if gids, err := os.Getgroups(); err == nil {
-		gid, _ := strconv.Atoi(g.Gid)
+	// The session has it as a supplementary group (after a new login), or
+	// as its primary group (started with `sg` or `newgrp`).
+	gid, _ := strconv.Atoi(g.Gid)
+	if os.Getegid() == gid || os.Getgid() == gid {
+		active = true
+	} else if gids, err := os.Getgroups(); err == nil {
 		active = slices.Contains(gids, gid)
 	}
 	return member || active, active
@@ -98,21 +101,23 @@ func linuxAdvice(h hostFacts, r doctor.Report, d config.Discovery, userName stri
 	switch r.Situation {
 	case doctor.Denied:
 		f := doctor.SocketFacts{User: userName, Service: pk.Service, Chown: d.SocketChown}
-		if g := chownGroupOf(d.SocketChown); g != "" && h.InGroup != nil {
+		if g := doctor.ChownGroup(d.SocketChown); g != "" && h.InGroup != nil {
 			f.Member, f.Active = h.InGroup(g)
 		}
 		fix := doctor.GroupFix(f)
 		a.RootFix = &fix
 	case doctor.NotWritable:
 		if !r.IncludeMissing {
-			a.WritableFix = doctor.WritableFix(r.IncludeDir)
+			f := doctor.FolderFacts{Dir: r.IncludeDir, User: userName, Group: doctor.ChownGroup(d.SocketChown)}
+			group := f.Group
+			if group == "" || group == "root" {
+				group = "supervisor"
+			}
+			if h.InGroup != nil {
+				f.Member, f.Active = h.InGroup(group)
+			}
+			a.WritableFix = doctor.WritableFix(f)
 		}
 	}
 	return a
-}
-
-// chownGroupOf is the group of a chown= value ("user:group").
-func chownGroupOf(chown string) string {
-	_, g, _ := strings.Cut(chown, ":")
-	return strings.TrimSpace(g)
 }

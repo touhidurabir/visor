@@ -208,6 +208,10 @@ func (s *ServerService) ClearLogs(name string) error {
 // CheckForChanges asks supervisord to re-read its config files (reread)
 // and reports which groups were added, changed or removed. Nothing is
 // applied.
+//
+// When supervisord sees no difference, it runs every file as it is on disk,
+// so their "changed" badges clear: a file added and applied outside Visor
+// (supervisorctl update) no longer reads as changed.
 func (s *ServerService) CheckForChanges() (supervisor.ConfigDiff, error) {
 	var diff supervisor.ConfigDiff
 	err := s.rt.act(expectation{}, func(ctx context.Context, c *supervisor.Client) error {
@@ -215,6 +219,14 @@ func (s *ServerService) CheckForChanges() (supervisor.ConfigDiff, error) {
 		diff, err = c.ReloadConfig(ctx)
 		return wrap("check for changes", err)
 	})
+	if err == nil && len(diff.Added)+len(diff.Changed)+len(diff.Removed) == 0 {
+		s.rt.applyMu.Lock()
+		merr := s.rt.markAllLoaded()
+		s.rt.applyMu.Unlock()
+		if merr == nil {
+			s.rt.emitOverview()
+		}
+	}
 	return diff, err
 }
 

@@ -11,7 +11,7 @@ import { useRouter } from 'vue-router'
 import { DoctorService, SettingsService, type DoctorView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import Lens from '../components/Lens.vue'
 import { copyText } from '../lib/clipboard'
-import { chownCommand, installCommandsFor, lensText, mkdirCommand, rootFixes, situationCopy, startCommand, startTips, stepLook } from '../lib/doctor'
+import { chownCommand, installCommandsFor, lensText, mkdirCommand, rootFixes, situationCopy, startCommand, startTipsFor, stepLook } from '../lib/doctor'
 import { describeError } from '../lib/faults'
 import { loginLocked, useLaunchAtLogin } from '../lib/login-item'
 import { showToast } from '../lib/toast'
@@ -67,9 +67,6 @@ const fixes = computed(() => rootFixes(view.value?.User ?? ''))
 const folderFix = computed(() => {
   const dir = view.value?.IncludeDir ?? ''
   if (view.value?.IncludeMissing) return { label: 'Create the folder your programs go in', command: mkdirCommand(dir) }
-  // Linux: root keeps the package's folder; let the supervisor group write it.
-  const group = linux.value?.WritableFix?.[0]
-  if (group) return { label: 'To add and edit configs, let the supervisor group write the folder', command: group }
   return { label: 'To add and edit configs, make the folder yours', command: chownCommand(dir) }
 })
 const showChooser = computed(() => situation.value === 'noconf' || (situation.value === 'nosup' && chooserOpen.value))
@@ -123,8 +120,15 @@ async function useConfig() {
   }
 }
 
-// The command to copy when Visor doesn't start it: this config's, else Homebrew's.
-const manualStart = computed(() => view.value?.StartCommand || startCommand)
+// The command to copy when Visor doesn't start it: this config's, else
+// Homebrew's on macOS, the system service's or supervisord -c on Linux.
+const manualStart = computed(() => {
+  if (view.value?.StartCommand) return view.value.StartCommand
+  const l = linux.value
+  if (!l) return startCommand
+  return l.SystemService ? `sudo systemctl enable --now ${l.Service}` : `supervisord -c ${view.value?.ConfigPath || '/path/to/supervisord.conf'}`
+})
+const tips = computed(() => startTipsFor(isMac()))
 const starting = ref(false)
 async function startSupervisord() {
   starting.value = true
@@ -313,7 +317,7 @@ function openSettings() {
                 </p>
                 <p v-else-if="view.Foreground" class="meta note">
                   This config keeps supervisord in the foreground (<code class="inline">nodaemon=true</code>), the way launchd runs it, so Visor
-                  doesn’t start it. Start it the way you set it up, or run this in Terminal:
+                  doesn’t start it. Start it the way you set it up, or run this in {{ terminal }}:
                 </p>
                 <div class="cmd">
                   <code>{{ manualStart }}</code>
@@ -335,7 +339,7 @@ function openSettings() {
                   <pre class="out">{{ view.StartFailure.Log }}</pre>
                 </template>
                 <ul class="tips">
-                  <li v-for="t in startTips" :key="t">{{ t }}</li>
+                  <li v-for="t in tips" :key="t">{{ t }}</li>
                 </ul>
               </div>
             </template>
@@ -383,7 +387,20 @@ function openSettings() {
 
             <!-- Can't edit configs -->
             <template v-if="situation === 'notwritable'">
-              <template v-if="folderFix.command">
+              <!-- Linux: a group you're in writes the folder root owns, step by step. -->
+              <template v-if="linux?.WritableFix?.length">
+                <h2 class="sec">To add and edit configs, let a group you’re in write the folder</h2>
+                <ol class="fix-steps" data-testid="folder-fix">
+                  <li v-for="(st, i) in linux.WritableFix" :key="i">
+                    <p>{{ st.Text }}</p>
+                    <div v-if="st.Command" class="cmd">
+                      <code class="pre">{{ st.Command }}</code>
+                      <button type="button" class="btn copy" @click="copy(st.Command)">{{ copied === st.Command ? 'Copied' : 'Copy' }}</button>
+                    </div>
+                  </li>
+                </ol>
+              </template>
+              <template v-else-if="folderFix.command">
                 <h2 class="sec">{{ folderFix.label }}</h2>
                 <div class="cmd">
                   <code>{{ folderFix.command }}</code>

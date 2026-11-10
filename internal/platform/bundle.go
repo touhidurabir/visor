@@ -45,7 +45,7 @@ func bundleOf(exe string) string {
 // counts as moved.
 func Moved() bool {
 	if runtime.GOOS != "darwin" {
-		return appImageMoved(os.Getenv("APPIMAGE"), isExecutableFile)
+		return appImageMoved(AppImage(), isExecutableFile)
 	}
 	return moved(BundlePath(), readOnly)
 }

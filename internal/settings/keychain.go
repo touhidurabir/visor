@@ -3,6 +3,7 @@ package settings
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/zalando/go-keyring"
@@ -90,10 +91,30 @@ type SessionFallback struct {
 	mem MemoryKeychain
 }
 
-// keyringDown reports an error that means no Secret Service answered,
-// rather than a missing or refused entry.
+// keyringDown reports an error that means no Secret Service is there at
+// all: no session bus, or nothing owns org.freedesktop.secrets. A locked
+// keyring whose prompt was dismissed, or a refusal, is a real error the
+// person sees, not a reason to keep the password in memory.
 func keyringDown(err error) bool {
-	return err != nil && !errors.Is(err, keyring.ErrNotFound) && !errors.Is(err, keyring.ErrSetDataTooBig)
+	if err == nil || errors.Is(err, keyring.ErrNotFound) || errors.Is(err, keyring.ErrSetDataTooBig) {
+		return false
+	}
+	msg := err.Error()
+	for _, s := range []string{
+		"org.freedesktop.DBus.Error.ServiceUnknown",
+		"org.freedesktop.DBus.Error.NameHasNoOwner",
+		"was not provided by any .service files",
+		"dial unix",
+		"connection refused",
+		"no such file or directory",
+		"$DISPLAY",
+		"autolaunch",
+	} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // Get prefers a password kept for this session (saved while the keyring
