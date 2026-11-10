@@ -6,13 +6,15 @@
 //
 //	go run ./scripts/appicon
 //
-// writes build/appicon.png (the whole icon on the light tile, for .icns and
-// Linux) and build/appicon.icon/Assets/lens.png (the ring, glass and pulse
-// alone, a layer for Icon Composer's Assets.car on macOS 26). Then run
+// writes build/appicon.png (the whole icon on the light tile, for .icns),
+// build/linux/icons/<n>.png (the same at the Linux hicolor sizes) and
+// build/appicon.icon/Assets/lens.png (the ring, glass and pulse alone, a
+// layer for Icon Composer's Assets.car on macOS 26). Then run
 // `wails3 task common:generate:icons`.
 package main
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -164,15 +166,20 @@ func tile(x, y float64) rgba {
 	return out
 }
 
-func render(px func(x, y float64) rgba) *image.NRGBA {
-	img := image.NewNRGBA(image.Rect(0, 0, size, size))
-	const ss = 4 // supersampling per axis
-	for y := 0; y < size; y++ {
-		for x := 0; x < size; x++ {
+func render(px func(x, y float64) rgba) *image.NRGBA { return renderAt(px, size) }
+
+// renderAt draws the 1024 grid at n x n pixels, with enough sub-samples
+// that small sizes stay smooth.
+func renderAt(px func(x, y float64) rgba, n int) *image.NRGBA {
+	img := image.NewNRGBA(image.Rect(0, 0, n, n))
+	ss := max(4, size/n/4) // supersampling per axis
+	scale := float64(size) / float64(n)
+	for y := 0; y < n; y++ {
+		for x := 0; x < n; x++ {
 			var acc rgba
 			for sy := 0; sy < ss; sy++ {
 				for sx := 0; sx < ss; sx++ {
-					c := px(float64(x)+(float64(sx)+0.5)/ss, float64(y)+(float64(sy)+0.5)/ss)
+					c := px((float64(x)+(float64(sx)+0.5)/float64(ss))*scale, (float64(y)+(float64(sy)+0.5)/float64(ss))*scale)
 					acc.r += c.r * c.a
 					acc.g += c.g * c.a
 					acc.b += c.b * c.a
@@ -194,6 +201,9 @@ func render(px func(x, y float64) rgba) *image.NRGBA {
 	}
 	return img
 }
+
+// linuxSizes are the hicolor icon sizes the Linux packages install.
+var linuxSizes = []int{16, 24, 32, 48, 64, 128, 256, 512}
 
 func write(path string, img image.Image) {
 	f, err := os.Create(path)
@@ -218,4 +228,14 @@ func main() {
 	write("build/appicon.icon/Assets/lens.png", render(func(x, y float64) rgba {
 		return lens(centre+(x-centre)*layerScale, centre+(y-centre)*layerScale)
 	}))
+	// Linux: the same icon at each hicolor size, for the .deb, the .rpm and
+	// the AppImage (build/linux/icons/<n>.png).
+	if err := os.MkdirAll("build/linux/icons", 0o755); err != nil {
+		log.Fatal(err)
+	}
+	for _, n := range linuxSizes {
+		write(fmt.Sprintf("build/linux/icons/%d.png", n), renderAt(func(x, y float64) rgba {
+			return over(lens(x, y), tile(x, y))
+		}, n))
+	}
 }

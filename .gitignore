@@ -21,3 +21,5 @@ e2e/test-results
 e2e/playwright-report
 bin/visor-e2e
 e2e/visor-server.log
+build/linux/appimage/visor
+build/linux/appimage/dev.getvisor.visor.png

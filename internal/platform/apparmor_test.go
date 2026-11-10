@@ -43,8 +43,13 @@ func TestAppArmorProfile(t *testing.T) {
 			t.Errorf("profile lacks %q:\n%s", want, p)
 		}
 	}
-	if p := AppArmorProfile("x", "/tmp/.mount_VisorAb12/usr/bin/visor"); !strings.Contains(p, "profile x /tmp/.mount_*/usr/bin/visor flags") {
-		t.Errorf("AppImage mount is a glob:\n%s", p)
+	for _, exe := range []string{"/tmp/.mount_VisorAb12/usr/bin/visor", "/tmp/appimage_extracted_aecc7269/usr/bin/visor"} {
+		if p := AppArmorProfile("x", exe); !strings.Contains(p, "profile x /tmp/{.mount_*,appimage_extracted_*}/usr/bin/visor flags") {
+			t.Errorf("%s: an AppImage's folder is a glob:\n%s", exe, p)
+		}
+		if f := AppArmorFix(exe); !strings.Contains(f, "/etc/apparmor.d/dev.getvisor.visor-appimage ") {
+			t.Errorf("%s: fix = %s", exe, f)
+		}
 	}
 	if p := AppArmorProfile("x", "/home/ana/My Apps/visor"); !strings.Contains(p, `"/home/ana/My Apps/visor"`) {
 		t.Errorf("a path with a space is quoted:\n%s", p)
