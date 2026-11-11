@@ -400,7 +400,7 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
          Checking and history. M7's remote servers go above General. -->
     <div v-if="view && s" class="cards">
       <!-- General -->
-      <div class="card" role="group" aria-labelledby="general-title">
+      <div class="card c-gen" role="group" aria-labelledby="general-title">
         <h2 id="general-title" class="card-title">General</h2>
         <div class="row">
           <div class="what">
@@ -443,7 +443,7 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
       </div>
 
       <!-- Connection -->
-      <div class="card" role="group" aria-labelledby="conn-title">
+      <div class="card c-conn" role="group" aria-labelledby="conn-title">
         <div class="card-head">
           <h2 id="conn-title" class="card-title">Connection</h2>
           <span :class="['badge', `b-${status.tone}`]"><span :class="['dot', `d-${status.tone}`]" aria-hidden="true" />{{ status.text }}</span>
@@ -542,7 +542,7 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
       </div>
 
       <!-- Notifications -->
-      <div class="card" role="group" aria-labelledby="notify-title">
+      <div class="card c-notify" role="group" aria-labelledby="notify-title">
         <h2 id="notify-title" class="card-title">Notifications</h2>
         <div class="row">
           <div class="what">
@@ -585,7 +585,7 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
       </div>
 
       <!-- Checking and history (was Polling, Crash loops and Issue history) -->
-      <div class="card" role="group" aria-labelledby="check-title">
+      <div class="card c-check" role="group" aria-labelledby="check-title">
         <h2 id="check-title" class="card-title">Checking and history</h2>
         <div class="row">
           <div class="what">
@@ -642,14 +642,24 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
 </template>
 
 <style scoped>
-/* Board 12 (SettingsNew): one column of cards; every row has the label and
-   help on the left and the control on the right, like System Settings. */
-.page { display: flex; flex-direction: column; gap: 18px; max-width: 860px; container-type: inline-size; }
+/* Board 12 (SettingsNew): cards whose rows have the label and help on the
+   left and the control on the right, like System Settings. One column of
+   cards up to 860 px; a wide window puts them in two columns (General and
+   Notifications on the left, Connection and Checking on the right). */
+.page { display: flex; flex-direction: column; gap: 18px; max-width: 1480px; container-type: inline-size; }
+header, .page > .alert, .page > .warn { max-width: 860px; }
 header { display: flex; flex-direction: column; gap: 6px; }
 .title { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 h1 { margin: 0; font-family: var(--display); font-optical-sizing: auto; font-size: 30px; font-weight: 650; line-height: 1.1; letter-spacing: -0.015em; }
 .intro { margin: 0; color: var(--ink2); }
-.cards { display: flex; flex-direction: column; gap: 16px; }
+.cards { display: flex; flex-direction: column; gap: 16px; max-width: 860px; }
+@container (min-width: 1000px) {
+  .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; max-width: none; }
+  .c-gen { grid-column: 1; grid-row: 1; }
+  .c-conn { grid-column: 2; grid-row: 1 / span 2; }
+  .c-notify { grid-column: 1; grid-row: 2 / span 2; }
+  .c-check { grid-column: 2; grid-row: 3; }
+}
 .card { border: 1px solid var(--line); border-radius: 10px; background: var(--raised); }
 .card-title { margin: 0; font-size: 15px; font-weight: 600; }
 .card > .card-title { padding: 14px 18px 4px; }

@@ -50,6 +50,22 @@ describe('processMenu', () => {
 })
 
 describe('configMenu', () => {
+  it('loads a file supervisord hasn’t loaded: Load and start, Load into supervisord, Stop and Restart off', () => {
+    const c = { FileName: 'ssr.ini', Path: '/x/ssr.ini', Changed: false, Processes: [], NotLoaded: [{ Program: 'ssr', Group: 'ssr' }] } as unknown as ConfigView
+    const items = configMenu(c)
+    expect(find(items, 'start-all')).toMatchObject({ label: 'Load and start all in file', cmd: 'supervisorctl update ssr && supervisorctl start ssr:*', disabled: false })
+    expect(find(items, 'load')).toMatchObject({ label: 'Load into supervisord', cmd: 'supervisorctl update ssr', disabled: false })
+    expect(find(items, 'apply').disabled).toBe(true)
+    for (const id of ['stop-all', 'restart-all']) expect(find(items, id)).toMatchObject({ disabled: true, title: expect.stringContaining('Load it first') })
+  })
+  it('keeps Stop for a file with a loaded program and a new one', () => {
+    const c = { FileName: 'a.ini', Path: '/x/a.ini', Changed: true, Processes: [proc({ Group: 'old', FullName: 'old:old' })], NotLoaded: [{ Program: 'new', Group: 'new' }] } as unknown as ConfigView
+    const items = configMenu(c)
+    expect(find(items, 'stop-all').disabled).toBe(false)
+    expect(find(items, 'start-all').cmd).toBe('supervisorctl update new && supervisorctl start old:* new:*')
+    expect(find(items, 'load').cmd).toBe('supervisorctl update new')
+    expect(find(items, 'apply').disabled).toBe(false)
+  })
   const cfg = (Changed: boolean) => ({ FileName: 'mailer.conf', Changed }) as ConfigView
   it('enables Apply changes only when changed', () => {
     expect(find(configMenu(cfg(false)), 'apply').disabled).toBe(true)

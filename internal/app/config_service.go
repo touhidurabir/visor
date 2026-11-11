@@ -238,6 +238,29 @@ func (s *ConfigService) ApplyFile(path string) (ApplyResultView, error) {
 	return s.applyWritten(path, loaded)
 }
 
+// LoadFile has supervisord add the programs of the include file at path
+// that it doesn't know yet (a file added or extended outside Visor), as
+// supervisorctl update <group> would for just those groups. Groups it
+// already runs are left as they are, even when they changed on disk.
+func (s *ConfigService) LoadFile(path string) (ApplyResultView, error) {
+	ac, err := s.rt.conn()
+	if err != nil {
+		return ApplyResultView{}, err
+	}
+	groups, err := s.rt.groupsInFile(path)
+	if err != nil {
+		return ApplyResultView{}, err
+	}
+	unloaded, err := s.rt.unloadedGroups(ac, groups)
+	if err != nil {
+		return ApplyResultView{}, err
+	}
+	if len(unloaded) == 0 {
+		return ApplyResultView{}, nil
+	}
+	return s.rt.loadGroups(path, unloaded)
+}
+
 // Backups lists path's saved copies, newest first (at most 50).
 func (s *ConfigService) Backups(path string) ([]BackupView, error) {
 	if err := s.rt.checkManaged(path); err != nil {

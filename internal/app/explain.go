@@ -105,7 +105,13 @@ type LinePathView struct {
 // disk it is ("" for a new one): its processes add the log files
 // supervisord named and what is failing right now.
 func (r *Runtime) explain(fileName, content, selfPath string) ExplainView {
-	checks := validate.File(fileName, content, r.validateEnv(selfPath))
+	return r.explainWith(fileName, content, selfPath, r.validateEnv(selfPath), nil)
+}
+
+// explainWith is explain against env, with extra problems about the file
+// as a whole (its name, say) put first among FileProblems.
+func (r *Runtime) explainWith(fileName, content, selfPath string, env validate.Env, extra []ProblemView) ExplainView {
+	checks := validate.File(fileName, content, env)
 
 	r.mu.Lock()
 	inv, snap := r.inv, r.last.Snapshot.Processes
@@ -142,6 +148,13 @@ func (r *Runtime) explain(fileName, content, selfPath string) ExplainView {
 			v.ParseError = &ProblemView{Level: "error", Message: err.Error()}
 		}
 		v.Errors, v.SaveErrors = 1, 1
+		v.FileProblems = extra
+		for _, p := range extra {
+			if p.Level == "error" {
+				v.Errors++
+				v.SaveErrors++
+			}
+		}
 		return v
 	}
 	parsed, _ := config.ParseINI(strings.NewReader(content), fileName)
@@ -193,6 +206,7 @@ func (r *Runtime) explain(fileName, content, selfPath string) ExplainView {
 		}
 	}
 	slices.SortStableFunc(v.FileProblems, func(a, b ProblemView) int { return a.Line - b.Line })
+	v.FileProblems = append(slices.Clone(extra), v.FileProblems...)
 
 	for i := range v.Sections {
 		for j := range v.Sections[i].Lines {

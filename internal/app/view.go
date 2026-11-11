@@ -61,6 +61,17 @@ type ConfigView struct {
 	Watched   bool
 	Summary   string
 	Processes []ProcessView
+	// NotLoaded are the file's programs supervisord doesn't know yet (the
+	// file was added or extended outside Visor and nobody ran update):
+	// Load adds them. Empty while supervisord can't be reached.
+	NotLoaded []NotLoadedView
+}
+
+// NotLoadedView is a program in a config file that supervisord hasn't
+// loaded, with the group it would be added as.
+type NotLoadedView struct {
+	Program string
+	Group   string
 }
 
 // ProcessView is the frontend's view of one supervised process. Times are
@@ -310,6 +321,10 @@ func buildOverview(in overviewInput) OverviewView {
 		}
 	}
 
+	loadedGroups := map[string]bool{}
+	for _, p := range in.snap.Processes {
+		loadedGroups[p.Group] = true
+	}
 	for _, f := range in.inv.Files {
 		procs := byFile[f.Path]
 		if procs == nil {
@@ -323,6 +338,7 @@ func buildOverview(in overviewInput) OverviewView {
 			Watched:   in.watched == nil || in.watched(f.Path),
 			Summary:   summary(f, procs, classes, in.snap.Reachable),
 			Processes: procs,
+			NotLoaded: notLoaded(f, loadedGroups, in.snap.Reachable),
 		})
 	}
 	if len(orphans) > 0 {
@@ -330,6 +346,7 @@ func buildOverview(in overviewInput) OverviewView {
 			FileName:  NoConfigFile,
 			Summary:   countSummary(orphans, classes),
 			Processes: orphans,
+			NotLoaded: []NotLoadedView{},
 		})
 	}
 	ov.Stats.Configs = len(in.inv.Files)
@@ -481,6 +498,21 @@ func summary(f config.ConfigFile, procs []ProcessView, classes map[string]class,
 		return head + " · not loaded"
 	}
 	return head + " · " + countSummary(procs, classes)
+}
+
+// notLoaded lists f's programs whose group supervisord doesn't run (none
+// while it can't be reached, or f can't be read).
+func notLoaded(f config.ConfigFile, loaded map[string]bool, reachable bool) []NotLoadedView {
+	out := []NotLoadedView{}
+	if !reachable || f.Err != nil {
+		return out
+	}
+	for _, p := range f.Programs {
+		if !loaded[p.Group] {
+			out = append(out, NotLoadedView{Program: p.Name, Group: p.Group})
+		}
+	}
+	return out
 }
 
 func countSummary(procs []ProcessView, classes map[string]class) string {

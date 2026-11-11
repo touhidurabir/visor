@@ -55,10 +55,13 @@ export function processMenu(p: ProcessView, groupSize: number): MenuItem[] {
   ]
 }
 
-/** Distinct group names of a config's processes, in order. */
+/** Distinct group names of a config's processes, then of the programs supervisord hasn't loaded, in order. */
 export function configGroups(c: ConfigView): string[] {
-  return [...new Set((c.Processes ?? []).map((p) => p.Group))]
+  return [...new Set([...(c.Processes ?? []).map((p) => p.Group), ...(c.NotLoaded ?? []).map((n) => n.Group)])]
 }
+
+/** Why Stop and Restart are off for a file supervisord hasn't loaded at all. */
+export const NOT_LOADED_REASON = 'supervisord hasn’t loaded this file yet: Load it first'
 
 /**
  * Menu for a whole config file. The grey commands name the file's actual
@@ -68,14 +71,22 @@ export function configMenu(c: ConfigView): MenuItem[] {
   const groups = configGroups(c)
   const star = (groups.length ? groups : ['<group>']).map((g) => `${g}:*`).join(' ')
   const names = (groups.length ? groups : ['<group>']).join(' ')
+  // Programs supervisord doesn't know yet: Start loads them first (as
+  // update would), and Load adds just them.
+  const unloaded = [...new Set((c.NotLoaded ?? []).map((n) => n.Group))]
+  const none = unloaded.length > 0 && !(c.Processes ?? []).length
+  const off = { title: NOT_LOADED_REASON }
   return [
-    item('start-all', 'Start all in file', `supervisorctl start ${star}`),
-    item('stop-all', 'Stop all in file', `supervisorctl stop ${star}`),
-    item('restart-all', 'Restart all in file', `supervisorctl restart ${star}`),
+    unloaded.length
+      ? item('start-all', 'Load and start all in file', `supervisorctl update ${unloaded.join(' ')} && supervisorctl start ${star}`)
+      : item('start-all', 'Start all in file', `supervisorctl start ${star}`),
+    item('stop-all', 'Stop all in file', `supervisorctl stop ${star}`, none, none ? off : {}),
+    item('restart-all', 'Restart all in file', `supervisorctl restart ${star}`, none, none ? off : {}),
     item('open-config', 'Open / edit config', ''),
     item('describe', 'Describe', ''),
     item('reveal', revealLabel(), ''),
     item('open-log', 'Open log in editor', ''),
+    ...(unloaded.length ? [item('load', 'Load into supervisord', `supervisorctl update ${unloaded.join(' ')}`)] : []),
     item('apply', 'Apply changes', `supervisorctl update ${names}`, !(c.Changed || c.Uncertain)),
     item('remove', 'Remove from supervisor', `supervisorctl remove ${names}`, false, {
       danger: true,
@@ -106,7 +117,7 @@ export function serverMenu(): MenuItem[] {
  * Menu ids that only work through supervisord (start, stop, apply, …); the
  * rest act on files on disk or open a page, so they work without it.
  */
-const NEEDS_SUPERVISORD = new Set(['start', 'stop', 'restart', 'signal', 'clear', 'start-all', 'stop-all', 'restart-all', 'apply', 'remove', 'check', 'apply-all', 'shutdown'])
+const NEEDS_SUPERVISORD = new Set(['start', 'stop', 'restart', 'signal', 'clear', 'start-all', 'stop-all', 'restart-all', 'load', 'apply', 'remove', 'check', 'apply-all', 'shutdown'])
 
 /** The menu while supervisord isn't connected: its actions disabled, with the reason as their tooltip. */
 export function withoutSupervisord(items: MenuItem[], reason: string): MenuItem[] {

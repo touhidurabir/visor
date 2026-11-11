@@ -1,13 +1,13 @@
 <script setup lang="ts">
-// Title and the Write it / Fill a form switch, shared by both Add new
-// pages. Write it has "Copy an existing config…" here; the form has it next
+// Title and the Write it / Fill a form / Import files switch, shared by
+// the Add new pages. Write it has "Copy an existing config…" here; the form has it next
 // to its templates.
 import { ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useOverview } from '../lib/overview'
 import CopyPicker from './CopyPicker.vue'
 
-defineProps<{ mode: 'raw' | 'form' }>()
+defineProps<{ mode: 'raw' | 'form' | 'import' }>()
 const { overview } = useOverview()
 const picking = ref(false)
 </script>
@@ -23,6 +23,7 @@ const picking = ref(false)
     <div class="seg" role="group" aria-label="How to add it">
       <RouterLink :class="{ on: mode === 'raw' }" to="/new" :aria-current="mode === 'raw' ? 'page' : undefined">Write it</RouterLink>
       <RouterLink :class="{ on: mode === 'form' }" to="/new/form" :aria-current="mode === 'form' ? 'page' : undefined">Fill a form</RouterLink>
+      <RouterLink :class="{ on: mode === 'import' }" to="/new/import" :aria-current="mode === 'import' ? 'page' : undefined">Import files</RouterLink>
     </div>
   </header>
   <CopyPicker v-if="picking" @close="picking = false" />

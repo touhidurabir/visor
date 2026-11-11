@@ -43,6 +43,17 @@ export function Backups(path: string): $CancellablePromise<$models.BackupView[] 
 }
 
 /**
+ * CheckImport checks files about to be imported together, each as a new
+ * file in the include folder: the same checks as Add new, plus its file
+ * name (free in the folder, and not shared with another file in the
+ * batch), and its programs against the other files' programs, which are
+ * not on disk yet. One ExplainView per item, in order.
+ */
+export function CheckImport(items: $models.ImportItem[] | null): $CancellablePromise<$models.ExplainView[] | null> {
+    return $Call.ByID(3249047976, items);
+}
+
+/**
  * CopyDraft drafts a copy of the include file at path under free names (see
  * config.CopyAs): no program or group name of the include files, and no
  * file name already in the include folder. Nothing is written; the draft is
@@ -87,6 +98,19 @@ export function Folder(): $CancellablePromise<$models.FolderView> {
 }
 
 /**
+ * Import adds files from elsewhere as new configs, one after another, each
+ * as Create would (checked, written, watched, its programs added to
+ * supervisord; a file supervisord refuses is removed again). It refuses
+ * the whole batch while any file has a problem that blocks saving. With
+ * start, the programs of every file that was added are then started (ones
+ * autostart already started stay as they are). One result per item; the
+ * error is for the batch as a whole.
+ */
+export function Import(items: $models.ImportItem[] | null, start: boolean): $CancellablePromise<$models.ImportResultView[] | null> {
+    return $Call.ByID(2142319278, items, start);
+}
+
+/**
  * IncludeDir is the folder new configs are written to: the directory of the
  * first include pattern. It is empty when supervisord has no usable one.
  */
@@ -100,6 +124,16 @@ export function IncludeDir(): $CancellablePromise<string> {
  */
 export function IncludeExt(): $CancellablePromise<string> {
     return $Call.ByID(784500380);
+}
+
+/**
+ * LoadFile has supervisord add the programs of the include file at path
+ * that it doesn't know yet (a file added or extended outside Visor), as
+ * supervisorctl update <group> would for just those groups. Groups it
+ * already runs are left as they are, even when they changed on disk.
+ */
+export function LoadFile(path: string): $CancellablePromise<$models.ApplyResultView> {
+    return $Call.ByID(1578680009, path);
 }
 
 /**

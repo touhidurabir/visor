@@ -27,7 +27,7 @@ const route = useRoute()
 const sections: Record<string, string[]> = {
   dashboard: ['dashboard', 'config'],
   issues: ['issues', 'issues-log'],
-  new: ['new', 'new-form'],
+  new: ['new', 'new-form', 'new-import'],
   doctor: ['doctor'],
   settings: ['settings'],
 }

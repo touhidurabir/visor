@@ -9,6 +9,25 @@ test.describe('settings', () => {
     await expect(page.getByRole('button', { name: 'Choose…' })).toBeDisabled()
   })
 
+  test('a wide window puts the cards in two columns: General and Notifications, then Connection and Checking', async ({ page }) => {
+    const box = async (name: string) => (await page.getByRole('group', { name, exact: true }).boundingBox())!
+    await page.setViewportSize({ width: 1600, height: 1000 })
+    await page.goto('/#/settings')
+    await expect(page.getByRole('group', { name: 'General', exact: true })).toBeVisible()
+    const [gen, conn, notify, check] = [await box('General'), await box('Connection'), await box('Notifications'), await box('Checking and history')]
+    expect(Math.abs(gen.y - conn.y)).toBeLessThan(2)
+    expect(conn.x).toBeGreaterThan(gen.x + gen.width)
+    expect(Math.abs(notify.x - gen.x)).toBeLessThan(2)
+    expect(notify.y).toBeGreaterThan(gen.y + gen.height)
+    expect(Math.abs(check.x - conn.x)).toBeLessThan(2)
+    expect(check.y).toBeGreaterThan(conn.y + conn.height)
+
+    // A narrower one: one column, in order.
+    await page.setViewportSize({ width: 1000, height: 1000 })
+    await expect.poll(async () => (await box('Connection')).x).toBeLessThan((await box('General')).x + 2)
+    expect((await box('Connection')).y).toBeGreaterThan((await box('General')).y)
+  })
+
   test('General comes first, then Connection, Notifications, and Checking and history', async ({ page }) => {
     await page.goto('/#/settings')
     const cards = page.getByRole('main').getByRole('group')

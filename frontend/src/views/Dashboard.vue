@@ -19,6 +19,7 @@ import ConfirmDialog from '../components/ConfirmDialog.vue'
 import SignalDialog from '../components/SignalDialog.vue'
 import RecentlyRemoved from '../components/RecentlyRemoved.vue'
 import { useApplyFlow } from '../lib/apply-flow'
+import { loadFile } from '../lib/load-file'
 import { describeError } from '../lib/faults'
 import { filterConfigs } from '../lib/filter'
 import { connectionProblem } from '../lib/connection'
@@ -255,6 +256,9 @@ function onConfig(c: ConfigView, id: string) {
     case 'open-log':
       if (c.Path) void run(() => openFirstLog(c.Path))
       return
+    case 'load':
+      if (c.Path) void run(async () => showToast(await loadFile(c.Path, c.FileName)))
+      return
     case 'apply':
       if (c.Path) void flow.applyFile(c.Path, c.FileName, groups)
       return
@@ -325,7 +329,7 @@ function sendSignal(sig: string) {
       </div>
 
       <ReadOnlyBanner />
-      <ChangedBanner v-if="configs.some((c) => c.Changed || c.Uncertain)" :configs="configs" :busy="flow.running.value" @apply="flow.applyAll" />
+      <ChangedBanner :configs="configs" :busy="flow.running.value" @apply="flow.applyAll" @load="(c) => onConfig(c, 'load')" />
       <ApplyReport v-if="flow.report.value" :report="flow.report.value" :busy="flow.running.value" @undo="flow.undo" @dismiss="flow.dismiss" />
 
       <section v-if="healthView" class="health" aria-label="Health">

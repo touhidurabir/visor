@@ -74,6 +74,13 @@ export interface ConfigView {
     "Watched": boolean;
     "Summary": string;
     "Processes": ProcessView[] | null;
+
+    /**
+     * NotLoaded are the file's programs supervisord doesn't know yet (the
+     * file was added or extended outside Visor and nobody ran update):
+     * Load adds them. Empty while supervisord can't be reached.
+     */
+    "NotLoaded": NotLoadedView[] | null;
 }
 
 /**
@@ -263,6 +270,31 @@ export interface FolderView {
     "Writable": boolean;
     "Missing": boolean;
     "Owner": string;
+}
+
+/**
+ * ImportItem is one config file brought in from elsewhere (a repo, a file
+ * an assistant wrote): the name it gets in the include folder, and its text.
+ */
+export interface ImportItem {
+    "FileName": string;
+    "Content": string;
+}
+
+/**
+ * ImportResultView is what happened to one imported file: Written when it
+ * is in the include folder now (also when applying it then failed: Error
+ * says so), Result what supervisord did, and whether its programs were
+ * started afterwards (StartError says why not).
+ */
+export interface ImportResultView {
+    "FileName": string;
+    "Path": string;
+    "Written": boolean;
+    "Result": ApplyResultView;
+    "Error": string;
+    "Started": boolean;
+    "StartError": string;
 }
 
 /**
@@ -494,6 +526,15 @@ export interface MainLogResult {
      * pass as After to read only newer lines
      */
     "Cursor": string;
+}
+
+/**
+ * NotLoadedView is a program in a config file that supervisord hasn't
+ * loaded, with the group it would be added as.
+ */
+export interface NotLoadedView {
+    "Program": string;
+    "Group": string;
 }
 
 /**

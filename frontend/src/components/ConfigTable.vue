@@ -23,7 +23,7 @@ const emit = defineEmits<{
   watch: [c: ConfigView, on: boolean]
 }>()
 
-const NEEDS_FILE = ['open-config', 'describe', 'reveal', 'open-log', 'apply', 'remove']
+const NEEDS_FILE = ['open-config', 'describe', 'reveal', 'open-log', 'load', 'apply', 'remove']
 const online = (items: MenuItem[]) => (props.offline ? withoutSupervisord(items, props.offline) : items)
 // Removing moves the file out of the config folder, so a read-only folder
 // turns it off, with the reason as its tooltip.
@@ -83,6 +83,16 @@ defineExpose({ focusProcess })
           </div>
           <div class="acts">
             <button
+              v-if="c.Path && (c.NotLoaded ?? []).length && !offline"
+              type="button"
+              class="btn sm load"
+              :title="`supervisord hasn’t loaded ${c.FileName} yet. Load adds its programs (supervisorctl update).`"
+              :aria-label="`Load ${c.FileName} into supervisord`"
+              @click="emit('config', c, 'load')"
+            >
+              Load
+            </button>
+            <button
               v-if="c.Path"
               type="button"
               :class="['btn quiet icon sm watch', { on: c.Watched }]"
@@ -130,6 +140,15 @@ defineExpose({ focusProcess })
                 @select="(id) => emit('process', p, c, id)"
               />
             </div>
+          </div>
+          <div v-for="n in c.NotLoaded ?? []" :key="'not-loaded:' + n.Program" class="row proc unloaded" :data-not-loaded="n.Program">
+            <div class="pcell">
+              <span class="pname" :title="`${n.Program} isn’t loaded: supervisord doesn’t know it yet`">{{ n.Program }}</span>
+            </div>
+            <span class="state"><span class="dot d-idle" aria-hidden="true" /><span class="t-idle">Not loaded</span></span>
+            <span class="meta">–</span>
+            <span class="mono pid num">–</span>
+            <div class="acts" />
           </div>
         </template>
       </div>
@@ -180,6 +199,10 @@ a.pname:hover { text-decoration: underline; }
 .meta { color: var(--ink3); font-size: 12.5px; }
 .mono { font-family: var(--mono); font-size: 12.5px; }
 .pid { color: var(--ink2); font-variant-numeric: tabular-nums; }
+/* A program supervisord doesn't know yet: grey, and Load on its file's row. */
+.unloaded .pname { color: var(--ink2); }
+.state { display: inline-flex; align-items: center; gap: 6px; }
+.load { margin-right: 4px; }
 .empty { margin: 0; padding: 16px; color: var(--ink2); }
 .note { margin: 0; padding: 10px 16px; border-top: 1px solid var(--line); background: var(--sunken); color: var(--ink3); font-size: 12.5px; }
 </style>

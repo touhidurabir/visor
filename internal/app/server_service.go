@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -125,19 +126,43 @@ func (s *ServerService) RestartFile(path string) error {
 }
 
 func (s *ServerService) fileAction(path string, stop, start bool) error {
-	// Without a connection, say so rather than that the file is unknown.
-	if _, err := s.rt.conn(); err != nil {
-		return err
-	}
-	groups, err := s.rt.groupsInFile(path)
+	return s.rt.fileAction(path, stop, start)
+}
+
+// fileAction stops and/or starts every group defined in a config file. A
+// group supervisord hasn't loaded yet (a file added outside Visor, before
+// anyone ran update) is loaded first when it is to be started, as
+// supervisorctl update <group> would: only those groups, so edits to the
+// loaded ones wait for Apply changes. Stopping skips them. What is loaded is
+// asked of supervisord, never taken from a snapshot that may be stale.
+func (r *Runtime) fileAction(path string, stop, start bool) error {
+	ac, err := r.conn()
 	if err != nil {
 		return err
 	}
-	return s.rt.act(expectGroups(groups...), func(ctx context.Context, c *supervisor.Client) error {
+	groups, err := r.groupsInFile(path)
+	if err != nil {
+		return err
+	}
+	unloaded, err := r.unloadedGroups(ac, groups)
+	if err != nil {
+		return err
+	}
+	if len(unloaded) == len(groups) && !start {
+		return fmt.Errorf("supervisord hasn’t loaded %s yet, so none of its programs is running. Load it first", filepath.Base(path))
+	}
+	if start && len(unloaded) > 0 {
+		if _, err := r.loadGroups(path, unloaded); err != nil {
+			return fmt.Errorf("could not load %s: %w", filepath.Base(path), err)
+		}
+	}
+	return r.act(expectGroups(groups...), func(ctx context.Context, c *supervisor.Client) error {
 		var errs []error
 		if stop {
 			for _, g := range groups {
-				errs = append(errs, stopGroup(ctx, c, g))
+				if !slices.Contains(unloaded, g) {
+					errs = append(errs, stopGroup(ctx, c, g))
+				}
 			}
 			if err := errors.Join(errs...); err != nil {
 				return err
@@ -150,6 +175,40 @@ func (s *ServerService) fileAction(path string, stop, start bool) error {
 		}
 		return errors.Join(errs...)
 	})
+}
+
+// unloadedGroups lists the groups supervisord runs no process of, asking it.
+func (r *Runtime) unloadedGroups(ac actionConn, groups []string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ac.ctx, rpcTimeout)
+	defer cancel()
+	procs, err := ac.client.GetAllProcessInfo(ctx)
+	if err != nil {
+		return nil, reconnecting(ac.ctx, err)
+	}
+	have := map[string]bool{}
+	for _, p := range procs {
+		have[p.Group] = true
+	}
+	var out []string
+	for _, g := range groups {
+		if !have[g] {
+			out = append(out, g)
+		}
+	}
+	return out, nil
+}
+
+// loadGroups has supervisord add groups of the include file at path that
+// it doesn't know yet (supervisorctl update <group>), and nothing else:
+// groups that changed on disk keep running as they are.
+func (r *Runtime) loadGroups(path string, groups []string) (ApplyResultView, error) {
+	r.applyMu.Lock()
+	defer r.applyMu.Unlock()
+	if _, err := r.includeFile(path); err != nil {
+		return ApplyResultView{}, err
+	}
+	res, err := r.applyChanges(groups)
+	return toApplyResultView(res), err
 }
 
 // ConfigDetail returns the config detail page for one include file: its
