@@ -30,11 +30,20 @@ Use Visor with your own supervisord, the way you use `supervisorctl` today:
 3. **Logs.** Open a process's logs, follow them, search them.
 4. **Configs.** Add a program (Add new: the form or the text), edit one, look
    at the diff and the backup, Restore it, Remove one and Undo it.
+   **Import files:** bring in `.ini` or `.conf` files you already have (from a
+   repo, or written by an assistant), with Choose files… or by dropping them
+   on Visor's window. Copy a config into your include folder by hand, too:
+   Visor should say it isn't loaded and offer **Load**.
 5. **Issues and notifications.** Let something fail (a bad command, a program
    that exits). Do the banner and the Issues page say what happened?
 6. **The menu bar or tray.** The popover (on GNOME: the tray menu's **Show
    status…**), its buttons, the unread count.
-7. **Launch at login** and **Settings**, including a saved password.
+7. **Launch at login** (Visor then starts in the menu bar or tray only, with
+   no window) and **Settings**, including a saved password.
+
+Tested before this beta: macOS, and Ubuntu 24.04 with GNOME on Wayland and
+on Xorg. Not yet tested by us: Fedora and the `.rpm`, and KDE Plasma. If you
+use them, your report is especially welcome.
 
 Visor never runs `sudo` and never edits your main `supervisord.conf`
 (`[supervisord]` and the sockets); it writes only the program files in your
