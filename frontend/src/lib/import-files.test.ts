@@ -31,6 +31,7 @@ describe('programsOf', () => {
 
 describe('addLabel', () => {
   it('counts configs', () => {
+    expect(addLabel(0)).toBe('Add configs')
     expect(addLabel(1)).toBe('Add 1 config')
     expect(addLabel(3)).toBe('Add 3 configs')
   })

@@ -216,10 +216,12 @@ func TestConfigServiceRestore(t *testing.T) {
 	cs, svc, _, inst := configFixture(t)
 	p := confFile(inst, "worker")
 	v, _ := cs.Read(p)
+	oldPID := pidIn(t, svc, "worker:worker")
 	if _, err := cs.Save(p, strings.Replace(v.Content, "sleep 3600", "sleep 3602", 1), v.Hash); err != nil {
 		t.Fatal(err)
 	}
-	waitRunning(t, svc, "worker:worker")
+	// The re-added worker, not the old one a poll may still show.
+	waitNewPID(t, svc, "worker:worker", oldPID)
 	list, err := cs.Backups(p)
 	if err != nil || len(list) != 1 {
 		t.Fatalf("backups = %+v, %v", list, err)

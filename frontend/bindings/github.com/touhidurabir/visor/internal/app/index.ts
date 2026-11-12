@@ -34,6 +34,7 @@ export type {
     ConnectionInput,
     CopyDraftView,
     DoctorView,
+    DroppedFileView,
     EditView,
     ExplainLineView,
     ExplainSectionView,

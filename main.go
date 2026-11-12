@@ -118,6 +118,13 @@ func main() {
 			TitleBar:                application.MacTitleBarHiddenInset,
 		},
 		URL: "/",
+		// Files dropped on the window go to Go, which reads them for Add new
+		// → Import files (app.FilesDropped). Left to the web view, WebKitGTK
+		// would load a dropped file in place of Visor's page.
+		EnableFileDrop: true,
+	})
+	mainWindow.OnWindowEvent(events.Common.WindowFilesDropped, func(e *application.WindowEvent) {
+		app.FilesDropped(e.Context().DroppedFiles())
 	})
 	shell.Setup(wails, mainWindow, dockService)
 	// Visor's own menu bar, in place of Wails' default (whose Reload loses

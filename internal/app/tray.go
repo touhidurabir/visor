@@ -233,6 +233,9 @@ func (s *Shell) Setup(a *application.App, main *application.WebviewWindow, d *do
 		Hidden:        true,
 		DisableResize: true,
 		HideOnEscape:  true,
+		// Taken natively and ignored (no drop target): a file dropped on the
+		// popover never replaces its page.
+		EnableFileDrop: true,
 		// On Wayland the popover never gets focus, so it would close as it
 		// opens: on Linux it closes on Esc, its close button, or Show
 		// status… again.

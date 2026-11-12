@@ -34,6 +34,8 @@ const fileMenu = (c: ConfigView) =>
     const ro = readOnlyReason(folder.value)
     return i.id === 'remove' && ro ? { ...i, disabled: true, title: ro } : i
   })
+/** supervisord runs nothing from the file yet: its summary says "not loaded", so no "changed" badge too. */
+const unloadedFile = (c: ConfigView) => (c.NotLoaded ?? []).length > 0 && !(c.Processes ?? []).length
 const collapsed = reactive<Record<string, boolean>>({})
 const key = (c: ConfigView) => c.Path || c.FileName
 const root = ref<HTMLElement>()
@@ -76,7 +78,7 @@ defineExpose({ focusProcess })
             </button>
             <RouterLink v-if="c.Path" class="file-link" :to="configRoute(c.Path)">{{ c.FileName }}</RouterLink>
             <span v-else class="file-link">{{ c.FileName }}</span>
-            <span v-if="c.Changed" class="badge b-warn">changed</span>
+            <span v-if="c.Changed && !unloadedFile(c)" class="badge b-warn">changed</span>
             <span class="summary meta"
               ><span v-for="(s, i) in summaryParts(c.Summary)" :key="i" :class="{ 't-bad': s.failing, strong: s.failing }">{{ s.text }}</span></span
             >

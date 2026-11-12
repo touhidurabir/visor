@@ -7,6 +7,7 @@ import { connectionBadge, connectionProblem } from '../lib/connection'
 import { useOverview } from '../lib/overview'
 import { Application, Window } from '@wailsio/runtime'
 import { followMenu, runMenu } from '../lib/menu'
+import { followDrops } from '../lib/import-files'
 import { isMac } from '../lib/platform'
 import { shortcutOf } from '../lib/shortcuts'
 import Sidebar from './Sidebar.vue'
@@ -17,6 +18,8 @@ const { overview } = useOverview()
 
 // Choices from Visor's menu bar (Find, Reload Config, Restart All…).
 followMenu(router)
+// Config files dropped anywhere on the window open in Add new → Import files.
+followDrops(router)
 
 // Visor's shortcuts (lib/shortcuts.ts). On macOS the menu bar takes its
 // keys before the page sees them, so these run in the browser build and for
@@ -52,7 +55,7 @@ const connection = computed(() => connectionBadge(connectionProblem(overview.val
 </script>
 
 <template>
-  <div class="shell">
+  <div class="shell" data-file-drop-target>
     <Sidebar :name="name" :health="health" :failing="failing" :open-issues="openIssues" :connection="connection" />
     <main class="content"><slot /></main>
     <ToastHost />
@@ -61,5 +64,7 @@ const connection = computed(() => connectionBadge(connectionProblem(overview.val
 
 <style scoped>
 .shell { display: flex; height: 100vh; background: var(--bg); color: var(--text); }
+/* Files dragged over the window (they open in Add new → Import files). */
+.shell.file-drop-target-active .content { outline: 2px dashed var(--accent); outline-offset: -6px; }
 .content { flex: 1; min-width: 0; overflow: auto; box-sizing: border-box; padding: 40px 28px 40px; }
 </style>

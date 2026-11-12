@@ -3,7 +3,10 @@
 // gets in the include folder, checked together as you edit, then added in
 // one go. The originals are only read. Pure helpers are exported for tests.
 import { computed, reactive, ref, watch } from 'vue'
-import { ConfigService, type ExplainView, type ImportResultView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { Events } from '@wailsio/runtime'
+import { ConfigService, type DroppedFileView, type ExplainView, type ImportResultView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { VisorFilesDropped } from '../../bindings/events'
+import { showToast } from './toast'
 import { describeError } from './faults'
 
 const CHECK_DELAY_MS = 300
@@ -52,6 +55,7 @@ export function programsOf(v: ExplainView | null | undefined): string[] {
 
 /** "Add 1 config", "Add 3 configs". */
 export function addLabel(n: number): string {
+  if (!n) return 'Add configs'
   return `Add ${n} ${n === 1 ? 'config' : 'configs'}`
 }
 
@@ -137,30 +141,69 @@ watch(
 )
 
 /** Reads picked or dropped files into the list (the originals are never changed). */
-export async function addFiles(list: Iterable<File>): Promise<number> {
+/** A file to add: its name and text, or why it can't be read. */
+interface Picked {
+  name: string
+  read: () => Promise<{ content: string; readError: string }>
+}
+
+/** Adds files to the list; returns how many were left out past MAX_IMPORT_FILES. */
+async function addPicked(list: Picked[]): Promise<number> {
   await start()
   results.value = null
   let skipped = 0
-  for (const f of list) {
+  for (const p of list) {
     if (files.length >= MAX_IMPORT_FILES) {
       skipped++
       continue
     }
-    const item: ImportFile = { id: nextId++, source: f.name, fileName: targetName(f.name, ext.value), content: '', include: true, open: false, readError: '' }
-    if (f.size > MAX_IMPORT_BYTES) item.readError = 'Larger than 1 MB, too large for a program config.'
-    else {
-      try {
-        item.content = await f.text()
-      } catch (e) {
-        item.readError = `Couldn’t read it: ${describeError(e)}`
-      }
-    }
-    item.include = !item.readError
-    files.push(item)
+    const { content, readError } = await p.read()
+    files.push({ id: nextId++, source: p.name, fileName: targetName(p.name, ext.value), content, include: !readError, open: false, readError })
   }
   // A single file opens straight in the editor.
   if (files.length === 1 && !files[0].readError) files[0].open = true
   return skipped
+}
+
+/** Reads picked files (the page's file picker, or a drop in the server build) into the list. */
+export function addFiles(list: Iterable<File>): Promise<number> {
+  return addPicked(
+    Array.from(list, (f) => ({
+      name: f.name,
+      read: async () => {
+        if (f.size > MAX_IMPORT_BYTES) return { content: '', readError: 'Larger than 1 MB, too large for a program config.' }
+        try {
+          return { content: await f.text(), readError: '' }
+        } catch (e) {
+          return { content: '', readError: `Couldn’t read it: ${describeError(e)}` }
+        }
+      },
+    })),
+  )
+}
+
+/** Adds files dropped on the window, which Go has read (app.ReadDropped). */
+export function addDropped(list: DroppedFileView[]): Promise<number> {
+  return addPicked(list.map((d) => ({ name: d.Name, read: async () => ({ content: d.Content, readError: d.Error }) })))
+}
+
+/**
+ * The desktop app takes file drops natively (Wails EnableFileDrop): files
+ * dropped anywhere on the main window arrive as visor:files-dropped, read
+ * by Go, and open in Add new → Import files.
+ */
+export function followDrops(router: { push: (to: string) => unknown }) {
+  Events.On(VisorFilesDropped, (ev: { data: DroppedFileView[] | null }) => {
+    void addDropped(ev.data ?? []).then((skipped) => {
+      if (skipped) showToast(`Visor imports at most ${MAX_IMPORT_FILES} files at a time; ${skipped === 1 ? 'one was' : `${skipped} were`} left out.`, 'error')
+    })
+    void router.push('/new/import')
+  })
+}
+
+/** True in the desktop app, where drops come natively instead of to the page. */
+export function nativeDrops(): boolean {
+  return (window as unknown as { _wails?: { flags?: { enableFileDrop?: boolean } } })._wails?.flags?.enableFileDrop === true
 }
 
 export function removeFile(id: number) {

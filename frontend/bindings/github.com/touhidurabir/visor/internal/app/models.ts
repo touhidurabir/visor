@@ -177,6 +177,16 @@ export interface DoctorView {
 }
 
 /**
+ * DroppedFileView is one dropped file: its name and text, or why it can't
+ * be used (Error).
+ */
+export interface DroppedFileView {
+    "Name": string;
+    "Content": string;
+    "Error": string;
+}
+
+/**
  * EditView is one change to a config: Text replaces line Line, or with
  * Insert goes in as a new line after it.
  */

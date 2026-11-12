@@ -19,7 +19,7 @@ import { addLines, applyEdit, explainMarks } from '../lib/explain'
 import { openLog, openPath, reveal } from '../lib/finder'
 import { fixItems } from '../lib/fix-list'
 import { readOnlyReason, useFolder } from '../lib/folder'
-import { addFiles, addLabel, MAX_IMPORT_FILES, programsOf, removeFile, resetImport, resultLine, targetName, useImport, type ImportFile } from '../lib/import-files'
+import { addFiles, addLabel, MAX_IMPORT_FILES, nativeDrops, programsOf, removeFile, resetImport, resultLine, targetName, useImport, type ImportFile } from '../lib/import-files'
 import { showToast } from '../lib/toast'
 import { configRoute } from '../lib/links'
 
@@ -54,7 +54,7 @@ const bar = computed<{ tone: 'ok' | 'bad' | 'warn' | 'idle'; status: string }>((
   if (im.checkFailed.value) return { tone: 'bad', status: `Couldn’t check the files: ${im.checkFailed.value}` }
   if (readOnly.value) return { tone: 'bad', status: `${readOnly.value}.` }
   if (!im.files.length) return { tone: 'idle', status: 'Choose or drop the config files to add.' }
-  if (!im.included.value.length) return { tone: 'bad', status: 'Tick at least one file to add.' }
+  if (!im.included.value.length) return { tone: 'idle', status: 'Tick a file to add it.' }
   if (!im.upToDate.value) return { tone: 'idle', status: 'Checking…' }
   const b = im.blocked.value
   if (b.length) return { tone: 'bad', status: `Fix ${b.length === 1 ? b[0].fileName : `${b.length} files`} to add, or untick ${b.length === 1 ? 'it' : 'them'}.` }
@@ -86,6 +86,9 @@ function dragLeave() {
 function dropped(e: DragEvent) {
   depth = 0
   dragging.value = false
+  // The desktop app gets drops natively (lib/import-files followDrops); the
+  // page only reads them in the server build.
+  if (nativeDrops()) return
   // A file dropped on an open editor goes into its text (CodeMirror's own drop).
   if ((e.target as HTMLElement | null)?.closest?.('.cm-editor')) return
   e.preventDefault()
@@ -108,7 +111,7 @@ function addAfter(f: ImportFile, after: number, lines: string[]) {
 </script>
 
 <template>
-  <div class="page" @dragenter="dragEnter" @dragover.prevent @dragleave="dragLeave" @drop="dropped">
+  <div class="page" data-file-drop-target @dragenter="dragEnter" @dragover.prevent @dragleave="dragLeave" @drop="dropped">
     <AddHeader mode="import" />
     <ReadOnlyBanner />
 
@@ -227,7 +230,7 @@ function addAfter(f: ImportFile, after: number, lines: string[]) {
 .mono { font-family: var(--mono); font-size: 12px; }
 .drop { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 28px 24px; border: 1.5px dashed var(--line2); border-radius: var(--radius-md); background: var(--sunken); color: var(--ink2); transition: border-color 0.15s, background 0.15s; }
 .drop.small { padding: 14px 18px; }
-.drop.on { border-color: var(--accent); background: var(--accent-soft); }
+.drop.on, .page.file-drop-target-active .drop { border-color: var(--accent); background: var(--accent-soft); }
 .drop svg { flex: none; color: var(--accent-text); }
 .drop-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 320px; min-width: 0; }
 .files { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }

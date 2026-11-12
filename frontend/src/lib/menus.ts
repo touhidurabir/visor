@@ -87,7 +87,8 @@ export function configMenu(c: ConfigView): MenuItem[] {
     item('reveal', revealLabel(), ''),
     item('open-log', 'Open log in editor', ''),
     ...(unloaded.length ? [item('load', 'Load into supervisord', `supervisorctl update ${unloaded.join(' ')}`)] : []),
-    item('apply', 'Apply changes', `supervisorctl update ${names}`, !(c.Changed || c.Uncertain)),
+    // Nothing in the file is loaded: Load is the way in, Apply changes would do the same.
+    item('apply', 'Apply changes', `supervisorctl update ${names}`, none || !(c.Changed || c.Uncertain), none ? { title: 'supervisord hasn’t loaded this file yet: use Load' } : {}),
     item('remove', 'Remove from supervisor', `supervisorctl remove ${names}`, false, {
       danger: true,
       confirm:
