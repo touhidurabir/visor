@@ -20,3 +20,9 @@ func TestSecondLaunchOpensTheWindowUnlessAtLogin(t *testing.T) {
 		t.Error("launchd starting the login item again should stay quiet")
 	}
 }
+
+func TestStartedAtLogin(t *testing.T) {
+	if !StartedAtLogin([]string{"--login"}) || StartedAtLogin(nil) || StartedAtLogin([]string{"--other"}) {
+		t.Error("StartedAtLogin should be true only with --login")
+	}
+}

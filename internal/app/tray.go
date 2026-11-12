@@ -58,6 +58,24 @@ type Shell struct {
 	trayMenu  *application.Menu
 
 	quitting atomic.Bool
+	quiet    bool // started by the login item: no window or Dock icon until opened
+}
+
+// MainWidth and MainHeight are the main window's size when it opens.
+const (
+	MainWidth  = 1000
+	MainHeight = 640
+)
+
+// StartInTray makes the app start in the menu bar or tray only (a launch
+// by the login item): the main window starts hidden (main.go) and Setup
+// hides the Dock icon once the app runs. Call it before Setup. It also
+// keeps the window from being mapped while the desktop session is still
+// starting: on X11 GNOME then left it 1×1 (GTK still thought it full size).
+func (s *Shell) StartInTray() {
+	s.mu.Lock()
+	s.quiet = true
+	s.mu.Unlock()
 }
 
 // NewShell returns a Shell that tracks health until Setup.
@@ -337,6 +355,12 @@ func (s *Shell) Setup(a *application.App, main *application.WebviewWindow, d *do
 
 	a.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		s.appStarted(application.InvokeAsync)
+		s.mu.Lock()
+		quiet := s.quiet
+		s.mu.Unlock()
+		if quiet && d != nil {
+			application.InvokeAsync(d.HideAppIcon)
+		}
 	})
 }
 

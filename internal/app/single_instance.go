@@ -31,4 +31,9 @@ func SingleInstance(installed bool, shell *Shell) *application.SingleInstanceOpt
 	}
 }
 
-func secondLaunchShowsWindow(args []string) bool { return !slices.Contains(args, LoginArg) }
+func secondLaunchShowsWindow(args []string) bool { return !StartedAtLogin(args) }
+
+// StartedAtLogin reports whether the login item launched Visor (args are
+// the command-line arguments): it then starts in the menu bar or tray
+// only, with no window and (on macOS) no Dock icon.
+func StartedAtLogin(args []string) bool { return slices.Contains(args, LoginArg) }

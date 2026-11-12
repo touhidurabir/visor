@@ -106,12 +106,18 @@ func main() {
 		},
 	})
 
-	// The app starts with the main window shown, so the Dock icon shows.
+	// The app starts with the main window shown, so the Dock icon shows;
+	// started by the login item, in the menu bar or tray only.
+	atLogin := app.StartedAtLogin(os.Args[1:])
+	if atLogin {
+		shell.StartInTray()
+	}
 	mainWindow := wails.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:   "main",
 		Title:  "Visor",
-		Width:  1000,
-		Height: 640,
+		Width:  app.MainWidth,
+		Height: app.MainHeight,
+		Hidden: atLogin,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 50,
 			Backdrop:                application.MacBackdropTranslucent,

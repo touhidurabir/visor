@@ -109,6 +109,7 @@ Visor is coming to Linux desktops (Ubuntu 24.04+ and Fedora 40+, GNOME and KDE, 
 - Settings → General: "Show the unread count in the menu bar" (on by default; `menuBarCount` in settings.json).
 
 ### Changed
+- Launched by "Launch at login" (`--login`), Visor starts in the menu bar or tray only: no window, and on macOS no Dock icon, until you open it. This also fixes the main window coming up 1×1 on Ubuntu's X11 session when it opened while the desktop was still starting. `app.StartedAtLogin`, `Shell.StartInTray`.
 - The "changed on disk" banner tells a file supervisord never loaded ("scheduler.ini isn’t loaded: supervisord doesn’t know its programs yet", with Load) from one that changed since it was loaded, and can be hidden (×) until the set of files it is about changes; the rows keep their badge and Load button.
 - Settings uses two columns in a wide window (General and Notifications on the left, Connection and Checking and history on the right) instead of one narrow column with empty space beside it; a narrower window keeps one column.
 - A chosen config file must look like a supervisord.conf (one of `[supervisord]`, `[unix_http_server]`, `[inet_http_server]`, `[supervisorctl]` or `[include]`); any other file is refused with the reason (`config.ErrNotSupervisord`), in Settings and in Doctor.
