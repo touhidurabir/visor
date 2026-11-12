@@ -14,14 +14,15 @@ import (
 
 // Notification permission, as Settings shows it.
 const (
-	// NotifyAllowed: macOS shows Visor's notifications.
+	// NotifyAllowed: macOS shows Visor's notifications, or on Linux a
+	// notification server answers.
 	NotifyAllowed = "allowed"
 	// NotifyDenied: notifications are off for Visor in System Settings
 	// (or the person has not answered the permission prompt yet).
 	NotifyDenied = "denied"
 	// NotifyUnavailable: this build cannot show notifications: the server
-	// build, or a binary outside Visor.app (`task dev`), which macOS gives
-	// no bundle identifier.
+	// build, a binary outside Visor.app (`task dev`), which macOS gives no
+	// bundle identifier, or on Linux a session with no notification server.
 	NotifyUnavailable = "unavailable"
 )
 
@@ -81,7 +82,7 @@ func (s *NotifyService) OpenNotificationSettings() error { return platform.OpenN
 func (s *NotifyService) SendTestNotification() error {
 	switch s.native.status() {
 	case NotifyUnavailable:
-		return errors.New("notifications aren't available in this build. Run the packaged Visor.app to get them")
+		return unavailableReason(application.System.IsServer(), platform.Current())
 	case NotifyDenied:
 		return errors.New("notifications are off for Visor. Turn them on in System Settings → Notifications → Visor")
 	}
@@ -91,4 +92,15 @@ func (s *NotifyService) SendTestNotification() error {
 		Body:   "You'll get one like this when a process fails, marked " + notify.Error.Icon() + " for an error or " + notify.Warning.Icon() + " for a warning.",
 		Thread: testThread,
 	})
+}
+
+// unavailableReason says why Settings' test notification can't show.
+func unavailableReason(server bool, os platform.OS) error {
+	switch {
+	case server:
+		return errors.New("notifications aren't available in this build")
+	case os == platform.Darwin:
+		return errors.New("notifications aren't available in this build. Run the packaged Visor.app to get them")
+	}
+	return errors.New("notifications aren't available: no desktop notification service is running in this session")
 }

@@ -43,6 +43,8 @@ type DoctorView struct {
 	Foreground   bool
 	// StartFailure says why the last Start supervisord didn't work.
 	StartFailure *StartFailure
+	// Linux is the Linux advice (nil on macOS).
+	Linux *LinuxAdvice
 }
 
 // StartFailure is what Visor knows when supervisord didn't start: the
@@ -67,7 +69,8 @@ type DoctorService struct {
 	moved     func() bool
 	brewAt    func(prefix string) string // a Homebrew prefix's brew, or ""
 	start     func(context.Context, doctor.StartPlan, []string) (string, error)
-	startWait time.Duration // how long a started supervisord gets to answer
+	startWait time.Duration    // how long a started supervisord gets to answer
+	host      func() hostFacts // the Linux facts behind LinuxAdvice
 }
 
 // NewDoctorService returns a DoctorService. login may be nil.
@@ -84,6 +87,7 @@ func NewDoctorService(rt *Runtime, s *SettingsService, login *LoginItemService) 
 		},
 		start:     doctor.RunStart,
 		startWait: 10 * time.Second,
+		host:      realHostFacts,
 	}
 }
 
@@ -154,9 +158,22 @@ func (s *DoctorService) check() (DoctorView, *doctor.StartPlan, string) {
 	if u, err := user.Current(); err == nil {
 		v.User = u.Username
 	}
+	var family platform.Family
+	if platform.Current() == platform.Linux && s.host != nil {
+		h := s.host()
+		family = h.Distro.Family
+		v.Linux = linuxAdvice(h, r, found, v.User)
+	}
 	// Only a stopped supervisord that Visor found and could then reach.
 	if r.Situation != doctor.Down || bin == "" || found.Transport == nil {
 		return v, nil, found.LogFile
+	}
+	// A system service is started with systemctl, by the person: show it.
+	if v.Linux != nil {
+		if plan, ok := doctor.PlanSystemStart(found, family); ok {
+			v.StartCommand = plan.Command
+			return v, nil, found.LogFile
+		}
 	}
 	plan, ok := doctor.PlanStart(found, bin, s.brewAt)
 	v.StartCommand, v.CanStart, v.Foreground = plan.Command, ok, found.NoDaemon

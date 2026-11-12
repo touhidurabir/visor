@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Visor
+GenericName=supervisord manager
+Comment=Manage supervisord from the tray
+Exec=visor
+Icon=dev.getvisor.visor
+Terminal=false
+Categories=Development;System;
+Keywords=supervisor;supervisord;process;daemon;
+StartupNotify=true
+StartupWMClass=dev.getvisor.visor

@@ -145,7 +145,14 @@ up() {
     status
     return
   fi
-  command -v supervisord >/dev/null || { echo "supervisord not found: brew install supervisor" >&2; exit 1; }
+  if ! command -v supervisord >/dev/null; then
+    if [ "$(uname -s)" = Darwin ]; then
+      echo "supervisord not found: brew install supervisor" >&2
+    else
+      echo "supervisord not found: pipx install supervisor (or sudo apt install supervisor / sudo dnf install supervisor)" >&2
+    fi
+    exit 1
+  fi
   rm -rf "$DIR"
   write_programs
   supervisord -c "$CONF"

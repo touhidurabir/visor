@@ -12,7 +12,6 @@ vars:
 
 includes:
   common: ./build/Taskfile.yml
-  windows: ./build/windows/Taskfile.yml
   darwin: ./build/darwin/Taskfile.yml
   linux: ./build/linux/Taskfile.yml
 
@@ -46,11 +45,6 @@ tasks:
       - npm --prefix e2e ci
       - npm --prefix e2e exec -- playwright install webkit
       - npm --prefix e2e test -- {{.CLI_ARGS}}
-
-  install:msix:tools:
-    summary: Installs tools required for Windows MSIX packaging
-    cmds:
-      - task: windows:install:msix:tools
 
   setup:docker:
     summary: Builds Docker image for cross-compilation (~800MB download)

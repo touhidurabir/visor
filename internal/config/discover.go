@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/touhidurabir/visor/internal/supervisor"
@@ -20,14 +21,34 @@ type Discovery struct {
 	PidFile            string   // [supervisord] pidfile=, absolute; "" if unset
 	LogFile            string   // [supervisord] logfile=, absolute; "" if unset (or syslog)
 	NoDaemon           bool     // [supervisord] nodaemon=true: it runs in the foreground
+	// SocketChown is [unix_http_server] chown= ("root:supervisor"), "" if
+	// unset: Doctor's fix for a socket owned by root depends on it.
+	SocketChown string
 }
 
-// DefaultPaths are the usual supervisord.conf locations, in search order.
-var DefaultPaths = []string{
-	"/opt/homebrew/etc/supervisord.conf",
-	"/usr/local/etc/supervisord.conf",
-	"/etc/supervisord.conf",
-	"/etc/supervisor/supervisord.conf",
+// DefaultPaths are the usual supervisord.conf locations on this OS, in
+// search order (PathsFor).
+var DefaultPaths = PathsFor(runtime.GOOS)
+
+// PathsFor is where supervisord.conf usually is on goos, in search order.
+// macOS: Homebrew's (Apple Silicon, then Intel), then the system ones.
+// Linux: the distro packages' (Debian and Ubuntu, then Fedora), then
+// Homebrew on Linux and a hand-made /usr/local one.
+func PathsFor(goos string) []string {
+	if goos == "darwin" {
+		return []string{
+			"/opt/homebrew/etc/supervisord.conf",
+			"/usr/local/etc/supervisord.conf",
+			"/etc/supervisord.conf",
+			"/etc/supervisor/supervisord.conf",
+		}
+	}
+	return []string{
+		"/etc/supervisor/supervisord.conf",
+		"/etc/supervisord.conf",
+		"/home/linuxbrew/.linuxbrew/etc/supervisord.conf",
+		"/usr/local/etc/supervisord.conf",
+	}
 }
 
 // ErrNoConfig means none of the candidate paths could be read.
@@ -93,9 +114,10 @@ func fromConfig(path, src string) (Discovery, error) {
 	}
 
 	d := Discovery{
-		ConfigPath: path,
-		Username:   get("supervisorctl", "username"),
-		Password:   get("supervisorctl", "password"),
+		ConfigPath:  path,
+		Username:    get("supervisorctl", "username"),
+		Password:    get("supervisorctl", "password"),
+		SocketChown: strings.TrimSpace(get("unix_http_server", "chown")),
 	}
 	if p := get("supervisord", "pidfile"); p != "" {
 		d.PidFile = absolute(p)

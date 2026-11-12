@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { collectErrors, downConfig, processRow, startVisor, stopSupervisord, waitForDashboard } from './helpers'
+import { collectErrors, downConfig, processRow, startVisor, stopSupervisord, waitForDashboard, words } from './helpers'
 
 test.describe('dashboard', () => {
   test('shows the connected server and its config files', async ({ page }) => {
@@ -69,7 +69,7 @@ test.describe('dashboard', () => {
   test('search focuses with the shortcut and filters config files', async ({ page }) => {
     await waitForDashboard(page)
     await page.locator('body').click({ position: { x: 5, y: 5 } })
-    await page.keyboard.press('Meta+f')
+    await page.keyboard.press(`${words.mod}+f`)
     const search = page.getByRole('searchbox', { name: 'Search processes and config files' })
     await expect(search).toBeFocused()
     await search.fill('mailer')
@@ -102,7 +102,7 @@ test.describe('dashboard', () => {
       // Nothing runs yet, so Visor opens on Doctor: start supervisord there.
       await page.goto(visor.url + '/#/')
       await page.getByRole('button', { name: 'Start supervisord' }).click({ timeout: 15_000 })
-      await expect(page.getByRole('heading', { name: 'Your Mac is ready' })).toBeVisible({ timeout: 20_000 })
+      await expect(page.getByRole('heading', { name: words.ready })).toBeVisible({ timeout: 20_000 })
       await page.getByRole('button', { name: 'Open dashboard' }).click()
       await expect(page.getByText(/supervisord 4\.\d+/).first()).toBeVisible()
 

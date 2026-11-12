@@ -3,6 +3,7 @@ package platform
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 )
@@ -38,9 +39,16 @@ func bundleOf(exe string) string {
 }
 
 // Moved reports whether the running app has been moved somewhere it can
-// stay (e.g. Applications): not a quarantine copy, and not on a read-only
-// volume such as the disk image it came on. A dev build counts as moved.
-func Moved() bool { return moved(BundlePath(), readOnly) }
+// stay. On macOS (e.g. Applications): not a quarantine copy, and not on a
+// read-only volume such as the disk image it came on. On Linux: an
+// AppImage outside /tmp that can still run (appImageMoved). A dev build
+// counts as moved.
+func Moved() bool {
+	if runtime.GOOS != "darwin" {
+		return appImageMoved(AppImage(), isExecutableFile)
+	}
+	return moved(BundlePath(), readOnly)
+}
 
 func moved(bundle string, readOnly func(string) bool) bool {
 	switch {

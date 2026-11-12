@@ -9,6 +9,7 @@ import { Events } from '@wailsio/runtime'
 import { LogService, ServerService, type LogChunkView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { VisorLog } from '../../bindings/events'
 import { describeError } from '../lib/faults'
+import { onMenu } from '../lib/menu'
 import { applyChunk, countMatches, emptyLog, highlight, noLogMessage, shownLines, type Stream } from '../lib/logview'
 import { showToast } from '../lib/toast'
 import ConfirmDialog from './ConfirmDialog.vue'
@@ -153,24 +154,23 @@ async function openInEditor() {
   }
 }
 
-function onKey(e: KeyboardEvent) {
-  if (e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey && e.key === 'f') {
-    e.preventDefault()
-    search.value?.focus()
-    search.value?.select()
-  }
+// Find (⌘F from the menu bar, Ctrl+F on Linux) searches the log.
+function focusSearch() {
+  search.value?.focus()
+  search.value?.select()
 }
+let offFind: () => void = () => {}
 
 // The parent keys this view by process, so only the stream changes here.
 watch(stream, () => void follow())
 onMounted(() => {
-  window.addEventListener('keydown', onKey)
+  offFind = onMenu('find', focusSearch)
   void follow()
 })
 onBeforeUnmount(() => {
   gen++
   off()
-  window.removeEventListener('keydown', onKey)
+  offFind()
   void unfollow()
 })
 </script>

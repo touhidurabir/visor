@@ -14,6 +14,7 @@ import { configMenu, processMenu, withoutSupervisord, type MenuItem } from '../l
 import { configRoute } from '../lib/links'
 import ActionMenu from './ActionMenu.vue'
 import StateText from './StateText.vue'
+import { readOnlyReason, useFolder } from '../lib/folder'
 
 const props = defineProps<{ configs: ConfigView[]; nowMs: number; offline?: string; note?: string }>()
 const emit = defineEmits<{
@@ -22,10 +23,19 @@ const emit = defineEmits<{
   watch: [c: ConfigView, on: boolean]
 }>()
 
-const NEEDS_FILE = ['open-config', 'describe', 'reveal', 'open-log', 'apply', 'remove']
+const NEEDS_FILE = ['open-config', 'describe', 'reveal', 'open-log', 'load', 'apply', 'remove']
 const online = (items: MenuItem[]) => (props.offline ? withoutSupervisord(items, props.offline) : items)
+// Removing moves the file out of the config folder, so a read-only folder
+// turns it off, with the reason as its tooltip.
+const folder = useFolder()
 const fileMenu = (c: ConfigView) =>
-  online(configMenu(c)).map((i) => (c.Path || !NEEDS_FILE.includes(i.id) ? i : { ...i, disabled: true, title: 'This process has no config file in the include folder' }))
+  online(configMenu(c)).map((i) => {
+    if (!c.Path && NEEDS_FILE.includes(i.id)) return { ...i, disabled: true, title: 'This process has no config file in the include folder' }
+    const ro = readOnlyReason(folder.value)
+    return i.id === 'remove' && ro ? { ...i, disabled: true, title: ro } : i
+  })
+/** supervisord runs nothing from the file yet: its summary says "not loaded", so no "changed" badge too. */
+const unloadedFile = (c: ConfigView) => (c.NotLoaded ?? []).length > 0 && !(c.Processes ?? []).length
 const collapsed = reactive<Record<string, boolean>>({})
 const key = (c: ConfigView) => c.Path || c.FileName
 const root = ref<HTMLElement>()
@@ -68,12 +78,22 @@ defineExpose({ focusProcess })
             </button>
             <RouterLink v-if="c.Path" class="file-link" :to="configRoute(c.Path)">{{ c.FileName }}</RouterLink>
             <span v-else class="file-link">{{ c.FileName }}</span>
-            <span v-if="c.Changed" class="badge b-warn">changed</span>
+            <span v-if="c.Changed && !unloadedFile(c)" class="badge b-warn">changed</span>
             <span class="summary meta"
               ><span v-for="(s, i) in summaryParts(c.Summary)" :key="i" :class="{ 't-bad': s.failing, strong: s.failing }">{{ s.text }}</span></span
             >
           </div>
           <div class="acts">
+            <button
+              v-if="c.Path && (c.NotLoaded ?? []).length && !offline"
+              type="button"
+              class="btn sm load"
+              :title="`supervisord hasn’t loaded ${c.FileName} yet. Load adds its programs (supervisorctl update).`"
+              :aria-label="`Load ${c.FileName} into supervisord`"
+              @click="emit('config', c, 'load')"
+            >
+              Load
+            </button>
             <button
               v-if="c.Path"
               type="button"
@@ -122,6 +142,15 @@ defineExpose({ focusProcess })
                 @select="(id) => emit('process', p, c, id)"
               />
             </div>
+          </div>
+          <div v-for="n in c.NotLoaded ?? []" :key="'not-loaded:' + n.Program" class="row proc unloaded" :data-not-loaded="n.Program">
+            <div class="pcell">
+              <span class="pname" :title="`${n.Program} isn’t loaded: supervisord doesn’t know it yet`">{{ n.Program }}</span>
+            </div>
+            <span class="state"><span class="dot d-idle" aria-hidden="true" /><span class="t-idle">Not loaded</span></span>
+            <span class="meta">–</span>
+            <span class="mono pid num">–</span>
+            <div class="acts" />
           </div>
         </template>
       </div>
@@ -172,6 +201,10 @@ a.pname:hover { text-decoration: underline; }
 .meta { color: var(--ink3); font-size: 12.5px; }
 .mono { font-family: var(--mono); font-size: 12.5px; }
 .pid { color: var(--ink2); font-variant-numeric: tabular-nums; }
+/* A program supervisord doesn't know yet: grey, and Load on its file's row. */
+.unloaded .pname { color: var(--ink2); }
+.state { display: inline-flex; align-items: center; gap: 6px; }
+.load { margin-right: 4px; }
 .empty { margin: 0; padding: 16px; color: var(--ink2); }
 .note { margin: 0; padding: 10px 16px; border-top: 1px solid var(--line); background: var(--sunken); color: var(--ink3); font-size: 12.5px; }
 </style>

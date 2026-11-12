@@ -144,6 +144,40 @@ export async function restoreConfig(page: Page, path: string, original: string, 
   await expect(banner).toBeHidden()
 }
 
+/**
+ * The words that depend on the OS (frontend/src/lib/platform.ts). The shared
+ * Visor runs with VISOR_PLATFORM=linux (playwright.config.ts), so specs use
+ * WORDS.linux; platform.spec.ts starts a macOS one to check WORDS.darwin.
+ */
+export const WORDS = {
+  linux: {
+    mod: 'Control',
+    newConfigHint: 'Ctrl+N',
+    findHint: 'Ctrl+F',
+    reveal: 'Show in file manager',
+    savedPassword: 'Saved in your keyring',
+    keptPassword: /Kept in your keyring/,
+    countSwitch: 'Show the unread count on the tray icon',
+    loginUnsupported: /the package or the AppImage/,
+    noBanners: 'This build can’t show desktop banners',
+    ready: 'Your computer is ready',
+  },
+  darwin: {
+    mod: 'Meta',
+    newConfigHint: '⌘N',
+    findHint: '⌘F',
+    reveal: 'Reveal in Finder',
+    savedPassword: 'Saved in your Keychain',
+    keptPassword: /Kept in your Keychain/,
+    countSwitch: 'Show the unread count in the menu bar',
+    loginUnsupported: /installed Visor\.app/,
+    noBanners: 'This build can’t show macOS banners',
+    ready: 'Your Mac is ready',
+  },
+} as const
+export type Platform = keyof typeof WORDS
+export const words = WORDS.linux
+
 const ROOT = path.resolve(import.meta.dirname, '../..')
 const BIN = path.join(ROOT, 'bin/visor-e2e')
 export const SANDBOX = '/tmp/visor-e2e'
@@ -158,7 +192,7 @@ export interface Visor {
  * state folder under the e2e sandbox (which serve.sh removes); stop() ends
  * it by its own process handle.
  */
-export async function startVisor(name: string, port: number, config: string, onboarded = false): Promise<Visor> {
+export async function startVisor(name: string, port: number, config: string, onboarded = false, platform: Platform = 'linux'): Promise<Visor> {
   const dir = path.join(SANDBOX, `doctor-${name}`)
   fs.rmSync(dir, { recursive: true, force: true })
   fs.mkdirSync(path.join(dir, 'state'), { recursive: true })
@@ -170,6 +204,7 @@ export async function startVisor(name: string, port: number, config: string, onb
       VISOR_STATE_DIR: path.join(dir, 'state'),
       WAILS_SERVER_HOST: '127.0.0.1',
       WAILS_SERVER_PORT: String(port),
+      VISOR_PLATFORM: platform,
     },
     stdio: 'ignore',
   })

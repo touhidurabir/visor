@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { words } from './helpers'
 
 test.describe('settings', () => {
   test('the config path is fixed by VISOR_CONFIG', async ({ page }) => {
@@ -6,6 +7,25 @@ test.describe('settings', () => {
     await expect(page.getByText('Set by VISOR_CONFIG').first()).toBeVisible()
     await expect(page.getByTestId('config-path')).toHaveText('/tmp/visor-e2e/supervisord.conf')
     await expect(page.getByRole('button', { name: 'Choose…' })).toBeDisabled()
+  })
+
+  test('a wide window puts the cards in two columns: General and Notifications, then Connection and Checking', async ({ page }) => {
+    const box = async (name: string) => (await page.getByRole('group', { name, exact: true }).boundingBox())!
+    await page.setViewportSize({ width: 1600, height: 1000 })
+    await page.goto('/#/settings')
+    await expect(page.getByRole('group', { name: 'General', exact: true })).toBeVisible()
+    const [gen, conn, notify, check] = [await box('General'), await box('Connection'), await box('Notifications'), await box('Checking and history')]
+    expect(Math.abs(gen.y - conn.y)).toBeLessThan(2)
+    expect(conn.x).toBeGreaterThan(gen.x + gen.width)
+    expect(Math.abs(notify.x - gen.x)).toBeLessThan(2)
+    expect(notify.y).toBeGreaterThan(gen.y + gen.height)
+    expect(Math.abs(check.x - conn.x)).toBeLessThan(2)
+    expect(check.y).toBeGreaterThan(conn.y + conn.height)
+
+    // A narrower one: one column, in order.
+    await page.setViewportSize({ width: 1000, height: 1000 })
+    await expect.poll(async () => (await box('Connection')).x).toBeLessThan((await box('General')).x + 2)
+    expect((await box('Connection')).y).toBeGreaterThan((await box('General')).y)
   })
 
   test('General comes first, then Connection, Notifications, and Checking and history', async ({ page }) => {
@@ -19,11 +39,11 @@ test.describe('settings', () => {
     // The old separate cards are gone.
     for (const old of ['Polling', 'Crash loops', 'Issue history']) await expect(page.getByRole('group', { name: old, exact: true })).toHaveCount(0)
 
-    // General holds Launch at login, Appearance and the menu-bar count.
+    // General holds Launch at login, Appearance and the tray count.
     const general = page.getByRole('group', { name: 'General' })
     await expect(general.getByRole('switch', { name: 'Launch at login' })).toBeVisible()
     await expect(general.getByRole('radiogroup', { name: 'Appearance' })).toBeVisible()
-    await expect(general.getByRole('switch', { name: 'Show the unread count in the menu bar' })).toBeVisible()
+    await expect(general.getByRole('switch', { name: words.countSwitch })).toBeVisible()
 
     // One card checks and keeps history: the poll interval, crash loops and retention.
     const checking = page.getByRole('group', { name: 'Checking and history' })
@@ -37,7 +57,7 @@ test.describe('settings', () => {
     expect((await poll.boundingBox())!.width).toBeLessThanOrEqual(72)
 
     // The saved password row stays in Connection (connection.spec covers it).
-    await expect(page.getByRole('group', { name: 'Connection' }).getByText(/Kept in your Keychain/)).toBeVisible()
+    await expect(page.getByRole('group', { name: 'Connection' }).getByText(words.keptPassword)).toBeVisible()
   })
 
   test('each row has the label on the left and the control on the right', async ({ page }) => {
@@ -102,7 +122,7 @@ test.describe('settings', () => {
     const card = page.getByRole('group', { name: 'Notifications' })
     await expect(card.getByTestId('notify-permission')).toHaveText('Not available in this build')
     await card.getByRole('button', { name: 'Send a test notification' }).click()
-    await expect(page.getByText(/aren't available in this build\. Run the packaged Visor\.app/)).toBeVisible()
+    await expect(page.getByText(/aren't available in this build/)).toBeVisible()
     await expect(card.getByRole('button', { name: 'Send a test notification' })).toBeEnabled()
   })
 })

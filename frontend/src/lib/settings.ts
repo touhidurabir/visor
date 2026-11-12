@@ -5,6 +5,7 @@
 import { ref } from 'vue'
 import { SettingsService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { SettingsView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { isMac } from './platform'
 
 const NS_PER_SECOND = 1_000_000_000
 const NS_PER_MINUTE = 60 * NS_PER_SECOND
@@ -95,7 +96,10 @@ export function notifyPermission(status: string): { text: string; tone: 'ok' | '
       return { text: 'Allowed', tone: 'ok' }
     case 'denied':
       // Not answered yet, or turned off: macOS reports both the same way.
-      return { text: 'Not allowed. Allow Visor in System Settings → Notifications.', tone: 'bad' }
+      return {
+        text: isMac() ? 'Not allowed. Allow Visor in System Settings → Notifications.' : 'Not allowed. Allow Visor in your desktop’s notification settings.',
+        tone: 'bad',
+      }
     case 'unavailable':
       return { text: 'Not available in this build', tone: 'idle' }
   }

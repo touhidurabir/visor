@@ -1,28 +1,69 @@
 name: Release
 
-# A version tag builds a universal Visor.app, packs it into a .dmg with a
-# SHA-256 file, and creates a draft GitHub release for the maintainer to
-# publish. Never runs for pull requests.
+# A version tag builds the Mac and Linux downloads and creates a draft GitHub
+# release for the maintainer to publish:
+#   mac:     a universal Visor.app in Visor-<v>-universal.dmg
+#   linux:   Visor-<v>-x86_64.AppImage, visor_<v>_amd64.deb, visor-<v>-1.x86_64.rpm
+#   publish: a .sha256 beside each, and the draft release (tags only)
+# Run it by hand (Actions → Release → Run workflow) for a dry run: it builds
+# everything as version 0.0.0-dryrun.<run> and keeps the files as workflow
+# artifacts, with no release. Never runs for pull requests.
 on:
   push:
     tags: ['v*.*.*']
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  release:
+  version:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      bundle: ${{ steps.v.outputs.bundle }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      # macOS wants plain numbers (1.2.3) in the bundle versions, so a
+      # pre-release tag (v0.1.0-beta.1) stamps 0.1.0 there and the release is
+      # marked as a pre-release.
+      - id: v
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="0.0.0-dryrun.$GITHUB_RUN_NUMBER"
+          fi
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Tag $GITHUB_REF_NAME isn't vX.Y.Z or vX.Y.Z-suffix" >&2
+            exit 1
+          fi
+          bundle="${version%%-*}"
+          prerelease=0
+          if [ "$bundle" != "$version" ]; then prerelease=1; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "bundle=$bundle" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+  mac:
+    needs: version
     runs-on: macos-15
     timeout-minutes: 45
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      BUNDLE: ${{ needs.version.outputs.bundle }}
+    outputs:
+      signed: ${{ steps.sign.outputs.signed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The job can write to the repo; keep its token out of .git/config,
-          # where npm and go install scripts could use it. gh gets GH_TOKEN.
+          # Keep the token out of .git/config, where npm and go install
+          # scripts could use it.
           persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -52,27 +93,17 @@ jobs:
           npm --prefix frontend run typecheck
           npm --prefix frontend test
 
-      # macOS wants plain numbers (1.2.3) in the bundle versions, so a
-      # pre-release tag (v0.1.0-rc.1) stamps 0.1.0 and the release is marked
-      # as a pre-release.
       - name: Stamp the version
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "Tag $GITHUB_REF_NAME isn't vX.Y.Z or vX.Y.Z-suffix" >&2
-            exit 1
-          fi
-          bundle="${version%%-*}"
-          echo "VERSION=$version" >> "$GITHUB_ENV"
-          if [ "$bundle" != "$version" ]; then echo "PRERELEASE=1" >> "$GITHUB_ENV"; fi
-          plutil -replace CFBundleShortVersionString -string "$bundle" build/darwin/Info.plist
-          plutil -replace CFBundleVersion -string "$bundle" build/darwin/Info.plist
+          plutil -replace CFBundleShortVersionString -string "$BUNDLE" build/darwin/Info.plist
+          plutil -replace CFBundleVersion -string "$BUNDLE" build/darwin/Info.plist
 
       # Developer ID signing and notarization run only when every secret is
       # set. Without them the app is ad-hoc signed (unsigned for Gatekeeper)
       # and the release notes say so. The signed path is untested until a
       # Developer ID exists.
       - name: Decide how to sign
+        id: sign
         env:
           P12: ${{ secrets.APPLE_DEVELOPER_ID_P12 }}
           P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_PASSWORD }}
@@ -93,9 +124,11 @@ jobs:
             identity=$(security find-identity -v -p codesigning "$keychain" | awk -F'"' '/Developer ID Application/ {print $2; exit}')
             echo "SIGNED=1" >> "$GITHUB_ENV"
             echo "SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+            echo "signed=1" >> "$GITHUB_OUTPUT"
           else
             echo "SIGNED=0" >> "$GITHUB_ENV"
             echo "SIGN_IDENTITY=-" >> "$GITHUB_ENV"
+            echo "signed=0" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build the universal app
@@ -113,20 +146,115 @@ jobs:
           xcrun notarytool submit "$RUNNER_TEMP/visor.zip" --apple-id "$APPLE_ID" --team-id "$TEAM_ID" --password "$APP_PASSWORD" --wait
           xcrun stapler staple bin/visor.app
 
+      # release-dmg.sh writes the .dmg and its .sha256.
       - name: Pack the disk image
         run: scripts/release-dmg.sh bin/visor.app "$VERSION" dist
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mac
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  linux:
+    needs: version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.27.3
+          cache: true
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # The AppImage bundles GTK and WebKitGTK from here, so it is built on
+      # the oldest target (Ubuntu 24.04). linuxdeploy runs with
+      # --appimage-extract-and-run, so no FUSE is needed.
+      - name: Install GTK 4 and WebKitGTK 6.0
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev file
+
+      - name: Install the Wails CLI
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run the tests
+        run: |
+          go vet ./...
+          go test -short ./...
+
+      - name: Build the AppImage, .deb and .rpm
+        run: VISOR_VERSION="$VERSION" wails3 task linux:package
+
+      - name: Name the files
+        run: |
+          mkdir dist
+          mv bin/visor-x86_64.AppImage "dist/Visor-$VERSION-x86_64.AppImage"
+          mv bin/visor.deb "dist/visor_${VERSION}_amd64.deb"
+          mv bin/visor.rpm "dist/visor-$VERSION-1.x86_64.rpm"
+          ls -l dist
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [version, mac, linux]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      PRERELEASE: ${{ needs.version.outputs.prerelease }}
+      SIGNED: ${{ needs.mac.outputs.signed }}
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Write the checksums
+        working-directory: dist
+        run: |
+          for f in *.AppImage *.deb *.rpm; do
+            sha256sum "$f" > "$f.sha256"
+          done
+          ls -l
 
       - name: Create the draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ "$SIGNED" = 1 ]; then
-            note="Signed and notarized by Apple."
+            note="The Mac build is signed and notarized by Apple."
           else
-            note="This build isn't signed by Apple yet. See [Install](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/README.md#install) for how to open it the first time."
+            note="The Mac build isn't signed by Apple yet. See [Install](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/README.md#install) for how to open it the first time."
           fi
           pre=()
-          if [ "${PRERELEASE:-0}" = 1 ]; then pre=(--prerelease); fi
-          gh release create "$GITHUB_REF_NAME" dist/* --draft "${pre[@]}" --title "Visor $VERSION" --notes "$note
+          if [ "$PRERELEASE" = 1 ]; then pre=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --draft "${pre[@]}" --title "Visor $VERSION" --notes "$note
 
-          Check the download: \`shasum -a 256 -c Visor-$VERSION-universal.dmg.sha256\`"
+          Linux: the AppImage runs on Ubuntu 24.04+ and Fedora 40+ (\`chmod +x\` it first); the .deb and .rpm install Visor for the whole system. See [Install](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/README.md#install).
+
+          Check a download: \`shasum -a 256 -c <file>.sha256\` on a Mac, \`sha256sum -c <file>.sha256\` on Linux."

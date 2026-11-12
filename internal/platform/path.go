@@ -6,13 +6,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 )
 
-// A GUI app on macOS inherits a minimal PATH, not the one the user's shell
-// sets up, so command binaries are resolved against the login shell's PATH.
+// A GUI app inherits a minimal PATH, not the one the user's shell sets up
+// (macOS gives it /usr/bin:/bin:/usr/sbin:/sbin; a Linux desktop's session
+// may lack ~/.local/bin), so command binaries are resolved against the login
+// shell's PATH.
 
 const loginPATHTimeout = 2 * time.Second
 
@@ -21,28 +24,55 @@ var (
 	loginVal  []string
 )
 
-// LoginPATH returns the directories on the user's login-shell PATH, plus
-// /opt/homebrew/bin and /usr/local/bin, de-duplicated. It runs
+// LoginPATH returns the directories on the user's login-shell PATH, then
+// the OS's usual places (extraPATH), de-duplicated. It runs
 // $SHELL -l -c 'printf %s "$PATH"' once (2 s timeout) and caches the result;
-// if the shell fails or is too slow, only the two Homebrew directories are
-// returned.
+// if the shell fails or is too slow, only the usual places are returned.
 func LoginPATH() []string {
-	loginOnce.Do(func() { loginVal = loginPATH(shellPATH, loginPATHTimeout) })
+	loginOnce.Do(func() { loginVal = loginPATHFor(shellPATH, loginPATHTimeout, extraPATH(runtime.GOOS, dirExists)) })
 	return append([]string(nil), loginVal...)
+}
+
+// extraPATH is where supervisord and the commands it runs usually are
+// beyond the login shell's PATH: Homebrew's two prefixes on macOS; on
+// Linux the system dirs, and Homebrew on Linux when it is there.
+func extraPATH(goos string, exists func(string) bool) []string {
+	if goos == "darwin" {
+		return []string{"/opt/homebrew/bin", "/usr/local/bin"}
+	}
+	dirs := []string{"/usr/local/bin", "/usr/bin", "/bin"}
+	if brew := "/home/linuxbrew/.linuxbrew/bin"; exists(brew) {
+		dirs = append(dirs, brew)
+	}
+	return dirs
+}
+
+func dirExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
 }
 
 func shellPATH(ctx context.Context) (string, error) {
 	sh := os.Getenv("SHELL")
 	if sh == "" {
 		sh = "/bin/zsh"
+		if runtime.GOOS != "darwin" {
+			sh = "/bin/sh"
+		}
 	}
 	out, err := exec.CommandContext(ctx, sh, "-l", "-c", `printf %s "$PATH"`).Output()
 	return string(out), err
 }
 
-// loginPATH is LoginPATH with the shell and timeout injected. The runner may
-// ignore its context; the timeout is enforced here regardless.
+// loginPATH is macOS's LoginPATH with the shell and timeout injected.
 func loginPATH(run func(context.Context) (string, error), timeout time.Duration) []string {
+	return loginPATHFor(run, timeout, extraPATH("darwin", dirExists))
+}
+
+// loginPATHFor is LoginPATH with the shell, timeout and usual places
+// injected. The runner may ignore its context; the timeout is enforced here
+// regardless.
+func loginPATHFor(run func(context.Context) (string, error), timeout time.Duration, extra []string) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	type result struct {
@@ -64,7 +94,7 @@ func loginPATH(run func(context.Context) (string, error), timeout time.Duration)
 	}
 	seen := map[string]bool{}
 	var out []string
-	for _, d := range append(strings.Split(shell, ":"), "/opt/homebrew/bin", "/usr/local/bin") {
+	for _, d := range append(strings.Split(shell, ":"), extra...) {
 		if d = strings.TrimSpace(d); d != "" && !seen[d] {
 			seen[d] = true
 			out = append(out, d)

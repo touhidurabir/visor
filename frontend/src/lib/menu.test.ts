@@ -6,7 +6,7 @@ vi.mock('@wailsio/runtime', () => ({
 }))
 vi.mock('../../bindings/events', () => ({ VisorMenu: 'visor:menu' }))
 
-const { followMenu, onMenu, takePendingMenu, resetMenu } = await import('./menu')
+const { followMenu, onMenu, runMenu, takePendingMenu, resetMenu } = await import('./menu')
 
 const send = (name: string) => handlers.get('visor:menu')?.({ data: name })
 
@@ -35,6 +35,17 @@ describe('menu bar choices', () => {
     expect(takePendingMenu('restart-all')).toBe(false)
     expect(takePendingMenu('reload')).toBe(true)
     expect(takePendingMenu('reload')).toBe(false)
+  })
+
+  it('carries out a choice made from the keyboard the same way (Linux has no menu bar)', () => {
+    const find = vi.fn()
+    const off = onMenu('find', find)
+    runMenu('find')
+    expect(find).toHaveBeenCalledOnce()
+    off()
+    runMenu('reload')
+    expect(push).toHaveBeenCalledWith('/')
+    expect(takePendingMenu('reload')).toBe(true)
   })
 
   it('takes the popover’s Open Doctor to Doctor', () => {

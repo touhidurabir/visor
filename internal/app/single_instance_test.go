@@ -2,11 +2,11 @@ package app
 
 import "testing"
 
-func TestSingleInstanceOnlyForThePackagedApp(t *testing.T) {
-	if o := SingleInstance("", NewShell()); o != nil {
-		t.Errorf("a dev or server build (no bundle) got %+v; it must be able to run beside the app", o)
+func TestSingleInstanceOnlyForAnInstalledCopy(t *testing.T) {
+	if o := SingleInstance(false, NewShell()); o != nil {
+		t.Errorf("a dev or server build got %+v; it must be able to run beside the app", o)
 	}
-	o := SingleInstance("/Applications/Visor.app", NewShell())
+	o := SingleInstance(true, NewShell())
 	if o == nil || o.UniqueID != "dev.getvisor.visor" || o.OnSecondInstanceLaunch == nil {
 		t.Fatalf("packaged app = %+v", o)
 	}
@@ -18,5 +18,11 @@ func TestSecondLaunchOpensTheWindowUnlessAtLogin(t *testing.T) {
 	}
 	if secondLaunchShowsWindow([]string{"/Applications/Visor.app/Contents/MacOS/visor", LoginArg}) {
 		t.Error("launchd starting the login item again should stay quiet")
+	}
+}
+
+func TestStartedAtLogin(t *testing.T) {
+	if !StartedAtLogin([]string{"--login"}) || StartedAtLogin(nil) || StartedAtLogin([]string{"--other"}) {
+		t.Error("StartedAtLogin should be true only with --login")
 	}
 }

@@ -11,6 +11,7 @@ import { computed } from 'vue'
 import type { EditView, ExplainLineView, LinePathView, ProblemView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { fileSize } from '../lib/explain'
 import { codeTokens } from '../lib/explain-cards'
+import { openFolderLabel, revealLabel, showFileLabel } from '../lib/platform'
 
 const props = defineProps<{ line: ExplainLineView; mode: 'overview' | 'editor'; readOnly: boolean; actions: boolean }>()
 const emit = defineEmits<{
@@ -88,14 +89,14 @@ function tag(p: LinePathView): { text: string; cls: string } {
         <span v-if="p.Auto" class="badge tag b-idle">named by supervisord</span>
         <span class="links">
           <template v-if="p.Kind === 'bin'">
-            <button type="button" class="link" :disabled="!p.Exists" :title="p.Exists ? undefined : 'Nothing to show: the file doesn’t exist'" @click="emit('reveal', p.Path)">Reveal in Finder</button>
+            <button type="button" class="link" :disabled="!p.Exists" :title="p.Exists ? undefined : 'Nothing to show: the file doesn’t exist'" @click="emit('reveal', p.Path)">{{ revealLabel() }}</button>
           </template>
           <template v-else-if="p.Kind === 'dir'">
-            <button type="button" class="link" :disabled="!p.Exists" :title="p.Exists ? undefined : 'Nothing to open: the folder doesn’t exist'" @click="emit('open', p.Path)">Open in Finder</button>
+            <button type="button" class="link" :disabled="!p.Exists" :title="p.Exists ? undefined : 'Nothing to open: the folder doesn’t exist'" @click="emit('open', p.Path)">{{ openFolderLabel() }}</button>
           </template>
           <template v-else>
             <button type="button" class="link" :disabled="!p.Exists" @click="emit('openLog', p.Path)">Open in editor</button>
-            <button type="button" class="link" :disabled="!p.Exists" @click="emit('reveal', p.Path)">Show in Finder</button>
+            <button type="button" class="link" :disabled="!p.Exists" @click="emit('reveal', p.Path)">{{ showFileLabel() }}</button>
             <button v-if="!editor && p.Process" type="button" class="link" @click="emit('viewLog', p.Process, p.Stream)">View in Logs tab</button>
           </template>
         </span>

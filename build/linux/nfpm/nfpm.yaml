@@ -1,80 +1,69 @@
-# Feel free to remove those if you don't want/need to use them.
-# Make sure to check the documentation at https://nfpm.goreleaser.com
-#
-# The lines below are called `modelines`. See `:help modeline`
+# The .deb and .rpm (nfpm, through `wails3 tool package`). Built by
+# `wails3 task linux:package`; the release workflow sets VISOR_VERSION.
+# https://nfpm.goreleaser.com
 
 name: "visor"
-arch: ${GOARCH}
+arch: "${GOARCH}"
 platform: "linux"
-version: "0.0.1"
-section: "default"
-priority: "extra"
-maintainer: ${GIT_COMMITTER_NAME} <${GIT_COMMITTER_EMAIL}>
-description: "A macOS menu-bar app for managing supervisord"
-vendor: "Touhidur Rahman"
-homepage: "https://wails.io"
-license: "MIT"
+version: "${VISOR_VERSION}"
 release: "1"
+section: "admin"
+priority: "optional"
+maintainer: "Touhidur Rahman <noreply@getvisor.dev>"
+description: |
+  A menu-bar and tray app for managing supervisord.
+  Visor shows every process supervisord runs, starts, stops and restarts
+  them, tails their logs, and adds and edits program configs safely.
+vendor: "Touhidur Rahman"
+homepage: "https://getvisor.dev"
+license: "MIT"
 
 contents:
   - src: "./bin/visor"
-    dst: "/usr/local/bin/visor"
-  - src: "./build/appicon.png"
-    dst: "/usr/share/icons/hicolor/128x128/apps/visor.png"
-  - src: "./build/linux/visor.desktop"
-    dst: "/usr/share/applications/visor.desktop"
+    dst: "/usr/bin/visor"
+    file_info:
+      mode: 0755
+  - src: "./build/linux/dev.getvisor.visor.desktop"
+    dst: "/usr/share/applications/dev.getvisor.visor.desktop"
+  - src: "./build/linux/icons/16.png"
+    dst: "/usr/share/icons/hicolor/16x16/apps/dev.getvisor.visor.png"
+  - src: "./build/linux/icons/24.png"
+    dst: "/usr/share/icons/hicolor/24x24/apps/dev.getvisor.visor.png"
+  - src: "./build/linux/icons/32.png"
+    dst: "/usr/share/icons/hicolor/32x32/apps/dev.getvisor.visor.png"
+  - src: "./build/linux/icons/48.png"
+    dst: "/usr/share/icons/hicolor/48x48/apps/dev.getvisor.visor.png"
+  - src: "./build/linux/icons/64.png"
+    dst: "/usr/share/icons/hicolor/64x64/apps/dev.getvisor.visor.png"
+  - src: "./build/linux/icons/128.png"
+    dst: "/usr/share/icons/hicolor/128x128/apps/dev.getvisor.visor.png"
+  - src: "./build/linux/icons/256.png"
+    dst: "/usr/share/icons/hicolor/256x256/apps/dev.getvisor.visor.png"
+  - src: "./build/linux/icons/512.png"
+    dst: "/usr/share/icons/hicolor/512x512/apps/dev.getvisor.visor.png"
+  # Ubuntu 23.10+ lets a program make user namespaces only with an
+  # AppArmor profile, and WebKit's sandbox needs one (otherwise the window
+  # crashes as it opens). Fedora has no such rule.
+  - src: "./build/linux/apparmor/dev.getvisor.visor"
+    dst: "/etc/apparmor.d/dev.getvisor.visor"
+    type: config
+    packager: deb
 
-# Default dependencies for the GTK4 + WebKitGTK 6.0 stack (Ubuntu 24.04+ / Debian 13+)
+# GTK 4 and WebKitGTK 6.0 (Ubuntu 24.04+, Debian 13+), and the tray's
+# StatusNotifier support comes with the desktop.
 depends:
   - libgtk-4-1
   - libwebkitgtk-6.0-4
+recommends:
+  - gnome-shell-extension-appindicator
 
-# Distribution-specific overrides for different package formats
 overrides:
-  # RPM packages for Fedora / RHEL / AlmaLinux / Rocky Linux
+  # Fedora 40+ / RHEL
   rpm:
     depends:
       - gtk4
       - webkitgtk6.0
 
-  # Arch Linux packages
-  archlinux:
-    depends:
-      - gtk4
-      - webkitgtk-6.0
-
-# scripts section to ensure desktop database is updated after install
 scripts:
   postinstall: "./build/linux/nfpm/scripts/postinstall.sh"
-  # You can also add preremove, postremove if needed
-  # preremove: "./build/linux/nfpm/scripts/preremove.sh"
-  # postremove: "./build/linux/nfpm/scripts/postremove.sh"
-
-# If you build your app with -tags gtk3 (legacy WebKit2GTK 4.1 stack — supported through v3.0.x, removed in v3.1),
-# replace the depends/overrides above with these:
-#
-# depends:
-#   - libgtk-3-0
-#   - libwebkit2gtk-4.1-0
-# overrides:
-#   rpm:
-#     depends:
-#       - gtk3
-#       - webkit2gtk4.1
-#   archlinux:
-#     depends:
-#       - gtk3
-#       - webkit2gtk-4.1
-#
-# replaces:
-#   - foobar
-# provides:
-#   - bar
-# recommends:
-#   - whatever
-# suggests:
-#   - something-else
-# conflicts:
-#   - not-foo
-#   - not-bar
-# changelog: "changelog.yaml"
+  preremove: "./build/linux/nfpm/scripts/preremove.sh"

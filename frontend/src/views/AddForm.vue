@@ -19,6 +19,8 @@ import { checkItems, formReason, saveReason, thingsToCheck, type CheckItem } fro
 import type { TemplateInfo } from '../lib/draft'
 import { FORM_SECTIONS, fieldLabel, fieldNotes, nameProblem, type FormField } from '../lib/form-fields'
 import { forgetCopy, resetNewConfig, useNewConfig } from '../lib/new-config'
+import ReadOnlyBanner from '../components/ReadOnlyBanner.vue'
+import { readOnlyReason, useFolder } from '../lib/folder'
 
 const n = useNewConfig()
 const { draft } = n
@@ -104,15 +106,18 @@ function focusField(key: string) {
 
 const nameBad = computed(() => nameProblem(draft.state.name) !== null)
 const errorTotal = computed(() => (n.upToDate.value ? n.errorCount.value : 0) + (nameBad.value && !notes.value.name ? 1 : 0))
+const folder = useFolder()
+const readOnly = computed(() => readOnlyReason(folder.value))
 const bar = computed<{ tone: 'ok' | 'bad' | 'warn' | 'idle'; status: string }>(() => {
   if (n.busy.value) return { tone: 'idle', status: 'Saving…' }
+  if (readOnly.value && !n.created.value) return { tone: 'bad', status: `${readOnly.value}.` }
   if (n.created.value) return n.created.value.res.Errors?.length ? { tone: 'warn', status: 'Saved, with problems.' } : { tone: 'ok', status: 'Saved and applied.' }
   if (nameBad.value) return { tone: 'bad', status: 'Give the program a name to save.' }
   if (!n.upToDate.value) return { tone: 'idle', status: 'Checking…' }
   if (n.hasErrors.value) return { tone: 'bad', status: `${formReason(items.value) || saveReason(n.explained.value) || 'Fix the errors in the form to save'}.` }
   return { tone: 'ok', status: 'Ready to save.' }
 })
-const cantSave = computed(() => n.busy.value || nameBad.value || n.hasErrors.value)
+const cantSave = computed(() => !!readOnly.value || n.busy.value || nameBad.value || n.hasErrors.value)
 
 const ICON = { error: 'M18 6 6 18M6 6l12 12', warning: 'M12 3 2 20h20L12 3zM12 10v4M12 17v.01', ok: 'm5 12 5 5 9-10' }
 const iconOf = (level: string) => ICON[level as keyof typeof ICON] ?? ''
@@ -121,6 +126,7 @@ const iconOf = (level: string) => ICON[level as keyof typeof ICON] ?? ''
 <template>
   <div class="page">
     <AddHeader mode="form" />
+    <ReadOnlyBanner />
     <p v-if="n.loadError.value" class="alert" role="alert">
       Couldn’t get ready. {{ n.loadError.value }}
       <button type="button" class="btn" @click="n.retry">Try again</button>

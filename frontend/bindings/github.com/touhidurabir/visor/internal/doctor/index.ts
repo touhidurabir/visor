@@ -6,5 +6,8 @@ export {
 } from "./models.js";
 
 export type {
-    Step
+    FixStep,
+    RootFix,
+    Step,
+    Warning
 } from "./models.js";

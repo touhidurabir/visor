@@ -5,18 +5,27 @@ import { getCurrentScope, onScopeDispose, ref } from 'vue'
 import { LoginItemService, type LoginItemView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { VisorLoginItem } from '../../bindings/events'
 import { describeError } from './faults'
+import { isMac, trayName } from './platform'
 
-const hints: Record<string, string> = {
-  enabled: 'Visor opens in the menu bar when you log in.',
-  disabled: 'Open Visor in the menu bar when you log in.',
-  requires_approval: 'macOS needs your OK: turn Visor on in System Settings → General → Login Items.',
-  not_moved: 'Move Visor to Applications first. It’s running from the disk image or Downloads, which macOS doesn’t keep.',
-  unsupported: 'Works in the installed Visor.app, not in this build.',
+function hints(): Record<string, string> {
+  const where = trayName()
+  return {
+    enabled: `Visor opens in the ${where} when you log in.`,
+    disabled: `Open Visor in the ${where} when you log in.`,
+    requires_approval: 'macOS needs your OK: turn Visor on in System Settings → General → Login Items.',
+    not_moved: isMac()
+      ? 'Move Visor to Applications first. It’s running from the disk image or Downloads, which macOS doesn’t keep.'
+      : 'Move the AppImage out of /tmp first (to ~/Applications, say): /tmp is emptied when the computer restarts.',
+    unsupported: isMac()
+      ? 'Works in the installed Visor.app, not in this build.'
+      : 'Works in the installed Visor (the package or the AppImage), not in this build.',
+  }
 }
 
 /** The line under the switch. */
 export function loginHint(status: string): string {
-  return hints[status] ?? hints.disabled
+  const h = hints()
+  return h[status] ?? h.disabled
 }
 
 /** Whether the switch can't be used until something else changes. */

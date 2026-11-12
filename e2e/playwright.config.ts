@@ -24,6 +24,9 @@ export default defineConfig({
     // serve.sh's trap removes the sandbox; give it time to do so.
     gracefulShutdown: { signal: 'SIGTERM', timeout: 10_000 },
     timeout: 60_000,
+    // The shared Visor words things as on Linux (Ctrl, keyring, file
+    // manager); platform.spec.ts starts a macOS one beside it.
+    env: { VISOR_PLATFORM: 'linux' },
     stdout: 'ignore',
     stderr: 'pipe',
   },

@@ -11,10 +11,11 @@ import { useRouter } from 'vue-router'
 import { DoctorService, SettingsService, type DoctorView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import Lens from '../components/Lens.vue'
 import { copyText } from '../lib/clipboard'
-import { chownCommand, installCommands, lensText, mkdirCommand, rootFixes, situationCopy, startCommand, startTips, stepLook } from '../lib/doctor'
+import { chownCommand, installCommandsFor, lensText, mkdirCommand, rootFixes, situationCopy, startCommand, startTipsFor, stepLook } from '../lib/doctor'
 import { describeError } from '../lib/faults'
 import { loginLocked, useLaunchAtLogin } from '../lib/login-item'
 import { showToast } from '../lib/toast'
+import { isMac, trayName } from '../lib/platform'
 
 const props = defineProps<{ firstRun?: boolean }>()
 const emit = defineEmits<{
@@ -46,7 +47,11 @@ const finishing = ref(false)
 const copied = ref('')
 
 const situation = computed(() => view.value?.Situation ?? 'ready')
-const words = computed(() => situationCopy(situation.value))
+const words = computed(() => situationCopy(situation.value, isMac()))
+// Linux: the distro's commands, the group fix, and warnings (nil on macOS).
+const linux = computed(() => view.value?.Linux ?? null)
+const installCommands = computed(() => installCommandsFor(view.value))
+const terminal = computed(() => (isMac() ? 'Terminal' : 'a terminal'))
 const lens = computed(() => lensText(view.value ?? { Steps: [] }))
 const steps = computed(() => view.value?.Steps ?? [])
 const segments = computed(() => steps.value.map((s) => s.Status))
@@ -54,16 +59,15 @@ const notMoved = computed(() => !!view.value && !view.value.Moved)
 const loginLockedNow = computed(() => notMoved.value || loginLocked(login.view.value?.Status ?? ''))
 const loginLabel = computed(() => {
   if (notMoved.value) return 'Open Visor when I log in (after you move it)'
-  if (login.view.value?.Status === 'unsupported') return 'Open Visor when I log in (in the installed Visor.app)'
+  if (login.view.value?.Status === 'unsupported') return isMac() ? 'Open Visor when I log in (in the installed Visor.app)' : 'Open Visor when I log in (in the installed Visor)'
   return 'Open Visor when I log in'
 })
 const fixes = computed(() => rootFixes(view.value?.User ?? ''))
 // The folder fix: create it when it's missing, else make it yours.
 const folderFix = computed(() => {
   const dir = view.value?.IncludeDir ?? ''
-  return view.value?.IncludeMissing
-    ? { label: 'Create the folder your programs go in', command: mkdirCommand(dir) }
-    : { label: 'To add and edit configs, make the folder yours', command: chownCommand(dir) }
+  if (view.value?.IncludeMissing) return { label: 'Create the folder your programs go in', command: mkdirCommand(dir) }
+  return { label: 'To add and edit configs, make the folder yours', command: chownCommand(dir) }
 })
 const showChooser = computed(() => situation.value === 'noconf' || (situation.value === 'nosup' && chooserOpen.value))
 
@@ -116,8 +120,15 @@ async function useConfig() {
   }
 }
 
-// The command to copy when Visor doesn't start it: this config's, else Homebrew's.
-const manualStart = computed(() => view.value?.StartCommand || startCommand)
+// The command to copy when Visor doesn't start it: this config's, else
+// Homebrew's on macOS, the system service's or supervisord -c on Linux.
+const manualStart = computed(() => {
+  if (view.value?.StartCommand) return view.value.StartCommand
+  const l = linux.value
+  if (!l) return startCommand
+  return l.SystemService ? `sudo systemctl enable --now ${l.Service}` : `supervisord -c ${view.value?.ConfigPath || '/path/to/supervisord.conf'}`
+})
+const tips = computed(() => startTipsFor(isMac()))
 const starting = ref(false)
 async function startSupervisord() {
   starting.value = true
@@ -167,7 +178,8 @@ function openSettings() {
   <div :class="['doctor', { embedded: !firstRun }]">
     <!-- First launch fills the window: a title bar strip under the traffic
          lights (hidden-inset title bar), so it reads as the app, not a page. -->
-    <div v-if="firstRun" class="titlebar"><span>Visor</span></div>
+    <!-- The macOS window has no title bar of its own (hidden inset); Linux's does. -->
+    <div v-if="firstRun && isMac()" class="titlebar"><span>Visor</span></div>
 
     <div class="body">
       <div v-if="loadError && !view" class="load-error" role="alert">
@@ -182,7 +194,19 @@ function openSettings() {
         </div>
 
         <div class="text-col" :aria-busy="checking">
-          <div v-if="notMoved" class="moved" role="status">
+          <div v-for="w in linux?.Warnings ?? []" :key="w.ID" class="moved" role="status" :data-testid="`warning-${w.ID}`">
+            <span class="bang" aria-hidden="true">!</span>
+            <div>
+              <strong>{{ w.Title }}</strong>
+              <span>{{ w.Detail }}</span>
+              <div v-if="w.Command" class="cmd">
+                <code>{{ w.Command }}</code>
+                <button type="button" class="btn copy" @click="copy(w.Command)">{{ copied === w.Command ? 'Copied' : 'Copy' }}</button>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="notMoved && isMac()" class="moved" role="status">
             <span class="bang" aria-hidden="true">!</span>
             <div>
               <strong>Move Visor to Applications first</strong>
@@ -223,13 +247,13 @@ function openSettings() {
               </div>
               <div class="actions">
                 <button type="button" class="btn primary lg" :disabled="finishing" @click="openDashboard(true)">Open dashboard</button>
-                <span class="meta">Visor also lives in your menu bar.</span>
+                <span class="meta">Visor also lives in your {{ trayName() }}.</span>
               </div>
             </template>
 
             <!-- Not installed -->
             <template v-if="situation === 'nosup'">
-              <h2 class="sec">Run these in Terminal, then check again</h2>
+              <h2 class="sec">Run {{ installCommands.length === 1 ? 'this' : 'these' }} in {{ terminal }}, then check again</h2>
               <div v-for="c in installCommands" :key="c" class="cmd">
                 <code>{{ c }}</code>
                 <button type="button" class="btn copy" @click="copy(c)">{{ copied === c ? 'Copied' : 'Copy' }}</button>
@@ -275,7 +299,7 @@ function openSettings() {
 
             <!-- Not running -->
             <template v-if="situation === 'down'">
-              <h2 class="sec">Start it as your user</h2>
+              <h2 class="sec">{{ linux?.SystemService ? 'Start the system service' : 'Start it as your user' }}</h2>
               <template v-if="view.CanStart">
                 <span class="meta">Visor runs <code class="inline">{{ view.StartCommand }}</code> as you. It never uses sudo.</span>
                 <div class="actions">
@@ -287,9 +311,13 @@ function openSettings() {
                 </div>
               </template>
               <template v-else>
-                <p v-if="view.Foreground" class="meta note">
+                <p v-if="linux?.SystemService" class="meta note">
+                  This is the system’s supervisord (its config is under <code class="inline">/etc</code>), so systemd runs it as root and starting it
+                  needs sudo. Run this in a terminal; <code class="inline">enable --now</code> also starts it at every boot:
+                </p>
+                <p v-else-if="view.Foreground" class="meta note">
                   This config keeps supervisord in the foreground (<code class="inline">nodaemon=true</code>), the way launchd runs it, so Visor
-                  doesn’t start it. Start it the way you set it up, or run this in Terminal:
+                  doesn’t start it. Start it the way you set it up, or run this in {{ terminal }}:
                 </p>
                 <div class="cmd">
                   <code>{{ manualStart }}</code>
@@ -297,7 +325,7 @@ function openSettings() {
                 </div>
                 <div class="actions">
                   <button type="button" class="btn primary lg" :disabled="checking" @click="run">{{ checking ? 'Checking…' : 'Check again' }}</button>
-                  <button type="button" class="link" :aria-expanded="rootHelpOpen" @click="rootHelpOpen = !rootHelpOpen">supervisord runs as root?</button>
+                  <button v-if="!linux" type="button" class="link" :aria-expanded="rootHelpOpen" @click="rootHelpOpen = !rootHelpOpen">supervisord runs as root?</button>
                 </div>
               </template>
 
@@ -311,13 +339,31 @@ function openSettings() {
                   <pre class="out">{{ view.StartFailure.Log }}</pre>
                 </template>
                 <ul class="tips">
-                  <li v-for="t in startTips" :key="t">{{ t }}</li>
+                  <li v-for="t in tips" :key="t">{{ t }}</li>
                 </ul>
               </div>
             </template>
 
+            <!-- Linux: a root socket opens to a group, step by step. -->
+            <div v-if="situation === 'denied' && linux?.RootFix" class="part" data-testid="group-fix">
+              <h2 class="sec">{{ linux.RootFix.Variant === 'relogin' ? 'Log in again' : `Let the ${linux.RootFix.Group} group in` }}</h2>
+              <ol class="fix-steps">
+                <li v-for="(st, i) in linux.RootFix.Steps" :key="i">
+                  <p>{{ st.Text }}</p>
+                  <div v-if="st.Command" class="cmd">
+                    <code class="pre">{{ st.Command }}</code>
+                    <button type="button" class="btn copy" @click="copy(st.Command)">{{ copied === st.Command ? 'Copied' : 'Copy' }}</button>
+                  </div>
+                </li>
+              </ol>
+              <span class="meta">Visor never runs sudo or changes these files for you.</span>
+              <div class="actions">
+                <button type="button" class="btn primary lg" :disabled="checking" @click="run">{{ checking ? 'Checking…' : 'Check again' }}</button>
+              </div>
+            </div>
+
             <!-- Root-only socket (and "supervisord runs as root?") -->
-            <div v-if="situation === 'denied' || (situation === 'down' && rootHelpOpen)" :class="['part', { split: situation === 'down' }]">
+            <div v-else-if="situation === 'denied' || (situation === 'down' && rootHelpOpen)" :class="['part', { split: situation === 'down' }]">
               <component :is="situation === 'denied' ? 'h2' : 'h3'" class="sec">Pick one, then check again</component>
               <details v-for="(f, i) in fixes" :key="f.title" class="option" :open="i === 0">
                 <summary>{{ f.title }}</summary>
@@ -341,7 +387,20 @@ function openSettings() {
 
             <!-- Can't edit configs -->
             <template v-if="situation === 'notwritable'">
-              <template v-if="folderFix.command">
+              <!-- Linux: a group you're in writes the folder root owns, step by step. -->
+              <template v-if="linux?.WritableFix?.length">
+                <h2 class="sec">To add and edit configs, let a group you’re in write the folder</h2>
+                <ol class="fix-steps" data-testid="folder-fix">
+                  <li v-for="(st, i) in linux.WritableFix" :key="i">
+                    <p>{{ st.Text }}</p>
+                    <div v-if="st.Command" class="cmd">
+                      <code class="pre">{{ st.Command }}</code>
+                      <button type="button" class="btn copy" @click="copy(st.Command)">{{ copied === st.Command ? 'Copied' : 'Copy' }}</button>
+                    </div>
+                  </li>
+                </ol>
+              </template>
+              <template v-else-if="folderFix.command">
                 <h2 class="sec">{{ folderFix.label }}</h2>
                 <div class="cmd">
                   <code>{{ folderFix.command }}</code>
@@ -375,6 +434,8 @@ function openSettings() {
   background: var(--side);
   color: var(--ink);
 }
+.fix-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; }
+.fix-steps p { margin: 0 0 6px; }
 .titlebar {
   flex: none;
   height: 44px;

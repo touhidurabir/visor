@@ -1,6 +1,7 @@
 package app
 
 import (
+	"runtime"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -49,6 +50,7 @@ type Shell struct {
 	unread     int                   // unread notifications, shown beside the icon
 	countOff   bool                  // Settings: no count beside the icon
 	drawnLabel string                // what drawUnread last put beside the icon
+	drawnBadge int                   // Linux: the count last drawn into the icon (-1: none yet)
 	notifItem  *application.MenuItem // the tray menu's "Notifications (N)"
 
 	login     platform.LoginItem    // nil: the tray's "Launch at login" stays disabled
@@ -56,10 +58,42 @@ type Shell struct {
 	trayMenu  *application.Menu
 
 	quitting atomic.Bool
+	quiet    bool // started by the login item: no window or Dock icon until opened
+}
+
+// MainWidth and MainHeight are the main window's size when it opens.
+const (
+	MainWidth  = 1000
+	MainHeight = 640
+)
+
+// StartInTray makes the app start in the menu bar or tray only (a launch
+// by the login item): the main window starts hidden (main.go) and Setup
+// hides the Dock icon once the app runs. Call it before Setup. It also
+// keeps the window from being mapped while the desktop session is still
+// starting: on X11 GNOME then left it 1×1 (GTK still thought it full size).
+func (s *Shell) StartInTray() {
+	s.mu.Lock()
+	s.quiet = true
+	s.mu.Unlock()
 }
 
 // NewShell returns a Shell that tracks health until Setup.
-func NewShell() *Shell { return &Shell{} }
+func NewShell() *Shell { return &Shell{drawnBadge: -1} }
+
+// linuxTray: Linux panels show a coloured icon with the count drawn in it,
+// and most of them never send a click to Visor (GNOME's opens the menu).
+// Set from the OS Visor runs on, never from VISOR_PLATFORM.
+var linuxTray = runtime.GOOS != "darwin"
+
+// badgeCount is the count drawn into the Linux tray icon: the unread
+// notifications, unless Settings turned the count off.
+func badgeCount(unread int, countOff bool) int {
+	if countOff || unread < 0 {
+		return 0
+	}
+	return unread
+}
 
 // UseLoginItem gives the tray menu's "Launch at login" its switch. Call it
 // before Setup.
@@ -76,8 +110,17 @@ func (s *Shell) ShowLoginStatus(st platform.LoginItemStatus) {
 	}
 	item.SetChecked(loginView(st).On)
 	item.SetEnabled(st != platform.LoginUnsupported)
-	if menu != nil {
-		menu.Update()
+	updateTrayMenu(menu)
+}
+
+// updateTrayMenu redraws the tray menu after one of its items changed, on
+// macOS. On Linux the item setters already reach the D-Bus menu the panel
+// shows, and Menu.Update would rebuild it as a GTK menu, cutting the items
+// off from the tray: later labels and check marks would never show (the
+// spike's "bell 4, Notifications (2)").
+func updateTrayMenu(m *application.Menu) {
+	if m != nil && runtime.GOOS == "darwin" {
+		m.Update()
 	}
 }
 
@@ -175,8 +218,11 @@ func (s *Shell) drawUnread() {
 	tray, item, menu := s.tray, s.notifItem, s.trayMenu
 	s.drawnLabel = icon
 	s.mu.Unlock()
-	if tray != nil {
+	if tray != nil && !linuxTray {
 		tray.SetLabel(icon)
+	}
+	if linuxTray {
+		s.drawIcon() // the count is drawn in the icon
 	}
 	if item != nil {
 		text := "Notifications"
@@ -184,9 +230,7 @@ func (s *Shell) drawUnread() {
 			text += " (" + label + ")"
 		}
 		item.SetLabel(text)
-		if menu != nil {
-			menu.Update()
-		}
+		updateTrayMenu(menu)
 	}
 }
 
@@ -198,16 +242,22 @@ func (s *Shell) Setup(a *application.App, main *application.WebviewWindow, d *do
 		return
 	}
 	popover := a.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:            "tray",
-		Title:           "Visor",
-		Width:           popoverWidth,
-		Height:          popoverHeight,
-		Frameless:       true,
-		AlwaysOnTop:     true,
-		Hidden:          true,
-		DisableResize:   true,
-		HideOnEscape:    true,
-		HideOnFocusLost: true,
+		Name:          "tray",
+		Title:         "Visor",
+		Width:         popoverWidth,
+		Height:        popoverHeight,
+		Frameless:     true,
+		AlwaysOnTop:   true,
+		Hidden:        true,
+		DisableResize: true,
+		HideOnEscape:  true,
+		// Taken natively and ignored (no drop target): a file dropped on the
+		// popover never replaces its page.
+		EnableFileDrop: true,
+		// On Wayland the popover never gets focus, so it would close as it
+		// opens: on Linux it closes on Esc, its close button, or Show
+		// status… again.
+		HideOnFocusLost: !linuxTray,
 		URL:             "/" + routeTray,
 		// A non-activating floating panel that joins every Space and may sit
 		// over full-screen apps, so the popover opens where the menu bar is.
@@ -220,6 +270,13 @@ func (s *Shell) Setup(a *application.App, main *application.WebviewWindow, d *do
 	})
 
 	menu := a.NewMenu()
+	if linuxTray {
+		// GNOME (and other panels) open this menu on a left click and never
+		// tell Visor, so the popover has its own item. KDE's left click
+		// still reaches the attached popover.
+		menu.Add("Show status…").OnClick(func(*application.Context) { s.togglePopover() })
+		menu.AddSeparator()
+	}
 	menu.Add("Open Visor").OnClick(func(*application.Context) { s.ShowMain("") })
 	menu.Add("Preferences…").OnClick(func(*application.Context) { s.ShowMain(RouteSettings) })
 	notifItem := menu.Add("Notifications").OnClick(func(*application.Context) {
@@ -248,7 +305,18 @@ func (s *Shell) Setup(a *application.App, main *application.WebviewWindow, d *do
 	tray := a.SystemTray.New()
 	tray.SetTooltip("Visor")
 	h, _ := s.icon.take()
-	tray.SetTemplateIcon(trayicon.Template(h)) // before Run: no race with the tray starting
+	if linuxTray {
+		// Wails' Linux tray takes its tooltip from the label it starts
+		// with (SetTooltip does nothing there), and GNOME draws no label.
+		tray.SetLabel("Visor")
+		s.mu.Lock()
+		s.drawnBadge = badgeCount(s.unread, s.countOff)
+		badge := s.drawnBadge
+		s.mu.Unlock()
+		tray.SetIcon(trayicon.Coloured(h, badge))
+	} else {
+		tray.SetTemplateIcon(trayicon.Template(h)) // before Run: no race with the tray starting
+	}
 	tray.SetMenu(menu)
 	tray.AttachWindow(popover).WindowOffset(popoverOffset)
 
@@ -287,6 +355,12 @@ func (s *Shell) Setup(a *application.App, main *application.WebviewWindow, d *do
 
 	a.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		s.appStarted(application.InvokeAsync)
+		s.mu.Lock()
+		quiet := s.quiet
+		s.mu.Unlock()
+		if quiet && d != nil {
+			application.InvokeAsync(d.HideAppIcon)
+		}
 	})
 }
 
@@ -312,8 +386,34 @@ func (s *Shell) drawIcon() {
 	if tray == nil {
 		return
 	}
-	if h, redraw := s.icon.take(); redraw {
-		tray.SetTemplateIcon(trayicon.Template(h))
+	h, redraw := s.icon.take()
+	if !linuxTray {
+		if redraw {
+			tray.SetTemplateIcon(trayicon.Template(h))
+		}
+		return
+	}
+	s.mu.Lock()
+	badge := badgeCount(s.unread, s.countOff)
+	if badge != s.drawnBadge {
+		redraw = true
+	}
+	s.drawnBadge = badge
+	s.mu.Unlock()
+	if redraw {
+		tray.SetIcon(trayicon.Coloured(h, badge))
+	}
+}
+
+// togglePopover shows the popover (where the panel lets Wails place it:
+// beside the pointer on X11, where the compositor likes on Wayland), or
+// hides it when it is showing.
+func (s *Shell) togglePopover() {
+	s.mu.Lock()
+	tray := s.tray
+	s.mu.Unlock()
+	if tray != nil {
+		tray.ToggleWindow()
 	}
 }
 

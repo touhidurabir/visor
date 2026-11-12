@@ -1,4 +1,4 @@
-//go:build !darwin || server
+//go:build (!darwin && !linux) || server
 
 package app
 
@@ -9,7 +9,8 @@ import (
 )
 
 // noNotifier is the notification centre of builds without one: the server
-// build (UI tests) and other platforms. It shows nothing.
+// build (UI tests) and platforms other than macOS and Linux. It shows
+// nothing.
 type noNotifier struct{}
 
 func newNativeNotifier() nativeNotifier { return noNotifier{} }

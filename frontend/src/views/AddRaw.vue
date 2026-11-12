@@ -18,6 +18,8 @@ import { addLines, applyEdit, errorsOnLines, explainMarks, fixToSave } from '../
 import { openLog, openPath, reveal } from '../lib/finder'
 import { saveReason } from '../lib/fix-list'
 import { resetNewConfig, useNewConfig } from '../lib/new-config'
+import ReadOnlyBanner from '../components/ReadOnlyBanner.vue'
+import { readOnlyReason, useFolder } from '../lib/folder'
 
 const n = useNewConfig()
 const { draft } = n
@@ -31,15 +33,18 @@ const marks = computed(() => mergeMarks(n.upToDate.value ? explainMarks(view.val
 const blocking = computed(() => (n.upToDate.value ? (view.value?.SaveErrors ?? n.errorCount.value) : 0))
 const reason = computed(() => saveReason(view.value) || fixToSave(blocking.value || n.errorCount.value, errorsOnLines(view.value)))
 
+const folder = useFolder()
+const readOnly = computed(() => readOnlyReason(folder.value))
 const bar = computed<{ tone: 'ok' | 'bad' | 'warn' | 'idle'; status: string }>(() => {
   if (n.busy.value) return { tone: 'idle', status: 'Saving…' }
+  if (readOnly.value && !n.created.value) return { tone: 'bad', status: `${readOnly.value}.` }
   if (n.created.value) return n.created.value.res.Errors?.length ? { tone: 'warn', status: 'Saved, with problems.' } : { tone: 'ok', status: 'Saved and applied.' }
   if (!draft.state.fileName.trim()) return { tone: 'bad', status: 'Give the file a name to save.' }
   if (!n.upToDate.value) return { tone: 'idle', status: 'Checking…' }
   if (n.hasErrors.value) return { tone: 'bad', status: `${reason.value}.` }
   return { tone: 'ok', status: 'Ready to save.' }
 })
-const cantSave = computed(() => n.busy.value || !draft.state.fileName.trim() || n.hasErrors.value)
+const cantSave = computed(() => !!readOnly.value || n.busy.value || !draft.state.fileName.trim() || n.hasErrors.value)
 
 // A doubt about the file name (line 0) points at the name field.
 function goto(line: number) {
@@ -67,6 +72,7 @@ watch(
 <template>
   <div class="page">
     <AddHeader mode="raw" />
+    <ReadOnlyBanner />
     <p v-if="n.loadError.value" class="alert" role="alert">
       Couldn’t get ready. {{ n.loadError.value }}
       <button type="button" class="btn" @click="n.retry">Try again</button>

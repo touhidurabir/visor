@@ -476,8 +476,8 @@ func TestKeychainErrorIsAConnectionError(t *testing.T) {
 	start.ConfigPath, start.Username = deadConf(t), "me"
 	rt, _ := newRuntimeWith(t, RuntimeOptions{Settings: start, Keychain: settings.SystemKeychain{}})
 	ov := rt.Overview()
-	if ov.Server.Health != "error" || !strings.Contains(ov.Server.Error, "Keychain") {
-		t.Errorf("server = %+v, want a Keychain error", ov.Server)
+	if store := secretStoreWord(); ov.Server.Health != "error" || !strings.Contains(ov.Server.Error, store) {
+		t.Errorf("server = %+v, want a %s error", ov.Server, store)
 	}
 }
 
@@ -771,8 +771,8 @@ func TestSettingsWrittenBeforeKeychain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveConnection = %v; the settings were saved, so want a warning, not an error", err)
 	}
-	if !strings.Contains(v.Warning, "Keychain") {
-		t.Errorf("warning = %q, want it to name the Keychain", v.Warning)
+	if store := secretStoreWord(); !strings.Contains(v.Warning, store) {
+		t.Errorf("warning = %q, want it to name the %s", v.Warning, store)
 	}
 	if got, _ := settings.Load(stateDir); got.ConfigPath != conf || got.Username != "me" {
 		t.Errorf("settings.json = %+v, want the connection saved", got)

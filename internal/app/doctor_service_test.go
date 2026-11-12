@@ -167,7 +167,7 @@ func TestDoctorSaysWhenTheKeychainRefuses(t *testing.T) {
 	d.find = func() (string, string, error) { return "/opt/homebrew/bin/supervisord", "4.2.5", nil }
 	d.brewAt = func(string) string { return "" }
 	v := d.Run()
-	if v.Situation != string(doctor.Auth) || !strings.Contains(v.Steps[2].Detail, "Keychain") {
+	if v.Situation != string(doctor.Auth) || !strings.Contains(v.Steps[2].Detail, secretStoreWord()) {
 		t.Fatalf("situation %s, detail %q", v.Situation, v.Steps[2].Detail)
 	}
 }

@@ -74,6 +74,13 @@ export interface ConfigView {
     "Watched": boolean;
     "Summary": string;
     "Processes": ProcessView[] | null;
+
+    /**
+     * NotLoaded are the file's programs supervisord doesn't know yet (the
+     * file was added or extended outside Visor and nobody ran update):
+     * Load adds them. Empty while supervisord can't be reached.
+     */
+    "NotLoaded": NotLoadedView[] | null;
 }
 
 /**
@@ -162,6 +169,21 @@ export interface DoctorView {
      * StartFailure says why the last Start supervisord didn't work.
      */
     "StartFailure": StartFailure | null;
+
+    /**
+     * Linux is the Linux advice (nil on macOS).
+     */
+    "Linux": LinuxAdvice | null;
+}
+
+/**
+ * DroppedFileView is one dropped file: its name and text, or why it can't
+ * be used (Error).
+ */
+export interface DroppedFileView {
+    "Name": string;
+    "Content": string;
+    "Error": string;
 }
 
 /**
@@ -246,6 +268,43 @@ export interface FileView {
     "Content": string;
     "Hash": string;
     "Writable": boolean;
+}
+
+/**
+ * FolderView says whether Visor may add, remove and restore configs: the
+ * folder new configs go in, whether this user can write it (or it is
+ * missing), and who owns it ("root").
+ */
+export interface FolderView {
+    "Dir": string;
+    "Writable": boolean;
+    "Missing": boolean;
+    "Owner": string;
+}
+
+/**
+ * ImportItem is one config file brought in from elsewhere (a repo, a file
+ * an assistant wrote): the name it gets in the include folder, and its text.
+ */
+export interface ImportItem {
+    "FileName": string;
+    "Content": string;
+}
+
+/**
+ * ImportResultView is what happened to one imported file: Written when it
+ * is in the include folder now (also when applying it then failed: Error
+ * says so), Result what supervisord did, and whether its programs were
+ * started afterwards (StartError says why not).
+ */
+export interface ImportResultView {
+    "FileName": string;
+    "Path": string;
+    "Written": boolean;
+    "Result": ApplyResultView;
+    "Error": string;
+    "Started": boolean;
+    "StartError": string;
 }
 
 /**
@@ -337,6 +396,51 @@ export interface LinePathView {
     "Size": number;
     "Process": string;
     "Stream": string;
+}
+
+/**
+ * LinuxAdvice is what Doctor shows on Linux beside the checks: the commands
+ * for this distro, the fix for a socket root keeps, and warnings. Doctor
+ * shows the commands; it never runs them. Nil on macOS.
+ */
+export interface LinuxAdvice {
+    /**
+     * os-release NAME ("Ubuntu"), "" when unknown
+     */
+    "Distro": string;
+
+    /**
+     * platform.Family
+     */
+    "Family": string;
+
+    /**
+     * installs supervisord
+     */
+    "Install": string;
+
+    /**
+     * its systemd unit
+     */
+    "Service": string;
+
+    /**
+     * SystemService: the config is the system's (under /etc), so systemd
+     * runs supervisord and StartCommand is a systemctl one to copy.
+     */
+    "SystemService": boolean;
+
+    /**
+     * RootFix is the group fix when the socket isn't open to this user.
+     */
+    "RootFix": doctor$0.RootFix | null;
+
+    /**
+     * WritableFix lets a group you're in write a config folder root owns
+     * (when it isn't writable), joining the group first when needed.
+     */
+    "WritableFix": doctor$0.FixStep[] | null;
+    "Warnings": doctor$0.Warning[] | null;
 }
 
 /**
@@ -432,6 +536,15 @@ export interface MainLogResult {
      * pass as After to read only newer lines
      */
     "Cursor": string;
+}
+
+/**
+ * NotLoadedView is a program in a config file that supervisord hasn't
+ * loaded, with the group it would be added as.
+ */
+export interface NotLoadedView {
+    "Program": string;
+    "Group": string;
 }
 
 /**
@@ -610,10 +723,16 @@ export interface SettingsView {
     "Socket": string;
 
     /**
-     * HasPassword says a password is saved in the Keychain for the saved
-     * username and this config.
+     * HasPassword says a password is saved in the Keychain (or keyring)
+     * for the saved username and this config.
      */
     "HasPassword": boolean;
+
+    /**
+     * PasswordThisSession says that password is kept only until Visor
+     * quits: no keyring was running when it was saved (Linux).
+     */
+    "PasswordThisSession": boolean;
 
     /**
      * LoadError is set when settings.json could not be read at launch, so

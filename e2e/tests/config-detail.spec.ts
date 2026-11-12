@@ -1,6 +1,6 @@
 import { unlinkSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { SANDBOX, openApp, waitForDashboard } from './helpers'
+import { SANDBOX, openApp, waitForDashboard, words } from './helpers'
 
 const configPage = (file: string, query = '') => `/config/${encodeURIComponent(`${SANDBOX}/conf.d/${file}`)}${query}`
 
@@ -32,7 +32,7 @@ test.describe('config detail', () => {
     await expect(row).toContainText('missing')
     await expect(row).toContainText('Error.')
     await expect(row).toContainText('How to fix:')
-    await expect(row.getByRole('button', { name: 'Reveal in Finder' })).toBeDisabled()
+    await expect(row.getByRole('button', { name: words.reveal })).toBeDisabled()
 
     // The last error card points at that line.
     const card = page.getByRole('region', { name: /Last error/ })

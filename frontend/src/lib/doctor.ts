@@ -15,9 +15,17 @@ const copy: Record<Situation, [headline: string, lede: string]> = {
   notwritable: ['Visor can watch, but not edit', 'supervisord is running and Visor can control it. The folder your programs live in isn’t writable for you, so adding and editing configs is off.'],
 }
 
+// Where Linux says it differently: no Mac, no Homebrew, and a root socket
+// that comes from the system service, not from sudo.
+const linuxCopy: Partial<Record<Situation, [headline: string, lede: string]>> = {
+  ready: ['Your computer is ready', copy.ready[1]],
+  nosup: ['supervisord isn’t installed yet', 'Visor manages supervisord, so it needs to be on this computer first. Your package manager installs it in about a minute.'],
+  denied: ['supervisord won’t let Visor in', 'supervisord runs as a system service, and its socket belongs to root, so your user can’t connect to it. Letting a group use the socket fixes it.'],
+}
+
 /** The headline and lede for a situation; anything unknown reads as ready. */
-export function situationCopy(s: string): { headline: string; lede: string } {
-  const [headline, lede] = copy[s as Situation] ?? copy.ready
+export function situationCopy(s: string, mac = true): { headline: string; lede: string } {
+  const [headline, lede] = (!mac && linuxCopy[s as Situation]) || copy[s as Situation] || copy.ready
   return { headline, lede }
 }
 
@@ -45,6 +53,14 @@ export function stepLook(status: string): { glyph: string; word: string; tone: '
 }
 
 export const installCommands = ['brew install supervisor', 'brew services start supervisor']
+
+/** The commands that install and start supervisord: Homebrew's on macOS, the distro's on Linux. */
+export function installCommandsFor(v: Pick<DoctorView, 'Linux'> | null): string[] {
+  const l = v?.Linux
+  if (!l) return installCommands
+  if (!l.Install.startsWith('sudo ')) return [l.Install]
+  return [l.Install, `sudo systemctl enable --now ${l.Service}`]
+}
 export const startCommand = 'brew services start supervisor'
 
 /** What usually stops supervisord from starting, shown under its output. */
@@ -54,6 +70,15 @@ export const startTips = [
   'A socket or pid file left from a crash: if nothing is running, delete the file the log names and start again.',
   'It was started with sudo before: see “supervisord runs as root?” below.',
 ]
+
+/** startTips for this OS: on Linux the last one is about the system service. */
+export function startTipsFor(mac: boolean): string[] {
+  if (mac) return startTips
+  return [
+    ...startTips.slice(0, 3),
+    'The system’s supervisord (sudo systemctl status supervisor or supervisord) already uses that socket: stop it, or point Visor at its config.',
+  ]
+}
 
 /** The command that gives this user the config folder ("" when it isn't known). */
 export function chownCommand(dir: string): string {

@@ -37,6 +37,10 @@ export function ApplyChanges(groups: string[] | null): $CancellablePromise<$mode
  * CheckForChanges asks supervisord to re-read its config files (reread)
  * and reports which groups were added, changed or removed. Nothing is
  * applied.
+ * 
+ * When supervisord sees no difference, it runs every file as it is on disk,
+ * so their "changed" badges clear: a file added and applied outside Visor
+ * (supervisorctl update) no longer reads as changed.
  */
 export function CheckForChanges(): $CancellablePromise<supervisor$0.ConfigDiff> {
     return $Call.ByID(533000326);

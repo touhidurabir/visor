@@ -6,18 +6,20 @@ import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import AppMark from './AppMark.vue'
 import NotificationBell from './NotificationBell.vue'
+import { isMac } from '../lib/platform'
+import { shortcutAria, shortcutHint } from '../lib/shortcuts'
 
 // `connection` is the badge for a connection problem ("Not running", "Not
 // answering", "Not connected"; lib/connection.ts connectionBadge), null
 // while connected.
 const props = defineProps<{ name: string; health: string; failing: number; openIssues: number; connection: string | null }>()
 
-// Shortcut hints, as Visor's menu bar shows them (internal/app/appmenu.go).
-// Kept in one place so the platform helper (M6) can take them over.
+// Shortcut hints, as Visor's menu bar shows them on macOS (⌘N, ⌘,) and
+// AppShell carries them out on Linux (Ctrl+N, Ctrl+,).
 const KEYS = {
-  newConfig: { hint: '⌘N', aria: 'Meta+N' },
-  settings: { hint: '⌘,', aria: 'Meta+,' },
-} as const
+  newConfig: { hint: shortcutHint('newConfig'), aria: shortcutAria('newConfig') },
+  settings: { hint: shortcutHint('settings'), aria: shortcutAria('settings') },
+}
 
 // Which item is the current page. A config's detail page belongs under
 // Dashboard, the Issues log under Issues, and the form under Add new.
@@ -25,7 +27,7 @@ const route = useRoute()
 const sections: Record<string, string[]> = {
   dashboard: ['dashboard', 'config'],
   issues: ['issues', 'issues-log'],
-  new: ['new', 'new-form'],
+  new: ['new', 'new-form', 'new-import'],
   doctor: ['doctor'],
   settings: ['settings'],
 }
@@ -38,7 +40,7 @@ const dot = computed(() => {
 </script>
 
 <template>
-  <nav class="sidebar" aria-label="Servers">
+  <nav :class="['sidebar', { mac: isMac() }]" aria-label="Servers">
     <div class="brand">
       <span class="mark" aria-hidden="true"><AppMark /></span>
       <span class="wordmark">Visor</span>
@@ -115,12 +117,14 @@ const dot = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  /* Top clearance for the macOS traffic lights (hidden-inset title bar). */
-  padding: 44px 12px 16px;
+  padding: 16px 12px;
   background: var(--side);
   border-right: 1px solid var(--line);
   color: var(--ink);
 }
+/* Top clearance for the macOS traffic lights (hidden-inset title bar); Linux
+   windows have a title bar of their own. */
+.sidebar.mac { padding-top: 44px; }
 .brand { display: flex; align-items: center; gap: 9px; padding: 0 6px; }
 /* The app icon's mark (ring, glass, pulse) at 22 px. */
 .mark { display: inline-flex; flex: none; --mark-size: 22px; }

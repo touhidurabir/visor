@@ -19,6 +19,8 @@ export const menuIcons: Record<string, string> = {
   describe: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 11v5M12 8v.01',
   reveal: 'M3 6h6l2 2h10v11H3z',
   'open-log': 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6',
+  // An arrow into a tray: supervisord takes the file in.
+  load: 'M12 3v12M7 10l5 5 5-5M4 17v3h16v-3',
   apply: check,
   remove: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM8 12h8',
   check: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-5-5',

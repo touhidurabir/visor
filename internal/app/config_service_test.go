@@ -216,10 +216,12 @@ func TestConfigServiceRestore(t *testing.T) {
 	cs, svc, _, inst := configFixture(t)
 	p := confFile(inst, "worker")
 	v, _ := cs.Read(p)
+	oldPID := pidIn(t, svc, "worker:worker")
 	if _, err := cs.Save(p, strings.Replace(v.Content, "sleep 3600", "sleep 3602", 1), v.Hash); err != nil {
 		t.Fatal(err)
 	}
-	waitRunning(t, svc, "worker:worker")
+	// The re-added worker, not the old one a poll may still show.
+	waitNewPID(t, svc, "worker:worker", oldPID)
 	list, err := cs.Backups(p)
 	if err != nil || len(list) != 1 {
 		t.Fatalf("backups = %+v, %v", list, err)
@@ -508,5 +510,26 @@ func TestCopyDraftMatchesTheIncludePattern(t *testing.T) {
 		if c.Level == validate.Error {
 			t.Errorf("the draft fails a check: %+v", c)
 		}
+	}
+}
+
+func TestFolderViewForTheReadOnlyBanner(t *testing.T) {
+	dir := t.TempDir()
+	root := func(os.FileInfo) string { return "root" }
+	if v := folderView(dir, os.Stat, func(string) bool { return true }, root); !v.Writable || v.Owner != "" || v.Dir != dir {
+		t.Errorf("writable = %+v", v)
+	}
+	if v := folderView(dir, os.Stat, func(string) bool { return false }, root); v.Writable || v.Owner != "root" || v.Missing {
+		t.Errorf("root's folder = %+v", v)
+	}
+	if v := folderView(filepath.Join(dir, "gone"), os.Stat, func(string) bool { return true }, root); v.Writable || !v.Missing {
+		t.Errorf("missing = %+v", v)
+	}
+	if v := folderView("", os.Stat, func(string) bool { return false }, root); !v.Writable {
+		t.Errorf("no include folder = %+v", v)
+	}
+	fi, _ := os.Stat(dir)
+	if ownerName(fi) == "" {
+		t.Error("ownerName of a temp dir is empty")
 	}
 }

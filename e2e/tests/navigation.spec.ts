@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { collectErrors } from './helpers'
+import { collectErrors, words } from './helpers'
 
 test.describe('navigation', () => {
   test('sidebar links reach every page without errors', async ({ page }) => {
@@ -28,7 +28,7 @@ test.describe('navigation', () => {
 
     await nav.getByRole('link', { name: 'Doctor' }).click()
     await expect(page).toHaveURL(/#\/doctor$/)
-    await expect(page.getByRole('heading', { level: 1, name: 'Your Mac is ready' })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: words.ready })).toBeVisible()
 
     expect(errors).toEqual([])
   })

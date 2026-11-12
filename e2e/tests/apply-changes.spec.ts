@@ -11,6 +11,8 @@ const NEW = '/tmp/visor-e2e/conf.d/e2e-applied.ini'
 const original = readFileSync(NOTES, 'utf8')
 
 const banner = (page: Page) => page.getByRole('status').filter({ hasText: 'changed on disk' })
+// A new file supervisord doesn't know yet: the banner offers Load for it.
+const notLoaded = (page: Page) => page.getByTestId('changed-banner').filter({ hasText: 'isn’t loaded' })
 
 /** Puts notes.ini back and applies it, whatever state a failed test left. */
 const restoreNotes = (page: Page) => restoreConfig(page, NOTES, original, true)
@@ -76,14 +78,13 @@ test.describe('apply changes', () => {
     await expect(banner(page)).toBeHidden()
   })
 
-  test('a new file is added by Apply changes, and Remove from supervisor takes it out and can be undone', async ({ page }) => {
+  test('a new file is added by Load, and Remove from supervisor takes it out and can be undone', async ({ page }) => {
     await waitForDashboard(page)
     writeFileSync(NEW, '[program:e2e-applied]\ncommand=/bin/sleep 600\ndirectory=/tmp\n')
-    await expect(banner(page)).toBeVisible()
-    await banner(page).getByRole('button', { name: 'Apply changes' }).click()
-    await expect(page.getByRole('alertdialog')).toContainText('Added: e2e-applied')
-    await page.getByRole('alertdialog').getByRole('button', { name: 'Apply changes' }).click()
-    await expect(page.getByRole('status').filter({ hasText: 'Applied: 1 added' })).toBeVisible()
+    await expect(notLoaded(page)).toContainText('e2e-applied.ini isn’t loaded')
+    // Load adds just that file's new programs, without a confirm.
+    await notLoaded(page).getByRole('button', { name: 'Load' }).click()
+    await expect(page.getByRole('status').filter({ hasText: 'Loaded e2e-applied.' })).toBeVisible()
     await expect.poll(async () => (await supervisorStates())['e2e-applied:e2e-applied'], { timeout: 15_000 }).toBe('RUNNING')
 
     const row = configRow(page, 'e2e-applied.ini')
@@ -112,9 +113,9 @@ test.describe('recently removed', () => {
     const errors = collectErrors(page)
     await waitForDashboard(page)
     writeFileSync(NEW, '[program:e2e-applied]\ncommand=/bin/sleep 600\ndirectory=/tmp\n')
-    await expect(banner(page)).toBeVisible()
-    await banner(page).getByRole('button', { name: 'Apply changes' }).click()
-    await page.getByRole('alertdialog').getByRole('button', { name: 'Apply changes' }).click()
+    await expect(notLoaded(page)).toContainText('e2e-applied.ini isn’t loaded')
+    await notLoaded(page).getByRole('button', { name: 'Load' }).click()
+    await expect(page.getByRole('status').filter({ hasText: 'Loaded e2e-applied.' })).toBeVisible()
     await expect(configRow(page, 'e2e-applied.ini')).toBeVisible()
     await removeConfig(page, NEW)
 

@@ -11,6 +11,7 @@ import * as NotifyService from "./notifyservice.js";
 import * as ServerService from "./serverservice.js";
 import * as SettingsService from "./settingsservice.js";
 import * as ShellService from "./shellservice.js";
+import * as SystemService from "./systemservice.js";
 export {
     ConfigService,
     DoctorService,
@@ -21,7 +22,8 @@ export {
     NotifyService,
     ServerService,
     SettingsService,
-    ShellService
+    ShellService,
+    SystemService
 };
 
 export type {
@@ -32,22 +34,28 @@ export type {
     ConnectionInput,
     CopyDraftView,
     DoctorView,
+    DroppedFileView,
     EditView,
     ExplainLineView,
     ExplainSectionView,
     ExplainView,
     FileView,
+    FolderView,
+    ImportItem,
+    ImportResultView,
     IssueQuery,
     IssueStats,
     IssueView,
     LastErrorView,
     LinePathView,
+    LinuxAdvice,
     LoadedDiffView,
     LogChunkView,
     LoginItemView,
     MainLogLineView,
     MainLogQuery,
     MainLogResult,
+    NotLoadedView,
     NotificationView,
     NotificationsView,
     OverviewView,

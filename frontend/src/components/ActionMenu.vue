@@ -13,6 +13,7 @@ import { menuIcons } from '../lib/menu-icons'
 import type { MenuItem } from '../lib/menus'
 import { showToast } from '../lib/toast'
 import ConfirmDialog from './ConfirmDialog.vue'
+import { modKeyHint } from '../lib/shortcuts'
 
 // `small` gives the 26 px trigger for table rows.
 const props = defineProps<{ items: MenuItem[]; label: string; heading?: string; small?: boolean }>()
@@ -221,7 +222,7 @@ function cancelled() {
           class="copy"
           tabindex="-1"
           :aria-label="`Copy command: ${item.cmd}`"
-          title="Copy command (⌘C)"
+          :title="`Copy command (${modKeyHint('c')})`"
           @click="copyCommand(item)"
         >
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 9h11v11H9zM5 15V4h11" /></svg>

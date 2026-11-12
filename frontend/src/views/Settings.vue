@@ -31,6 +31,7 @@ import {
 } from '../lib/settings'
 import { appearance } from '../lib/theme-sync'
 import { showToast } from '../lib/toast'
+import { isMac, platform, secretStore, trayIcon } from '../lib/platform'
 
 const { overview } = useOverview()
 const view = ref<SettingsView | null>(null)
@@ -399,7 +400,7 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
          Checking and history. M7's remote servers go above General. -->
     <div v-if="view && s" class="cards">
       <!-- General -->
-      <div class="card" role="group" aria-labelledby="general-title">
+      <div class="card c-gen" role="group" aria-labelledby="general-title">
         <h2 id="general-title" class="card-title">General</h2>
         <div class="row">
           <div class="what">
@@ -426,14 +427,14 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
         <div class="row">
           <div class="what">
             <span class="name">Appearance</span>
-            <span class="hint">System follows your Mac’s light or dark setting.</span>
+            <span class="hint">System follows your {{ isMac() ? 'Mac’s' : 'desktop’s' }} light or dark setting.</span>
           </div>
           <div class="ctl"><ThemeSwitch /></div>
         </div>
         <div class="row">
           <div class="what">
-            <label class="name" for="menubar-count">Show the unread count in the menu bar</label>
-            <span class="hint">The number beside Visor’s menu-bar icon. The bell and the icon’s menu show it either way.</span>
+            <label class="name" for="menubar-count">{{ isMac() ? 'Show the unread count in the menu bar' : 'Show the unread count on the tray icon' }}</label>
+            <span class="hint">The number {{ isMac() ? 'beside' : 'on' }} Visor’s {{ trayIcon() }}. The bell and the icon’s menu show it either way.</span>
           </div>
           <div class="ctl">
             <input id="menubar-count" class="switch" type="checkbox" role="switch" :checked="s?.menuBarCount ?? true" @change="setMenuBarCount(($event.target as HTMLInputElement).checked)" />
@@ -442,7 +443,7 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
       </div>
 
       <!-- Connection -->
-      <div class="card" role="group" aria-labelledby="conn-title">
+      <div class="card c-conn" role="group" aria-labelledby="conn-title">
         <div class="card-head">
           <h2 id="conn-title" class="card-title">Connection</h2>
           <span :class="['badge', `b-${status.tone}`]"><span :class="['dot', `d-${status.tone}`]" aria-hidden="true" />{{ status.text }}</span>
@@ -453,7 +454,7 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
             <span class="name">Config file</span>
             <span class="hint">
               <template v-if="envSet">Set by <span class="mono">VISOR_CONFIG</span>. Unset it to choose a file here.</template>
-              <template v-else-if="!conn.configPath">Auto-detect looks in the usual Homebrew and system locations.</template>
+              <template v-else-if="!conn.configPath">Auto-detect looks in the usual {{ isMac() ? 'Homebrew and system' : 'system (/etc/supervisor, /etc)' }} locations.</template>
               <template v-else>The supervisord.conf Visor reads.</template>
             </span>
           </div>
@@ -493,13 +494,13 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
           <div class="what">
             <label class="name" for="conn-pass">Password</label>
             <span class="hint">
-              Kept in your Keychain, never in a file.<template v-if="view.HasPassword"> Removing it also clears the username, so the config’s credentials apply again.</template>
+              Kept in your {{ secretStore() }}, never in a file.<template v-if="view.HasPassword"> Removing it also clears the username, so the config’s credentials apply again.</template>
             </span>
           </div>
           <div v-if="view.HasPassword && !changingPassword" class="ctl">
             <span class="pw-saved" data-testid="password-saved">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
-              Saved in your Keychain
+              {{ view.PasswordThisSession ? 'Kept until Visor quits: no keyring is running' : `Saved in your ${secretStore()}` }}
             </span>
             <button type="button" class="btn sm" :disabled="connBusy" @click="changePassword">Change…</button>
             <button type="button" class="btn sm" :disabled="connBusy" @click="removePassword">Remove password</button>
@@ -541,7 +542,7 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
       </div>
 
       <!-- Notifications -->
-      <div class="card" role="group" aria-labelledby="notify-title">
+      <div class="card c-notify" role="group" aria-labelledby="notify-title">
         <h2 id="notify-title" class="card-title">Notifications</h2>
         <div class="row">
           <div class="what">
@@ -561,15 +562,15 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
         </fieldset>
         <div class="row">
           <div class="what">
-            <span class="name">macOS permission</span>
-            <span class="hint">Visor asks once, the first time it runs.</span>
+            <span class="name">{{ isMac() ? 'macOS permission' : 'Desktop banners' }}</span>
+            <span class="hint">{{ isMac() ? 'Visor asks once, the first time it runs.' : 'Shown by your desktop’s notification service.' }}</span>
           </div>
           <div class="ctl">
             <span :class="['badge', 'wrap', `b-${permissionView.tone}`]" data-testid="notify-permission"><span :class="['dot', `d-${permissionView.tone}`]" aria-hidden="true" />{{ permissionView.text }}</span>
             <button type="button" class="btn sm" :disabled="testBusy" @click="sendTest">Send a test notification</button>
           </div>
         </div>
-        <div class="row">
+        <div v-if="platform().systemSettings" class="row">
           <div class="what">
             <span class="name">Keep them on screen</span>
             <span class="hint">
@@ -584,7 +585,7 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
       </div>
 
       <!-- Checking and history (was Polling, Crash loops and Issue history) -->
-      <div class="card" role="group" aria-labelledby="check-title">
+      <div class="card c-check" role="group" aria-labelledby="check-title">
         <h2 id="check-title" class="card-title">Checking and history</h2>
         <div class="row">
           <div class="what">
@@ -641,14 +642,24 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
 </template>
 
 <style scoped>
-/* Board 12 (SettingsNew): one column of cards; every row has the label and
-   help on the left and the control on the right, like System Settings. */
-.page { display: flex; flex-direction: column; gap: 18px; max-width: 860px; container-type: inline-size; }
+/* Board 12 (SettingsNew): cards whose rows have the label and help on the
+   left and the control on the right, like System Settings. One column of
+   cards up to 860 px; a wide window puts them in two columns (General and
+   Notifications on the left, Connection and Checking on the right). */
+.page { display: flex; flex-direction: column; gap: 18px; max-width: 1480px; container-type: inline-size; }
+header, .page > .alert, .page > .warn { max-width: 860px; }
 header { display: flex; flex-direction: column; gap: 6px; }
 .title { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 h1 { margin: 0; font-family: var(--display); font-optical-sizing: auto; font-size: 30px; font-weight: 650; line-height: 1.1; letter-spacing: -0.015em; }
 .intro { margin: 0; color: var(--ink2); }
-.cards { display: flex; flex-direction: column; gap: 16px; }
+.cards { display: flex; flex-direction: column; gap: 16px; max-width: 860px; }
+@container (min-width: 1000px) {
+  .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; max-width: none; }
+  .c-gen { grid-column: 1; grid-row: 1; }
+  .c-conn { grid-column: 2; grid-row: 1 / span 2; }
+  .c-notify { grid-column: 1; grid-row: 2 / span 2; }
+  .c-check { grid-column: 2; grid-row: 3; }
+}
 .card { border: 1px solid var(--line); border-radius: 10px; background: var(--raised); }
 .card-title { margin: 0; font-size: 15px; font-weight: 600; }
 .card > .card-title { padding: 14px 18px 4px; }

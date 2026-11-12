@@ -176,3 +176,31 @@ func TestDiscoverNoDaemon(t *testing.T) {
 		}
 	}
 }
+
+func TestPathsForEachOS(t *testing.T) {
+	mac := PathsFor("darwin")
+	if mac[0] != "/opt/homebrew/etc/supervisord.conf" || mac[1] != "/usr/local/etc/supervisord.conf" {
+		t.Errorf("macOS starts with Homebrew: %q", mac)
+	}
+	linux := PathsFor("linux")
+	if linux[0] != "/etc/supervisor/supervisord.conf" || linux[1] != "/etc/supervisord.conf" {
+		t.Errorf("Linux starts with the Debian, then the Fedora package's config: %q", linux)
+	}
+	for _, p := range linux[:2] {
+		if p == "/opt/homebrew/etc/supervisord.conf" {
+			t.Errorf("Homebrew first on Linux: %q", linux)
+		}
+	}
+}
+
+func TestDiscoverReadsTheSocketChown(t *testing.T) {
+	dir := t.TempDir()
+	conf := filepath.Join(dir, "supervisord.conf")
+	if err := os.WriteFile(conf, []byte("[unix_http_server]\nfile=/var/run/supervisor.sock\nchmod=0770\nchown= root:supervisor \n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d, err := Discover([]string{conf})
+	if err != nil || d.SocketChown != "root:supervisor" {
+		t.Errorf("SocketChown = %q, %v", d.SocketChown, err)
+	}
+}

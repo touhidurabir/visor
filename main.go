@@ -4,6 +4,7 @@ import (
 	"embed"
 	"log"
 	"os"
+	"runtime"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -25,6 +26,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	guardWebKitSandbox(stateDir)
 	// A settings file that cannot be read leaves the defaults in use; the
 	// Settings page says so.
 	prefs, loadErr := settings.Load(stateDir)
@@ -66,7 +68,7 @@ func main() {
 	// put SaveConnection's supervisord password in the log.
 	wails := application.New(application.Options{
 		Name:        "Visor",
-		Description: "A macOS menu-bar app for managing supervisord",
+		Description: "A menu-bar and tray app for managing supervisord",
 		Services: []application.Service{
 			// Before ServerService, so notifications are ready by the first poll.
 			application.NewService(notifier),
@@ -82,36 +84,62 @@ func main() {
 			application.NewService(app.NewShellService(shell)),
 			application.NewService(loginService),
 			application.NewService(dockService),
+			application.NewService(app.NewSystemService()),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
 		// One Visor per user: a second launch hands over to this one.
-		SingleInstance: app.SingleInstance(platform.BundlePath(), shell),
+		SingleInstance: app.SingleInstance(platform.Installed(), shell),
 		Mac: application.MacOptions{
 			// Closing the main window hides it; Visor lives on in the menu
 			// bar until Quit.
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
+		Linux: application.LinuxOptions{
+			// The same on Linux: Visor lives on in the tray.
+			DisableQuitOnLastWindowClosed: true,
+			// The GTK application id, which is also the Wayland app_id and
+			// the window class, so the desktop matches windows to
+			// dev.getvisor.visor.desktop and its icon.
+			ApplicationID: "dev.getvisor.visor",
+		},
 	})
 
-	// The app starts with the main window shown, so the Dock icon shows.
+	// The app starts with the main window shown, so the Dock icon shows;
+	// started by the login item, in the menu bar or tray only.
+	atLogin := app.StartedAtLogin(os.Args[1:])
+	if atLogin {
+		shell.StartInTray()
+	}
 	mainWindow := wails.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:   "main",
 		Title:  "Visor",
-		Width:  1000,
-		Height: 640,
+		Width:  app.MainWidth,
+		Height: app.MainHeight,
+		Hidden: atLogin,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 50,
 			Backdrop:                application.MacBackdropTranslucent,
 			TitleBar:                application.MacTitleBarHiddenInset,
 		},
 		URL: "/",
+		// Files dropped on the window go to Go, which reads them for Add new
+		// → Import files (app.FilesDropped). Left to the web view, WebKitGTK
+		// would load a dropped file in place of Visor's page.
+		EnableFileDrop: true,
+	})
+	mainWindow.OnWindowEvent(events.Common.WindowFilesDropped, func(e *application.WindowEvent) {
+		app.FilesDropped(e.Context().DroppedFiles())
 	})
 	shell.Setup(wails, mainWindow, dockService)
 	// Visor's own menu bar, in place of Wails' default (whose Reload loses
-	// unsaved edits and whose Help loads wails.io into the window).
-	wails.Menu.SetApplicationMenu(app.BuildAppMenu(wails, shell))
+	// unsaved edits and whose Help loads wails.io into the window). macOS
+	// only: on Linux Wails would draw it inside every window, the popover
+	// too, so there the page carries out the shortcuts (lib/shortcuts.ts).
+	if runtime.GOOS == "darwin" {
+		wails.Menu.SetApplicationMenu(app.BuildAppMenu(wails, shell))
+	}
 	// The window chrome follows the saved appearance from launch on.
 	wails.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		app.ApplyStartupAppearance(prefs.Appearance)

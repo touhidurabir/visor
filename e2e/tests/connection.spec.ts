@@ -1,10 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
-import { collectErrors, configRow, downConfig, startVisor } from './helpers'
+import { collectErrors, configRow, downConfig, startVisor, words } from './helpers'
 
 // The server build keeps passwords in an in-memory keychain, so these never
-// touch the login Keychain.
+// touch the login Keychain or the keyring.
 test.describe('connection credentials', () => {
   test('a saved password shows as saved, can be changed, and Remove clears the username too', async ({ page }) => {
     await page.goto('/#/settings')
@@ -13,7 +13,7 @@ test.describe('connection credentials', () => {
     await page.getByRole('button', { name: 'Save and reconnect' }).click()
 
     // Saved: a status line, not an empty box.
-    await expect(page.getByTestId('password-saved')).toHaveText('Saved in your Keychain')
+    await expect(page.getByTestId('password-saved')).toHaveText(words.savedPassword)
     await expect(page.getByLabel('Password', { exact: true })).toHaveCount(0)
 
     // Change… brings the box back; Cancel puts the status line back.

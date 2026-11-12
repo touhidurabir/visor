@@ -58,6 +58,57 @@ jobs:
           npm test
           npm run build
 
+  # The same checks on Linux, plus a native CGO build against GTK 4 and
+  # WebKitGTK 6.0 (Ubuntu 24.04's packages).
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.27.3
+          cache: true
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install GTK 4 and WebKitGTK 6.0
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev
+
+      - name: Go vet
+        run: go vet ./...
+
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.15.0
+
+      - name: Install supervisor
+        # The same pins as the e2e job (setuptools 82 dropped pkg_resources).
+        run: |
+          pipx install supervisor==4.2.5
+          pipx runpip supervisor install setuptools==81.0.0
+          supervisord --version
+
+      - name: Go tests
+        run: go test -race ./...
+
+      - name: Core packages do not import Wails
+        run: scripts/check-core-imports.sh
+
+      - name: Native build
+        run: |
+          npm --prefix frontend ci
+          npm --prefix frontend run build
+          go build -tags production -trimpath -o bin/visor .
+          file bin/visor
+
   # UI tests: Playwright (WebKit) against the server-mode build and a
   # throwaway supervisord under /tmp/visor-e2e.
   e2e:

@@ -18,13 +18,16 @@ import ConfirmDialog from '../components/ConfirmDialog.vue'
 import { openLog, openPath, reveal } from '../lib/finder'
 import { setPendingEdit } from '../lib/pending-edit'
 import { describeError } from '../lib/faults'
-import { bulkConfirm, type BulkConfirm } from '../lib/menus'
+import { bulkConfirm, NOT_LOADED_REASON, type BulkConfirm } from '../lib/menus'
+import { loadFile } from '../lib/load-file'
 import { chipSince } from '../lib/format'
 import { stateLook } from '../lib/state'
 import type { Stream } from '../lib/logview'
 import { useOverview } from '../lib/overview'
 import { configRoute } from '../lib/links'
 import { showToast } from '../lib/toast'
+import { revealLabel } from '../lib/platform'
+import ReadOnlyBanner from '../components/ReadOnlyBanner.vue'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -44,6 +47,8 @@ const path = computed(() => {
 })
 const config = computed(() => overview.value?.Configs?.find((c) => c.Path !== '' && c.Path === path.value))
 const procs = computed(() => config.value?.Processes ?? [])
+/** Programs in the file supervisord hasn't loaded (added outside Visor). */
+const notLoaded = computed(() => (config.value?.NotLoaded ?? []).map((n) => n.Program))
 const detail = ref<ConfigDetailView | null>(null)
 const detailError = ref<string | null>(null)
 const busy = ref(false)
@@ -185,6 +190,14 @@ async function run(fn: () => Promise<unknown>, done?: string): Promise<boolean> 
   }
 }
 
+/** Loads the programs supervisord doesn't know yet (supervisorctl update for just those). */
+function load() {
+  const fileName = config.value?.FileName ?? path.value
+  void run(async () => showToast(await loadFile(path.value, fileName)))
+}
+/** Nothing in the file is loaded: Stop and Restart have nothing to act on. */
+const nothingLoaded = computed(() => !procs.value.length && notLoaded.value.length > 0)
+
 const fileCalls = {
   start: () => ServerService.StartFile(path.value),
   stop: () => ServerService.StopFile(path.value),
@@ -255,20 +268,28 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
           </button>
           <div class="bulk" role="group" :aria-label="`All processes in ${config.FileName}`">
             <button type="button" class="btn quiet" :disabled="busy" @click="bulk('start')">Start all</button>
-            <button type="button" class="btn quiet" :disabled="busy" @click="bulk('stop')">Stop all</button>
-            <button type="button" class="btn quiet" :disabled="busy" @click="bulk('restart')">Restart all</button>
+            <button type="button" class="btn quiet" :disabled="busy || nothingLoaded" :title="nothingLoaded ? NOT_LOADED_REASON : undefined" @click="bulk('stop')">Stop all</button>
+            <button type="button" class="btn quiet" :disabled="busy || nothingLoaded" :title="nothingLoaded ? NOT_LOADED_REASON : undefined" @click="bulk('restart')">Restart all</button>
           </div>
-          <button type="button" class="btn quiet" @click="reveal(config.Path)">Reveal in Finder</button>
+          <button type="button" class="btn quiet" @click="reveal(config.Path)">{{ revealLabel() }}</button>
         </div>
       </header>
+      <ReadOnlyBanner />
 
       <div v-if="overview.Server.Error" class="alert" role="alert">
         <strong>Can’t reach supervisord</strong>
         <p>{{ overview.Server.Error }}</p>
       </div>
 
-      <p v-if="!procs.length" class="muted">supervisord runs no process from this file. Apply it to load its programs.</p>
-      <div v-else class="chips" role="group" aria-label="Processes in this config">
+      <p v-if="notLoaded.length" class="not-loaded" data-testid="not-loaded">
+        <span>
+          supervisord hasn’t loaded <span class="mono">{{ notLoaded.join(', ') }}</span> yet<template v-if="!procs.length">, so it runs nothing from this file</template>. Load adds
+          {{ notLoaded.length === 1 ? 'it' : 'them' }}, as <span class="mono">supervisorctl update</span> would.
+        </span>
+        <button type="button" class="btn sm" :disabled="busy" @click="load">Load</button>
+      </p>
+      <p v-if="!procs.length && !notLoaded.length" class="muted">supervisord runs no process from this file. Apply it to load its programs.</p>
+      <div v-else-if="procs.length" class="chips" role="group" aria-label="Processes in this config">
         <button
           v-for="p in procs"
           :key="p.FullName"
@@ -399,6 +420,8 @@ h1 { margin: 0; font-family: var(--display); font-optical-sizing: auto; font-siz
 .sub { overflow-wrap: anywhere; user-select: text; }
 .mono { font-family: var(--mono); font-size: 12.5px; }
 .muted { margin: 0; color: var(--ink2); }
+.not-loaded { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; border-radius: var(--radius-md); background: var(--warn-soft); color: var(--warn); line-height: 1.5; user-select: text; }
+.not-loaded .mono { font-family: var(--mono); font-size: 12px; }
 .tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .btn.watch-on, .btn.watch-on:hover:not(:disabled) { background: var(--accent-soft); border-color: transparent; color: var(--accent-text); }
 /* Start / Stop / Restart all: one quiet group, as on the dashboard. */

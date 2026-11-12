@@ -1,7 +1,8 @@
 # Scripts and local runs
 
-How to run Visor on your Mac for each kind of testing, without touching your
-real supervisord, its configs, or `~/Library/Application Support/Visor`.
+How to run Visor on your Mac or Linux desktop for each kind of testing,
+without touching your real supervisord, its configs, or Visor's own state
+(`~/Library/Application Support/Visor`, `~/.config/Visor` on Linux).
 The most used come first. Automated tests and the manual checklist are in
 [testing.md](testing.md).
 
@@ -16,6 +17,8 @@ The most used come first. Automated tests and the manual checklist are in
 | Run every check CI runs | [Checks before a pull request](#5-checks-before-a-pull-request) |
 | Build a `.dmg` like the release does | `wails3 package`, then `scripts/release-dmg.sh` |
 | Redraw the app icon | `go run ./scripts/appicon` |
+| Try the packaged app on Linux (the AppImage) | `scripts/linux-check.sh build`, then `scripts/linux-check.sh open` |
+| Build the Linux packages like the release does | `wails3 task linux:package` |
 
 ## 1. `wails3 task dev`: everyday development
 
@@ -162,11 +165,35 @@ Only do it when that's what you want to test.
 ## 7. `go run ./scripts/appicon`: the app icon
 
 ```sh
-go run ./scripts/appicon                  # draws build/appicon.png and build/appicon.icon/Assets/lens.png
-wails3 task common:generate:icons         # turns them into build/darwin/icons.icns (and the Windows .ico)
+go run ./scripts/appicon                  # draws build/appicon.png, build/appicon.icon/Assets/lens.png and build/linux/icons/
+wails3 task common:generate:icons         # turns them into build/darwin/icons.icns
 ```
 
 Then rebuild the app to see it.
+
+## 8. On Linux
+
+`wails3 task dev`, `scripts/sandbox.sh` and `wails3 task test:e2e` work the
+same. You need GTK 4 and WebKitGTK 6.0 to build (`sudo apt install
+build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev` on Ubuntu
+24.04) and supervisord (`pipx install supervisor` keeps it in your home; the
+sandbox doesn't use the distro's).
+
+```sh
+scripts/linux-check.sh build     # the AppImage, into /tmp/visor-linuxcheck
+scripts/linux-check.sh open      # run it against the sandbox, state in /tmp/visor-linuxcheck/state
+wails3 task linux:package        # bin/visor-x86_64.AppImage, bin/visor.deb, bin/visor.rpm
+```
+
+`linux-check.sh` is the Linux `sign-check.sh`: the installed-only behaviour
+(launch at login, one Visor at a time, a coloured tray icon) needs an
+installed copy, and an AppImage counts as one. On Ubuntu 23.10+ the first
+`open` stops before the window and prints the AppArmor profile to add (two
+`sudo` commands); after that it opens. A dev build (`~/…/bin/visor`) needs
+its own profile the same way; Visor prints it for that path.
+
+Installing the `.deb` or `.rpm` (`sudo apt install ./bin/visor.deb`) is a
+**real install**: that copy uses your real supervisord and `~/.config/Visor`.
 
 ## Environment variables
 
@@ -175,6 +202,8 @@ Then rebuild the app to see it.
 | `VISOR_CONFIG` | Use this supervisord config; overrides the one saved in Settings and disables Choose… | `task dev`, `sign-check.sh open`, e2e |
 | `VISOR_STATE_DIR` | Keep Visor's state (issues, history, settings, backups) here instead of `~/Library/Application Support/Visor` | same |
 | `VISOR_SANDBOX_DIR` | Which sandbox folder `sandbox.sh` uses (`/tmp/visor-<name>`) | e2e (`/tmp/visor-e2e`) |
+| `VISOR_PLATFORM` | Server build only: word the UI as on `darwin` or `linux` | e2e (`linux`; `platform.spec.ts` starts a `darwin` one) |
+| `VISOR_VERSION` | The version `wails3 task linux:package` puts in the `.deb` and `.rpm` (default `0.0.0`) | release workflow |
 | `DEBUG_SERVER=1` | Show Visor's log during e2e runs | you |
 | `VISOR_LIVE=1`, `VISOR_LIVE_SOCKET` | Run the read-only live test against a real supervisord | you |
 | `SIGN_IDENTITY` | Signing identity for `wails3 task darwin:package` (`-` = ad-hoc, the default) | `sign-check.sh`, release workflow |
@@ -183,7 +212,8 @@ Then rebuild the app to see it.
 
 - **Sandboxes:** `scripts/sandbox.sh down` (add `VISOR_SANDBOX_DIR=…` for another one).
 - **Packaged test build:** quit it, then `rm -rf /tmp/visor-signcheck`.
-- **Launch at login:** turn it off in Visor before you delete a test build. A login item from a test build starts that build at login *without* `VISOR_CONFIG`, so it connects to your real supervisord. If one is left over: `rm ~/Library/LaunchAgents/dev.getvisor.visor.plist`.
+- **Launch at login:** turn it off in Visor before you delete a test build. A login item from a test build starts that build at login *without* `VISOR_CONFIG`, so it connects to your real supervisord. If one is left over: `rm ~/Library/LaunchAgents/dev.getvisor.visor.plist` (Linux: `rm ~/.config/autostart/dev.getvisor.visor.desktop`).
+- **Linux test AppImage:** `rm -rf /tmp/visor-linuxcheck`. A profile you added for it stays in `/etc/apparmor.d/` until you remove it (`sudo apparmor_parser -R <file> && sudo rm <file>`).
 - **A saved test password:** `security delete-generic-password -s dev.getvisor.visor -a <config path>`.
 - **Old copies of the app** (macOS may take the notification icon from an older one with the same bundle ID): list them with
   `/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -dump | grep -i 'path:.*visor.*\.app'`,
