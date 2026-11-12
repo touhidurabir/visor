@@ -24,7 +24,7 @@ Every screen was redrawn on one set of colours, buttons and type, in light and d
 
 ### Linux (in progress, for the first beta)
 Visor is coming to Linux desktops (Ubuntu 24.04+ and Fedora 40+, GNOME and KDE, x86_64).
-- CI runs vet, lint, the Go tests with a real supervisord and a native GTK 4 / WebKitGTK 6.0 build on Ubuntu 24.04, beside the macOS job.
+- CI runs vet, lint, the Go tests with a real supervisord and a native GTK 4 / WebKitGTK 6.0 build on Ubuntu 24.04, beside the macOS job. To save Actions minutes (a macOS minute counts ten times in a private repo), pull requests run the two Linux jobs; the macOS job runs on `main`, by hand (Actions → CI → Run workflow) and on a PR labelled `macos`. A push that changes only docs runs no CI.
 - The Windows scaffold Wails generated (`build/windows/`, its tasks and the `.ico`) is gone: Visor has no Windows build.
 - Words follow the OS: on Linux Visor says Ctrl+N (not ⌘N), "Show in file manager" (not Reveal in Finder), "Saved in your keyring", "tray" for the menu bar, and leaves out the macOS-only System Settings links and rows. Go's new `SystemService.Platform` is the one source (`platform.Current`, `platform.Describe`); `frontend/src/lib/platform.ts` loads it before the app mounts. The server build takes `VISOR_PLATFORM=darwin|linux`, so the UI tests check both: the shared e2e Visor words things as on Linux and `platform.spec.ts` starts a macOS one beside it.
 - Keyboard shortcuts come from one table (`lib/shortcuts.ts`). Linux has no app menu bar (Wails would draw it inside every window, the popover too), so the main window carries out Ctrl+, Ctrl+N, Ctrl+1, Ctrl+2, Ctrl+F, Ctrl+R, Ctrl+W and Ctrl+Q itself; Ctrl+C stays copy. Find in a log now goes through the same Find choice as the menu bar's.

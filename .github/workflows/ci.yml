@@ -1,21 +1,45 @@
 name: CI
 
 # Pull requests (every push to the PR branch) and main only, so a PR branch
-# isn't checked twice per push.
+# isn't checked twice per push. A push that changes only docs runs nothing.
+# Minutes: the repo is private, where a macOS minute counts ten times, so
+# the macOS job runs on main, by hand (Actions → CI → Run workflow) and on a
+# PR labelled "macos"; PRs otherwise get the two Linux jobs.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# A new push cancels the run of the previous one on the same branch. A run
+# started by a label is its own group, so it never cancels a push's run.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event.action == 'labeled' && 'label' || 'code' }}
   cancel-in-progress: true
 
 jobs:
   check:
+    # The Mac checks (the macOS build, cgo and the Mac-only code): on main, by
+    # hand, or on a PR with the "macos" label. Release runs its own Mac tests.
+    # Adding another label runs nothing; adding "macos" runs just this job.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (contains(github.event.pull_request.labels.*.name, 'macos') &&
+       (github.event.action != 'labeled' || github.event.label.name == 'macos'))
     runs-on: macos-15
     timeout-minutes: 20
     steps:
@@ -61,6 +85,8 @@ jobs:
   # The same checks on Linux, plus a native CGO build against GTK 4 and
   # WebKitGTK 6.0 (Ubuntu 24.04's packages).
   linux:
+    # Labelling a PR doesn't change its code: no need to run again.
+    if: github.event.action != 'labeled'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -112,6 +138,8 @@ jobs:
   # UI tests: Playwright (WebKit) against the server-mode build and a
   # throwaway supervisord under /tmp/visor-e2e.
   e2e:
+    # Labelling a PR doesn't change its code: no need to run again.
+    if: github.event.action != 'labeled'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
