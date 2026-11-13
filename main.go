@@ -52,7 +52,12 @@ func main() {
 	shell.ShowMenuBarCount(prefs.MenuBarCount)
 	// Native notifications for new issues; clicking one opens Issues. They
 	// work only in the packaged Visor.app (and never in the server build).
-	notifier := app.NewNotifyService(func(server string) { shell.ShowMain(app.IssuesRoute(server)) })
+	notifier := app.NewNotifyService(func(route string) {
+		if route == "" {
+			route = app.RouteIssues
+		}
+		shell.ShowMain(route)
+	})
 	rt := app.NewRuntime(app.RuntimeOptions{
 		ConfigPath: envConfig,
 		StateDir:   stateDir,
