@@ -50,12 +50,14 @@ type Info struct {
 	// SystemSettings: the OS has settings pages Visor can open (macOS's
 	// Notifications and Login Items).
 	SystemSettings bool `json:"systemSettings"`
+	// Local names this computer's tab: "This Mac" or "This computer".
+	Local string `json:"local"`
 }
 
 // Describe gives the wording for os.
 func Describe(os OS) Info {
 	if os == Darwin {
-		return Info{OS: Darwin, Mod: "⌘", SecretStore: "Keychain", FileManager: "Finder", Tray: "menu bar", SystemSettings: true}
+		return Info{OS: Darwin, Mod: "⌘", SecretStore: "Keychain", FileManager: "Finder", Tray: "menu bar", SystemSettings: true, Local: "This Mac"}
 	}
-	return Info{OS: Linux, Mod: "Ctrl", SecretStore: "keyring", FileManager: "file manager", Tray: "tray"}
+	return Info{OS: Linux, Mod: "Ctrl", SecretStore: "keyring", FileManager: "file manager", Tray: "tray", Local: "This computer"}
 }

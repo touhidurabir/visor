@@ -68,7 +68,7 @@ func (r *Runtime) configDetail(path string) (ConfigDetailView, error) {
 	}
 	d.Paths, d.Logs = buildPaths(inv.Files[i], inv, procs, lookPath, exists)
 	d.LastError = r.lastError(d, inv, procs)
-	if raw, err := os.ReadFile(path); err != nil {
+	if raw, err := r.files().ReadFile(path); err != nil {
 		d.ExplainError = err.Error()
 	} else {
 		d.Explain = r.explain(filepath.Base(path), string(raw), path)

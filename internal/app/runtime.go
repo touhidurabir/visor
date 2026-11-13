@@ -117,7 +117,14 @@ type RuntimeOptions struct {
 	// Notifier shows a native notification for each new issue that the
 	// notification settings and watched configs allow. nil sends none.
 	Notifier notify.Sender
+	// Remote, when set, makes this Runtime manage supervisord on a server
+	// (StateDir is then that server's folder). nil is this computer.
+	Remote *RemoteSource
 }
+
+// remoteFileCheck is how often a server's config files are re-read: each
+// check is a round trip over SSH, so not every poll.
+const remoteFileCheck = 10 * time.Second
 
 // reconnectWait bounds how long Reconnect waits for the first poll.
 const reconnectWait = 5 * time.Second
@@ -174,6 +181,10 @@ type Runtime struct {
 	// issues of processes this supervisord does not run (M4).
 	lastConfig  string
 	pruneAbsent bool
+	// session is the server connection (nil on this computer); filesAt is
+	// when its files were last checked.
+	session *RemoteSession
+	filesAt time.Time
 
 	wg sync.WaitGroup
 
@@ -429,8 +440,19 @@ func (r *Runtime) connect() {
 		r.mu.Unlock()
 		close(first) // no poll will come
 	}
-	d, err := config.Resolve(r.configPathOf(prefs))
-	if err != nil {
+	var d config.Discovery
+	var err error
+	if src := r.opts.Remote; src != nil {
+		sess, cerr := src.Connect(ctx, src.Server.ConfigPath)
+		if cerr != nil {
+			fail(config.Discovery{ConfigPath: src.Server.ConfigPath}, cerr)
+			return
+		}
+		r.mu.Lock()
+		r.session = sess
+		r.mu.Unlock()
+		d = sess.Discovery
+	} else if d, err = config.Resolve(r.configPathOf(prefs)); err != nil {
 		fail(d, err)
 		return
 	}
@@ -439,14 +461,18 @@ func (r *Runtime) connect() {
 		return
 	}
 	savedPass := ""
-	if prefs.Username != "" && r.opts.Keychain != nil {
+	if prefs.Username != "" && r.opts.Keychain != nil && r.opts.Remote == nil {
 		if savedPass, err = settings.Password(r.opts.Keychain, d.ConfigPath); err != nil {
 			fail(d, fmt.Errorf("%w. %s, or enter the password again in Settings", err, unlockHint()))
 			return
 		}
 	}
 	var copts []supervisor.Option
-	if user, pass := settings.Credentials(prefs.Username, savedPass, d.Username, d.Password); user != "" {
+	savedUser := prefs.Username
+	if r.opts.Remote != nil {
+		savedUser = "" // a server uses its own config's [supervisorctl] credentials
+	}
+	if user, pass := settings.Credentials(savedUser, savedPass, d.Username, d.Password); user != "" {
 		copts = append(copts, supervisor.WithBasicAuth(user, pass))
 	}
 	client := supervisor.New(d.Transport, copts...)
@@ -465,6 +491,7 @@ func (r *Runtime) connect() {
 
 	r.mu.Lock()
 	r.d, r.client, r.inv, r.watcher, r.mon = d, client, inv, watcher, mon
+	r.filesAt = time.Now()
 	r.mu.Unlock()
 
 	updates, unsubscribe := mon.Subscribe()
@@ -489,7 +516,7 @@ func (r *Runtime) connect() {
 // forgets everything learned from it. Caller holds life.
 func (r *Runtime) disconnect() {
 	r.mu.Lock()
-	cancel, client := r.cancel, r.client
+	cancel, client, sess := r.cancel, r.client, r.session
 	r.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -498,7 +525,11 @@ func (r *Runtime) disconnect() {
 	if client != nil {
 		client.Close()
 	}
+	if sess != nil && sess.Close != nil {
+		sess.Close()
+	}
 	r.mu.Lock()
+	r.session = nil
 	r.cancel, r.client, r.mon, r.watcher = nil, nil, nil, nil // the tracker and store stay
 	r.d, r.connErr = config.Discovery{}, nil
 	r.inv, r.changes, r.last = config.Inventory{}, config.ChangeSet{}, monitor.Update{}
@@ -511,13 +542,20 @@ func (r *Runtime) handle(u monitor.Update) {
 	r.mu.Lock()
 	base, d, client, tracker, watcher := r.ctx, r.d, r.client, r.tracker, r.watcher
 	needVersion := u.Snapshot.Reachable && r.version == ""
+	// A server's files are re-read every remoteFileCheck, not every poll.
+	checkFiles := r.opts.Remote == nil || time.Since(r.filesAt) >= remoteFileCheck
+	if checkFiles {
+		r.filesAt = time.Now()
+	}
+	inv, changes := r.inv, r.changes
 	r.mu.Unlock()
 
-	inv, invErr := config.LoadInventory(d)
-	var changes config.ChangeSet
-	var changesErr error
-	if watcher != nil {
-		changes, changesErr = watcher.Check()
+	var invErr, changesErr error
+	if checkFiles {
+		inv, invErr = config.LoadInventory(d)
+		if watcher != nil {
+			changes, changesErr = watcher.Check()
+		}
 	}
 	for _, ev := range u.Events {
 		if ev.Kind == monitor.Reconnected { // the daemon may have been upgraded
@@ -771,11 +809,12 @@ func (r *Runtime) Overview() OverviewView {
 	if in.configPath == "" {
 		in.configPath = r.configPathOf(r.prefs)
 	}
-	pidFile, tracker := r.d.PidFile, r.tracker
+	pidFile, tracker, fsys := r.d.PidFile, r.tracker, r.d.Files()
 	r.mu.Unlock()
+	in.host = r.hostView()
 
 	if pidFile != "" {
-		if fi, err := os.Stat(pidFile); err == nil {
+		if fi, err := fsys.Stat(pidFile); err == nil {
 			in.uptime = in.now.Sub(fi.ModTime())
 		}
 	}
@@ -840,6 +879,9 @@ func (r *Runtime) actionGrace(e expectation) time.Duration {
 // (no unexpected exit, crash loop or unreachable issue) from the start of
 // the action until actionGrace after it ends.
 func (r *Runtime) act(e expectation, do func(ctx context.Context, c *supervisor.Client) error) error {
+	if err := r.CheckAction(); err != nil {
+		return err
+	}
 	ac, err := r.conn()
 	if err != nil {
 		return err

@@ -297,6 +297,9 @@ func (s *ServerService) CheckForChanges() (supervisor.ConfigDiff, error) {
 // An error means nothing was applied (no connection, or supervisord could
 // not re-read its config), unless it says otherwise.
 func (s *ServerService) ApplyChanges(groups []string) (ApplyResultView, error) {
+	if err := s.rt.CheckConfigWrite(); err != nil {
+		return ApplyResultView{}, err
+	}
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
 	res, err := s.rt.applyChanges(groups)
@@ -310,6 +313,9 @@ func (s *ServerService) ApplyChanges(groups []string) (ApplyResultView, error) {
 // deletes the file outright, and stops nothing when the file cannot be
 // moved (a folder Visor may not write) or backed up.
 func (s *ServerService) RemoveFromSupervisor(path string) (ApplyResultView, error) {
+	if err := s.rt.CheckConfigWrite(); err != nil {
+		return ApplyResultView{}, err
+	}
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
 	res, err := s.rt.removeFromSupervisor(path)

@@ -84,13 +84,13 @@ func (s *ConfigService) Read(path string) (FileView, error) {
 	if _, err := s.rt.includeFile(path); err != nil {
 		return FileView{}, err
 	}
-	data, err := os.ReadFile(path)
+	data, err := s.rt.files().ReadFile(path)
 	if err != nil {
 		return FileView{}, fmt.Errorf("read %s: %w", path, err)
 	}
 	return FileView{
 		Path: path, Content: string(data), Hash: apply.Hash(data),
-		Writable: apply.CheckWritable(path) == nil,
+		Writable: !s.rt.Remote() && apply.CheckWritable(path) == nil,
 	}, nil
 }
 
@@ -118,7 +118,7 @@ func (s *ConfigService) LoadedDiff(path string) (LoadedDiffView, error) {
 	if _, err := s.rt.includeFile(path); err != nil {
 		return LoadedDiffView{}, err
 	}
-	disk, err := os.ReadFile(path)
+	disk, err := s.rt.files().ReadFile(path)
 	if err != nil {
 		return LoadedDiffView{}, fmt.Errorf("read %s: %w", path, err)
 	}
@@ -141,6 +141,9 @@ func (s *ConfigService) LoadedDiff(path string) (LoadedDiffView, error) {
 // When supervisord then refuses the file (it can't re-read its config),
 // the previous version is put back and the error is ErrRejected.
 func (s *ConfigService) Save(path, content, hash string) (ApplyResultView, error) {
+	if err := s.rt.CheckConfigWrite(); err != nil {
+		return ApplyResultView{}, err
+	}
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
 	return s.save(path, content, hash)
@@ -229,6 +232,9 @@ func (s *ConfigService) applyWritten(path string, olds ...[]byte) (ApplyResultVi
 // supervisord: only the groups it defines now, and the ones supervisord
 // loaded from it before.
 func (s *ConfigService) ApplyFile(path string) (ApplyResultView, error) {
+	if err := s.rt.CheckConfigWrite(); err != nil {
+		return ApplyResultView{}, err
+	}
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
 	if _, err := s.rt.includeFile(path); err != nil {
@@ -243,6 +249,9 @@ func (s *ConfigService) ApplyFile(path string) (ApplyResultView, error) {
 // supervisorctl update <group> would for just those groups. Groups it
 // already runs are left as they are, even when they changed on disk.
 func (s *ConfigService) LoadFile(path string) (ApplyResultView, error) {
+	if err := s.rt.CheckConfigWrite(); err != nil {
+		return ApplyResultView{}, err
+	}
 	ac, err := s.rt.conn()
 	if err != nil {
 		return ApplyResultView{}, err
@@ -286,6 +295,9 @@ func (s *ConfigService) Backups(path string) ([]BackupView, error) {
 // a backup of what is there now, and an apply of the file's groups. A file
 // removed from supervisor comes back as a new file.
 func (s *ConfigService) Restore(path, backupID string) (ApplyResultView, error) {
+	if err := s.rt.CheckConfigWrite(); err != nil {
+		return ApplyResultView{}, err
+	}
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
 	if err := s.rt.checkManaged(path); err != nil {
@@ -450,6 +462,9 @@ func (r *Runtime) newFileHome() (dir, ext string) {
 // its programs, so everything else keeps running. The new config is watched
 // for notifications. A file that already exists is never overwritten.
 func (s *ConfigService) Create(fileName, content string) (ApplyResultView, error) {
+	if err := s.rt.CheckConfigWrite(); err != nil {
+		return ApplyResultView{}, err
+	}
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
 	dir, _ := s.rt.newFileHome()
