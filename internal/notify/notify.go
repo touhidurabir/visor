@@ -49,6 +49,9 @@ type Message struct {
 	Kind     issues.Kind
 	Process  string
 	Config   string
+	// Server is the server tab the notification belongs to ("" for this
+	// computer); a click opens that tab.
+	Server string
 }
 
 // DaemonThread is the banner thread of notifications that belong to no

@@ -35,6 +35,9 @@ const (
 	// EventNotifications carries a NotificationsView whenever Visor's own
 	// notification list changes.
 	EventNotifications = "visor:notifications"
+	// EventTabs carries the ids of the open server tabs, in order, when one
+	// opens or closes (the popover's sections follow it).
+	EventTabs = "visor:tabs"
 )
 
 func init() {
@@ -42,6 +45,7 @@ func init() {
 	application.RegisterEvent[IssueView](EventIssueOpened)
 	application.RegisterEvent[SettingsView](EventSettings)
 	application.RegisterEvent[NotificationsView](EventNotifications)
+	application.RegisterEvent[[]string](EventTabs)
 }
 
 const (
@@ -649,6 +653,13 @@ func (r *Runtime) notifyIssues(res issues.Result, tracker *issues.Tracker) {
 			continue
 		}
 		msg := notify.Compose(is)
+		if s, ok := r.remoteServer(); ok {
+			// Notifications name the server, and a click opens its tab.
+			msg.Title += " on " + s.Name
+			msg.Headline += " on " + s.Name
+			msg.Thread = s.ID + "/" + msg.Thread
+			msg.Server = s.ID
+		}
 		r.sends.Add(1)
 		go func() {
 			defer r.sends.Done()

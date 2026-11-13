@@ -20,6 +20,7 @@ declare module "@wailsio/runtime" {
             "visor:notifications": app$0.NotificationsView;
             "visor:overview": app$0.OverviewView;
             "visor:settings": app$0.SettingsView;
+            "visor:tabs": string[] | null;
         }
     }
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/touhidurabir/visor/internal/monitor"
 	"github.com/touhidurabir/visor/internal/platform"
+	"github.com/touhidurabir/visor/internal/settings"
 	"github.com/touhidurabir/visor/internal/trayicon"
 )
 
@@ -524,6 +525,15 @@ func NewShellService(s *Shell) *ShellService { return &ShellService{shell: s} }
 // OpenVisor shows the main window (and the Dock icon) and hides the
 // menu-bar popover.
 func (s *ShellService) OpenVisor() { s.shell.ShowMain("") }
+
+// OpenTab shows the main window on a server's tab (the popover's sections).
+func (s *ShellService) OpenTab(id string) {
+	if !settings.ValidServerID(id) {
+		s.shell.ShowMain("")
+		return
+	}
+	s.shell.ShowMain("#/s/" + id)
+}
 
 // OpenDoctor shows the main window at Doctor (and the Dock icon) and hides
 // the menu-bar popover: the popover's Open Doctor.

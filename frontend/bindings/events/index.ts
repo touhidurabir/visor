@@ -48,3 +48,8 @@ export const VisorOverview = "visor:overview";
  */
 export const VisorSettings = "visor:settings";
 
+/**
+ * Name of the custom event "visor:tabs".
+ */
+export const VisorTabs = "visor:tabs";
+

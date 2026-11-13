@@ -15,6 +15,6 @@ type noNotifier struct{}
 
 func newNativeNotifier() nativeNotifier { return noNotifier{} }
 
-func (noNotifier) start(context.Context, func()) {}
-func (noNotifier) send(notify.Message) error     { return notify.ErrUnavailable }
-func (noNotifier) status() string                { return NotifyUnavailable }
+func (noNotifier) start(context.Context, func(string)) {}
+func (noNotifier) send(notify.Message) error           { return notify.ErrUnavailable }
+func (noNotifier) status() string                      { return NotifyUnavailable }

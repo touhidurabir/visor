@@ -17,6 +17,12 @@ import { errorMessage, useOverview } from '../lib/overview'
 import { useApplyFlow } from '../lib/apply-flow'
 import { connectionProblem } from '../lib/connection'
 import { useNotifications } from '../lib/notifications'
+import { Events } from '@wailsio/runtime'
+import { VisorTabs } from '../../bindings/events'
+import ProductionPrompt from '../components/ProductionPrompt.vue'
+import TrayServer from '../components/TrayServer.vue'
+import { refreshTabs } from '../lib/servers'
+import { serverTabs } from '../lib/tabs'
 import { VERB_LABEL, actionTargets, downLine, foldLabel, footerReason, itemActions, itemLook, rowLook, trayActions, trayGroups, trayHeader, type TrayItem, type TrayVerb } from '../lib/tray'
 
 const { overview, error: loadError, reload } = useOverview()
@@ -37,6 +43,11 @@ const problem = computed(() => connectionProblem(server.value))
 const offline = computed(() => problem.value?.reason)
 
 const { unread } = useNotifications()
+
+// The open server tabs, each a section under this computer's (they follow
+// the main window's tabs through visor:tabs).
+void refreshTabs()
+Events.On(VisorTabs, () => void refreshTabs())
 
 // One section per connected server; only this Mac until remote servers.
 const sections = computed(() => [
@@ -301,7 +312,10 @@ function closePopover() {
           </div>
         </div>
       </section>
+      <!-- Open servers, under this computer (in the scrolling list). -->
+      <TrayServer v-for="t in serverTabs" :key="t.id" :tab="t" />
     </div>
+    <ProductionPrompt />
 
     <div v-if="pending" class="notice info" role="alertdialog" aria-label="Apply config changes">
       <div class="body">

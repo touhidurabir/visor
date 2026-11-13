@@ -218,6 +218,7 @@ func (h *Hub) OpenServer(s settings.Server) (OverviewView, error) {
 	h.tabs[s.ID] = t
 	h.order = append(h.order, s.ID)
 	h.mu.Unlock()
+	h.o.Emit(EventTabs, h.Open())
 	ov := rt.Overview()
 	rt.emitOverview()
 	return ov, nil
@@ -251,6 +252,7 @@ func (h *Hub) CloseServer(id string) error {
 	if h.o.Closed != nil {
 		h.o.Closed(id)
 	}
+	h.o.Emit(EventTabs, h.Open())
 	return nil
 }
 

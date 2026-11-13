@@ -262,3 +262,12 @@ func (r *Runtime) ConnErr() error {
 	defer r.mu.Unlock()
 	return r.connErr
 }
+
+// IssuesRoute is the main window's route to a tab's Issues ("" or LocalID:
+// this computer's).
+func IssuesRoute(server string) string {
+	if server == "" || server == LocalID || !settings.ValidServerID(server) {
+		return RouteIssues
+	}
+	return "#/s/" + server + "/issues"
+}

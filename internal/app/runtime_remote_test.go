@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/touhidurabir/visor/internal/notify"
 	"github.com/touhidurabir/visor/internal/remote"
 	"github.com/touhidurabir/visor/internal/remote/remotetest"
 	"github.com/touhidurabir/visor/internal/settings"
@@ -34,6 +37,11 @@ type remoteFixture struct {
 // managing it as a saved server.
 func startRemoteRuntime(t *testing.T, inst *supervisortest.Instance, mod func(*settings.Server)) remoteFixture {
 	t.Helper()
+	return startRemoteRuntimeWith(t, inst, mod, nil)
+}
+
+func startRemoteRuntimeWith(t *testing.T, inst *supervisortest.Instance, mod func(*settings.Server), sender notify.Sender) remoteFixture {
+	t.Helper()
 	noSSHConfig(t)
 	state := t.TempDir()
 	ssh := remotetest.Start(t, remotetest.Options{Password: "pw"})
@@ -56,6 +64,7 @@ func startRemoteRuntime(t *testing.T, inst *supervisortest.Instance, mod func(*s
 		StateDir: settings.ServerStateDir(state, srv.ID),
 		Interval: 100 * time.Millisecond,
 		Keychain: k,
+		Notifier: sender,
 		Remote:   &RemoteSource{Server: srv, Connect: ConnectServer(srv, k, hk)},
 	})
 	if err := rt.Start(context.Background()); err != nil {
@@ -168,4 +177,39 @@ func TestSetServerAppliesReadOnlyAtOnce(t *testing.T) {
 	if h := f.svc.Overview().Host; !h.ReadOnly || h.Tag != settings.TagProduction {
 		t.Fatalf("host: %+v", h)
 	}
+}
+
+func TestIssuesRoute(t *testing.T) {
+	if IssuesRoute("") != RouteIssues || IssuesRoute(LocalID) != RouteIssues || IssuesRoute("../x") != RouteIssues {
+		t.Fatal("this computer")
+	}
+	if got := IssuesRoute("s0123456789"); got != "#/s/s0123456789/issues" {
+		t.Fatal(got)
+	}
+}
+
+func TestRemoteNotificationNamesTheServer(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	sender := &fakeSender{}
+	f := startRemoteRuntimeWith(t, inst, nil, sender)
+	waitRunning(t, f.svc, "sleeper:sleeper")
+	if err := f.svc.SetWatch(filepath.Join(inst.Dir(), "conf.d", "sleeper.ini"), true); err != nil {
+		t.Fatal(err)
+	}
+	// Killed behind supervisord's back: an unexpected exit.
+	p, _ := inst.Client().GetProcessInfo(context.Background(), "sleeper:sleeper")
+	if err := syscall.Kill(p.PID, syscall.SIGKILL); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, m := range sender.messages() {
+			if !strings.HasSuffix(m.Title, " on vm") || m.Server != f.server.ID {
+				t.Fatalf("notification %+v", m)
+			}
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("no notification")
 }

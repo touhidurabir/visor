@@ -26,6 +26,13 @@ export function OpenNotifications(): $CancellablePromise<void> {
 }
 
 /**
+ * OpenTab shows the main window on a server's tab (the popover's sections).
+ */
+export function OpenTab(id: string): $CancellablePromise<void> {
+    return $Call.ByID(945852082, id);
+}
+
+/**
  * OpenVisor shows the main window (and the Dock icon) and hides the
  * menu-bar popover.
  */

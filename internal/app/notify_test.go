@@ -227,9 +227,9 @@ type fakeNative struct {
 	started bool
 }
 
-func (f *fakeNative) start(context.Context, func()) { f.started = true }
-func (f *fakeNative) send(m notify.Message) error   { return f.Send(m) }
-func (f *fakeNative) status() string                { return f.perm }
+func (f *fakeNative) start(context.Context, func(string)) { f.started = true }
+func (f *fakeNative) send(m notify.Message) error         { return f.Send(m) }
+func (f *fakeNative) status() string                      { return f.perm }
 
 func TestNotifyService(t *testing.T) {
 	for _, tc := range []struct {

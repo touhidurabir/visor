@@ -179,6 +179,18 @@ test.describe('server tabs', () => {
     await page.keyboard.press('Escape')
   })
 
+  test('the popover has a section for the open server', async ({ page }) => {
+    await openApp(page, '/tray')
+    const sec = page.getByRole('region', { name: NAME })
+    await expect(sec).toBeVisible()
+    await expect(sec).toContainText('PRODUCTION')
+    await sec.getByRole('button', { name: new RegExp(NAME) }).click()
+    await expect(sec.getByTestId('tray-server-row').first()).toBeVisible()
+    // Read only: no buttons on its rows.
+    await expect(sec.getByRole('button', { name: /^Restart .* on / })).toHaveCount(0)
+    await expect(sec.getByRole('button', { name: 'Open tab' })).toBeVisible()
+  })
+
   test('Settings lists the server; Delete removes it and closes its tab', async ({ page }) => {
     await openApp(page, '/settings')
     const card = page.getByRole('region', { name: 'Servers' })
