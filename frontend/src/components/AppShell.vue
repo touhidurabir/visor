@@ -78,6 +78,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 const name = computed(() => (overview.value?.Host?.Remote ? overview.value.Host.Name : overview.value?.Server.Name) ?? 'Local')
 const remote = computed(() => currentTab.value !== LOCAL)
 const color = computed(() => overview.value?.Host?.Color ?? '')
+const blocked = computed(() => remote.value && !!overview.value && !overview.value.Server.Reachable && overview.value.Server.Health !== 'unknown')
 const health = computed(() => overview.value?.Server.Health ?? 'unknown')
 const failing = computed(() => overview.value?.Stats.Failing ?? 0)
 const openIssues = computed(() => overview.value?.Stats.OpenIssues ?? 0)
@@ -90,7 +91,7 @@ const connection = computed(() => connectionBadge(connectionProblem(overview.val
   <div class="frame">
     <TabBar />
     <div class="shell" data-file-drop-target>
-      <Sidebar :name="name" :health="health" :failing="failing" :open-issues="openIssues" :connection="connection" :remote="remote" :color="color" />
+      <Sidebar :name="name" :health="health" :failing="failing" :open-issues="openIssues" :connection="connection" :remote="remote" :color="color" :blocked="blocked" />
       <main class="content"><slot /></main>
     </div>
     <ServerForm v-if="serverForm" :editing="serverForm.server" @close="serverForm = null" />

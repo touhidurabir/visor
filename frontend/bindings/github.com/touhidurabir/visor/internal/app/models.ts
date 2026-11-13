@@ -348,6 +348,13 @@ export interface HostView {
      * user@host:port on a server
      */
     "Address": string;
+
+    /**
+     * Conn is a server's connection: ConnConnected, ConnReconnecting or
+     * ConnFailed ("" on this computer, or before it connected).
+     */
+    "Conn": string;
+    "ConnError": string;
 }
 
 /**

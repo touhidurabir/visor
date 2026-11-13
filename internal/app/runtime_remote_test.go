@@ -213,3 +213,79 @@ func TestRemoteNotificationNamesTheServer(t *testing.T) {
 	}
 	t.Fatal("no notification")
 }
+
+func fastReconnect(t *testing.T) {
+	t.Helper()
+	f, m := reconnectFirst, reconnectMax
+	reconnectFirst, reconnectMax = 100*time.Millisecond, 400*time.Millisecond
+	ki, km := remote.KeepaliveInterval, remote.KeepaliveMax
+	remote.KeepaliveInterval, remote.KeepaliveMax = 100*time.Millisecond, 2
+	t.Cleanup(func() {
+		reconnectFirst, reconnectMax = f, m
+		remote.KeepaliveInterval, remote.KeepaliveMax = ki, km
+	})
+}
+
+func TestRemoteReconnectsAfterADrop(t *testing.T) {
+	fastReconnect(t)
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	f := startRemoteRuntime(t, inst, nil)
+	waitRunning(t, f.svc, "sleeper:sleeper")
+	before := len(f.ssh.UnixDials())
+	f.ssh.DropAll()
+	// It reconnects on its own: an action soon works over a new connection.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		err := f.svc.Restart("sleeper:sleeper")
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no recovery: %v", err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if ov := f.svc.Overview(); ov.Host.Conn != ConnConnected {
+		t.Fatalf("conn %q", ov.Host.Conn)
+	}
+	if len(f.ssh.UnixDials()) <= before {
+		t.Fatal("no new forwarded connection")
+	}
+}
+
+func TestRemoteHostDownOpensItsOwnIssue(t *testing.T) {
+	fastReconnect(t)
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	f := startRemoteRuntime(t, inst, nil)
+	waitRunning(t, f.svc, "sleeper:sleeper")
+	f.ssh.Freeze()
+	waitOverview(t, f.svc, 15*time.Second, "reconnecting", func(ov OverviewView) bool { return ov.Host.Conn == ConnReconnecting })
+	is := NewIssueService(f.rt)
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		list, _ := is.List(IssueQuery{Status: "open"})
+		if len(list) > 0 {
+			if list[0].Kind != "host_down" {
+				t.Fatalf("issue %+v", list[0])
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no host_down issue")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	f.ssh.Thaw()
+	waitOverview(t, f.svc, 15*time.Second, "back", func(ov OverviewView) bool { return ov.Host.Conn == ConnConnected && ov.Server.Reachable })
+	deadline = time.Now().Add(10 * time.Second)
+	for {
+		list, _ := is.List(IssueQuery{Status: "open"})
+		if len(list) == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("still open: %+v", list)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}

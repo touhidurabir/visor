@@ -179,6 +179,10 @@ type HostView struct {
 	Sudo     bool
 	Via      string // how supervisord is reached on a server
 	Address  string // user@host:port on a server
+	// Conn is a server's connection: ConnConnected, ConnReconnecting or
+	// ConnFailed ("" on this computer, or before it connected).
+	Conn      string
+	ConnError string
 }
 
 // remoteServer returns the server this Runtime manages, if any, as last
@@ -251,7 +255,15 @@ func (r *Runtime) hostView() HostView {
 	if r.session != nil {
 		h.Via, h.Address = r.session.Via, r.session.Address
 	}
+	link := r.link
 	r.mu.Unlock()
+	if link != nil {
+		var err error
+		h.Conn, err = link.status()
+		if err != nil {
+			h.ConnError = err.Error()
+		}
+	}
 	return h
 }
 

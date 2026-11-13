@@ -47,7 +47,7 @@ describe('issueKind', () => {
   })
   it('colours a kind by its severity, as the bell does (Go notify.SeverityOf)', () => {
     // A crash loop is an error in Go, so it is red here as it is in the bell.
-    expect(KIND_SEVERITY).toEqual({ fatal: 'error', crash_loop: 'error', unreachable: 'error', unexpected_exit: 'warning' })
+    expect(KIND_SEVERITY).toEqual({ fatal: 'error', crash_loop: 'error', unreachable: 'error', host_down: 'error', unexpected_exit: 'warning' })
     for (const [kind, level] of Object.entries(KIND_SEVERITY)) {
       expect(issueKind(kind).cls).toBe(level === 'error' ? 't-bad' : 't-warn')
     }

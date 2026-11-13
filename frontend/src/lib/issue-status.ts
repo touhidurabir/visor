@@ -21,6 +21,7 @@ export const KIND_SEVERITY: Record<string, SeverityLevel> = {
   fatal: 'error',
   crash_loop: 'error',
   unreachable: 'error',
+  host_down: 'error',
   unexpected_exit: 'warning',
 }
 
@@ -31,6 +32,7 @@ const KINDS: Record<string, { label: string; icon: string }> = {
   unexpected_exit: { label: 'Exited', icon: KIND_ICONS.exit },
   crash_loop: { label: 'Crash loop', icon: KIND_ICONS.loop },
   unreachable: { label: 'Unreachable', icon: KIND_ICONS.down },
+  host_down: { label: 'Server unreachable', icon: KIND_ICONS.down },
 }
 
 /**

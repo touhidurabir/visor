@@ -200,6 +200,14 @@ func (s *Server) Freeze() {
 	s.mu.Unlock()
 }
 
+// Thaw lets new connections in again after Freeze (the frozen ones stay
+// stuck until the client drops them).
+func (s *Server) Thaw() {
+	s.mu.Lock()
+	s.frozen = false
+	s.mu.Unlock()
+}
+
 // Execs returns the commands run so far.
 func (s *Server) Execs() []string {
 	s.mu.Lock()

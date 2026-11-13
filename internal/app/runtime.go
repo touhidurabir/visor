@@ -188,6 +188,7 @@ type Runtime struct {
 	// session is the server connection (nil on this computer); filesAt is
 	// when its files were last checked.
 	session *RemoteSession
+	link    *remoteLink
 	filesAt time.Time
 	// server is the saved server after an edit (SetServer); nil until then.
 	server *settings.Server
@@ -449,16 +450,21 @@ func (r *Runtime) connect() {
 	}
 	var d config.Discovery
 	var err error
+	var link *remoteLink
 	if src := r.opts.Remote; src != nil {
 		sess, cerr := src.Connect(ctx, src.Server.ConfigPath)
 		if cerr != nil {
 			fail(config.Discovery{ConfigPath: src.Server.ConfigPath}, cerr)
 			return
 		}
+		// The client and file reads go through the link, so a reconnect
+		// can swap the SSH session under them.
+		link = newLink(sess)
 		r.mu.Lock()
-		r.session = sess
+		r.session, r.link = sess, link
 		r.mu.Unlock()
 		d = sess.Discovery
+		d.Transport, d.FS = link, link
 	} else if d, err = config.Resolve(r.configPathOf(prefs)); err != nil {
 		fail(d, err)
 		return
@@ -502,6 +508,10 @@ func (r *Runtime) connect() {
 	r.mu.Unlock()
 
 	updates, unsubscribe := mon.Subscribe()
+	if link != nil {
+		r.wg.Add(1)
+		go r.watchLink(ctx, link, r.opts.Remote)
+	}
 	r.wg.Add(2)
 	go func() {
 		defer r.wg.Done()
@@ -523,7 +533,7 @@ func (r *Runtime) connect() {
 // forgets everything learned from it. Caller holds life.
 func (r *Runtime) disconnect() {
 	r.mu.Lock()
-	cancel, client, sess := r.cancel, r.client, r.session
+	cancel, client, sess, link := r.cancel, r.client, r.session, r.link
 	r.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -532,11 +542,14 @@ func (r *Runtime) disconnect() {
 	if client != nil {
 		client.Close()
 	}
-	if sess != nil && sess.Close != nil {
+	switch {
+	case link != nil:
+		link.close() // its current session (a reconnect may have swapped it)
+	case sess != nil && sess.Close != nil:
 		sess.Close()
 	}
 	r.mu.Lock()
-	r.session = nil
+	r.session, r.link = nil, nil
 	r.cancel, r.client, r.mon, r.watcher = nil, nil, nil, nil // the tracker and store stay
 	r.d, r.connErr = config.Discovery{}, nil
 	r.inv, r.changes, r.last = config.Inventory{}, config.ChangeSet{}, monitor.Update{}
@@ -678,7 +691,7 @@ func (r *Runtime) notifyIssues(res issues.Result, tracker *issues.Tracker) {
 		}()
 	}
 	for _, is := range res.Closed {
-		if is.Kind != issues.KindUnreachable || !notify.ShouldNotify(is, prefs, true) {
+		if (is.Kind != issues.KindUnreachable && is.Kind != issues.KindHostDown) || !notify.ShouldNotify(is, prefs, true) {
 			continue
 		}
 		if _, err := r.inbox.Recovered(is); err != nil {

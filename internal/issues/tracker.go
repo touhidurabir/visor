@@ -333,7 +333,7 @@ func (t *Tracker) apply(u monitor.Update) (opened, closed []Issue) {
 			// start and stop between two polls) open nothing: FATAL and
 			// the crash loop cover a program that cannot start.
 		case monitor.Reconnected:
-			closed = append(closed, t.closeWhere(func(i *Issue) bool { return i.Kind == KindUnreachable }, StatusResolvedAuto, "", now)...)
+			closed = append(closed, t.closeWhere(func(i *Issue) bool { return i.Kind == KindUnreachable || i.Kind == KindHostDown }, StatusResolvedAuto, "", now)...)
 		}
 	}
 	if err := t.store.addTransitions(trans); err != nil {
@@ -357,17 +357,22 @@ func (t *Tracker) apply(u monitor.Update) (opened, closed []Issue) {
 	if u.Snapshot.Reachable {
 		t.failedPolls = 0
 		// First contact after starting unreachable emits no Reconnected.
-		closed = append(closed, t.closeWhere(func(i *Issue) bool { return i.Kind == KindUnreachable }, StatusResolvedAuto, "", now)...)
+		closed = append(closed, t.closeWhere(func(i *Issue) bool { return i.Kind == KindUnreachable || i.Kind == KindHostDown }, StatusResolvedAuto, "", now)...)
 	} else if !u.Snapshot.At.IsZero() && !errors.Is(u.Snapshot.Err, supervisor.ErrShutdownState) {
 		// SHUTDOWN_STATE is an answer: supervisord is stopping its processes
 		// to restart or shut down, so it neither counts nor resets.
 		t.failedPolls++
 		if t.failedPolls >= t.rules.UnreachablePolls && !t.byUser("", now) {
-			msg := "supervisord is not responding"
-			if u.Snapshot.Err != nil {
-				msg += ": " + u.Snapshot.Err.Error()
+			if errors.Is(u.Snapshot.Err, ErrHostDown) {
+				// The server, not supervisord: its own issue.
+				opened = append(opened, t.openIssue(KindHostDown, "", "Can't reach the server over SSH: "+u.Snapshot.Err.Error(), now)...)
+			} else {
+				msg := "supervisord is not responding"
+				if u.Snapshot.Err != nil {
+					msg += ": " + u.Snapshot.Err.Error()
+				}
+				opened = append(opened, t.openIssue(KindUnreachable, "", msg, now)...)
 			}
-			opened = append(opened, t.openIssue(KindUnreachable, "", msg, now)...)
 		}
 	}
 	if !u.Snapshot.At.IsZero() {

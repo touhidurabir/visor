@@ -15,7 +15,9 @@ import { baseName, tabHref } from '../lib/tabs'
 // answering", "Not connected"; lib/connection.ts connectionBadge), null
 // while connected.
 // remote/color: the tab is a server's (its colour leads its name).
-const props = defineProps<{ name: string; health: string; failing: number; openIssues: number; connection: string | null; remote?: boolean; color?: string }>()
+// blocked: a server Visor can't reach (its report says why): Dashboard and
+// Issues are greyed until it can.
+const props = defineProps<{ name: string; health: string; failing: number; openIssues: number; connection: string | null; remote?: boolean; color?: string; blocked?: boolean }>()
 
 // Shortcut hints, as Visor's menu bar shows them on macOS (⌘N, ⌘,) and
 // AppShell carries them out on Linux (Ctrl+N, Ctrl+,).
@@ -61,13 +63,13 @@ const dot = computed(() => {
         <span v-else-if="failing > 0" class="badge b-bad state">{{ failing }} failing</span>
       </div>
       <div class="sub">
-        <RouterLink :to="tabHref('/')" :class="['nav', on('dashboard')]">
+        <RouterLink :to="tabHref('/')" :class="['nav', on('dashboard'), { dim: blocked }]" :title="blocked ? 'Visor can’t reach supervisord on this server: see Server report' : undefined">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
             <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" />
           </svg>
           Dashboard
         </RouterLink>
-        <RouterLink :to="tabHref('/issues')" :class="['nav', on('issues')]">
+        <RouterLink :to="tabHref('/issues')" :class="['nav', on('issues'), { dim: blocked }]">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
             <path d="M12 3 2 20h20L12 3z" /><path d="M12 10v4" /><path d="M12 17v.01" />
           </svg>
@@ -152,6 +154,7 @@ const dot = computed(() => {
 }
 .nav svg { flex: none; }
 .nav:hover:not(:disabled) { background: var(--hover); }
+.nav.dim:not(.on) { color: var(--ink3); }
 .nav.on { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
 .nav .kbd { margin-left: auto; font-weight: 400; }
 .count {
