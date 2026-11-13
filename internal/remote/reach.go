@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"syscall"
 
 	"github.com/touhidurabir/visor/internal/supervisor"
 )
@@ -56,12 +55,19 @@ func (a *Access) Close() {
 // Without, the socket is forwarded when the SSH user may open it; when SSH
 // forwarding is switched off on the server, the bridge relays it instead.
 func Reach(ctx context.Context, c *Conn, addr string, o BridgeOptions) (*Access, error) {
-	files := &BridgeTransport{Conn: c, Options: o, Addr: addr}
-	if o.Sudo {
+	return ReachWith(ctx, c, addr, &BridgeTransport{Conn: c, Options: o})
+}
+
+// ReachWith is Reach reusing a bridge that may already be running (the one
+// discovery read the config through), so sudo is still asked only once.
+func ReachWith(ctx context.Context, c *Conn, addr string, files *BridgeTransport) (*Access, error) {
+	files.Addr = addr
+	if files.Options.Sudo {
 		conn, err := files.DialContext(ctx)
 		if err != nil {
+			e := socketError(ctx, files, addr, err)
 			files.Close()
-			return nil, socketError(ctx, files, addr, err)
+			return nil, e
 		}
 		_ = conn.Close()
 		return &Access{Transport: files, Via: ViaSudo, Files: files}, nil
@@ -76,8 +82,9 @@ func Reach(ctx context.Context, c *Conn, addr string, o BridgeOptions) (*Access,
 	// Forwarding failed: ask the bridge why (and use it if it can connect).
 	conn, err := files.DialContext(ctx)
 	if err != nil {
+		e := socketError(ctx, files, addr, err)
 		files.Close()
-		return nil, socketError(ctx, files, addr, err)
+		return nil, e
 	}
 	_ = conn.Close()
 	return &Access{Transport: files, Via: ViaBridge, Files: files}, nil
@@ -88,12 +95,12 @@ func socketError(ctx context.Context, files *BridgeTransport, addr string, err e
 	if !errors.As(err, &re) {
 		return err
 	}
-	switch syscall.Errno(re.Errno) {
-	case syscall.ENOENT:
+	switch re.Code {
+	case "ENOENT":
 		return fmt.Errorf("%w (%s)", ErrSocketMissing, addr)
-	case syscall.ECONNREFUSED:
+	case "ECONNREFUSED":
 		return fmt.Errorf("%w (%s)", ErrNotListening, addr)
-	case syscall.EACCES, syscall.EPERM:
+	case "EACCES", "EPERM":
 		d := &SocketDeniedError{Addr: addr}
 		if b, berr := files.Bridge(ctx); berr == nil {
 			if path, ok := unixPath(addr); ok {

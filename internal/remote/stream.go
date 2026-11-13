@@ -178,7 +178,13 @@ func (s *stream) SetReadDeadline(t time.Time) error {
 		s.timer = nil
 	}
 	if !t.IsZero() {
-		s.timer = time.AfterFunc(time.Until(t), s.cond.Broadcast)
+		s.timer = time.AfterFunc(time.Until(t), func() {
+			// Take the lock so the wake-up can't fall between Read's
+			// deadline check and its Wait.
+			s.mu.Lock()
+			s.mu.Unlock() //nolint:staticcheck // empty critical section on purpose
+			s.cond.Broadcast()
+		})
 	}
 	s.cond.Broadcast()
 	return nil

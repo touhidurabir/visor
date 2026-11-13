@@ -61,7 +61,7 @@ var DialTimeout = 15 * time.Second
 // Dial connects and logs in. Host keys are checked against hk; an unknown key
 // returns *UnknownHostError and a changed one *HostKeyChangedError.
 func Dial(ctx context.Context, t Target, s Secrets, hk HostKeys) (*Conn, error) {
-	cb, err := hk.callback()
+	cb, algos, err := hk.callback()
 	if err != nil {
 		return nil, err
 	}
@@ -77,15 +77,15 @@ func Dial(ctx context.Context, t Target, s Secrets, hk HostKeys) (*Conn, error) 
 	}
 	// Each jump host is reached through the one before it.
 	for _, j := range t.Jump {
-		c, err := handshake(ctx, dial, j, s, cb)
+		c, err := handshake(ctx, dial, j, s, cb, algos)
 		if err != nil {
 			cleanup()
 			return nil, fmt.Errorf("jump host %s: %w", j.Addr(), err)
 		}
 		closers = append(closers, func() { _ = c.Close() })
-		dial = func(_ context.Context, addr string) (net.Conn, error) { return c.Dial("tcp", addr) }
+		dial = func(ctx context.Context, addr string) (net.Conn, error) { return dialVia(ctx, c, addr) }
 	}
-	client, err := handshake(ctx, dial, t, s, cb)
+	client, err := handshake(ctx, dial, t, s, cb, algos)
 	if err != nil {
 		cleanup()
 		return nil, err
@@ -94,7 +94,7 @@ func Dial(ctx context.Context, t Target, s Secrets, hk HostKeys) (*Conn, error) 
 	return conn, nil
 }
 
-func handshake(ctx context.Context, dial func(context.Context, string) (net.Conn, error), t Target, s Secrets, cb ssh.HostKeyCallback) (*ssh.Client, error) {
+func handshake(ctx context.Context, dial func(context.Context, string) (net.Conn, error), t Target, s Secrets, cb ssh.HostKeyCallback, algos func(string) []string) (*ssh.Client, error) {
 	auth, closeAuth, skippedKey, err := authMethods(t, s)
 	if err != nil {
 		return nil, err
@@ -114,10 +114,11 @@ func handshake(ctx context.Context, dial func(context.Context, string) (net.Conn
 	stop := context.AfterFunc(ctx, func() { _ = raw.Close() })
 	defer stop()
 	cfg := &ssh.ClientConfig{
-		User:            t.User,
-		Auth:            auth,
-		HostKeyCallback: cb,
-		Timeout:         time.Until(deadline),
+		User:              t.User,
+		Auth:              auth,
+		HostKeyCallback:   cb,
+		HostKeyAlgorithms: algos(t.Addr()),
+		Timeout:           time.Until(deadline),
 	}
 	c, chans, reqs, err := ssh.NewClientConn(raw, t.Addr(), cfg)
 	if err != nil {
@@ -129,6 +130,10 @@ func handshake(ctx context.Context, dial func(context.Context, string) (net.Conn
 			return nil, unknown
 		case errors.As(err, &changed):
 			return nil, changed
+		case errors.Is(err, ErrAuthFailed) && skippedKey:
+			return nil, ErrPassphraseNeeded
+		case errors.Is(err, ErrAuthFailed):
+			return nil, fmt.Errorf("%w (%s@%s)", ErrAuthFailed, t.User, t.Addr())
 		case strings.Contains(err.Error(), "unable to authenticate") && skippedKey:
 			return nil, ErrPassphraseNeeded
 		case strings.Contains(err.Error(), "unable to authenticate"):
@@ -168,11 +173,25 @@ func authMethods(t Target, s Secrets) (methods []ssh.AuthMethod, closeAll func()
 	}
 	if s.Password != "" {
 		pw := s.Password
+		triedPassword := false
 		methods = append(methods,
-			ssh.Password(pw),
+			ssh.PasswordCallback(func() (string, error) {
+				triedPassword = true
+				return pw, nil
+			}),
+			// Servers that only take keyboard-interactive get the password
+			// for a password prompt; anything else (a one-time code, a new
+			// password) is not answered. After a refused password it is not
+			// sent again, so one connect counts as one failed login.
 			ssh.KeyboardInteractive(func(_, _ string, questions []string, _ []bool) ([]string, error) {
+				if triedPassword {
+					return nil, ErrAuthFailed
+				}
 				answers := make([]string, len(questions))
-				for i := range questions {
+				for i, q := range questions {
+					if !strings.Contains(strings.ToLower(q), "password") {
+						return nil, ErrAuthFailed
+					}
 					answers[i] = pw
 				}
 				return answers, nil
@@ -228,4 +247,28 @@ func expandHome(p string) string {
 		}
 	}
 	return p
+}
+
+// dialVia opens addr through a jump host, giving up when ctx ends.
+func dialVia(ctx context.Context, c *ssh.Client, addr string) (net.Conn, error) {
+	type result struct {
+		c   net.Conn
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		conn, err := c.Dial("tcp", addr)
+		ch <- result{conn, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.c, r.err
+	case <-ctx.Done():
+		go func() {
+			if r := <-ch; r.c != nil {
+				_ = r.c.Close()
+			}
+		}()
+		return nil, ctx.Err()
+	}
 }

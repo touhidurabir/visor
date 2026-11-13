@@ -35,6 +35,8 @@ type Options struct {
 	NoStreamLocal bool
 	// HostKey replaces the generated host key (to simulate a changed key).
 	HostKey ssh.Signer
+	// ExtraHostKeys are offered too (a server with ECDSA, RSA and Ed25519 keys).
+	ExtraHostKeys []ssh.Signer
 }
 
 // Server is a running test SSH server.
@@ -44,16 +46,30 @@ type Server struct {
 	Port    int
 	HostKey ssh.PublicKey
 
-	opts   Options
-	ln     net.Listener
-	cfg    *ssh.ServerConfig
-	mu     sync.Mutex
-	execs  []string
-	unix   []string
-	tcp    []string
-	conns  map[net.Conn]struct{}
-	frozen bool
-	wg     sync.WaitGroup
+	opts    Options
+	ln      net.Listener
+	cfg     *ssh.ServerConfig
+	mu      sync.Mutex
+	execs   []string
+	unix    []string
+	tcp     []string
+	conns   map[net.Conn]struct{}
+	frozen  bool
+	wg      sync.WaitGroup
+	pwTries int
+}
+
+// PasswordAttempts counts password and keyboard-interactive logins tried.
+func (s *Server) PasswordAttempts() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.pwTries
+}
+
+func (s *Server) countTry() {
+	s.mu.Lock()
+	s.pwTries++
+	s.mu.Unlock()
 }
 
 // NewHostKey returns a fresh ed25519 host key.
@@ -84,6 +100,7 @@ func Start(t testing.TB, o Options) *Server {
 	s.cfg = &ssh.ServerConfig{}
 	if o.Password != "" {
 		s.cfg.PasswordCallback = func(c ssh.ConnMetadata, pw []byte) (*ssh.Permissions, error) {
+			s.countTry()
 			if c.User() == o.User && string(pw) == o.Password {
 				return nil, nil
 			}
@@ -92,6 +109,9 @@ func Start(t testing.TB, o Options) *Server {
 		if o.KeyboardInteractive {
 			s.cfg.KeyboardInteractiveCallback = func(c ssh.ConnMetadata, ch ssh.KeyboardInteractiveChallenge) (*ssh.Permissions, error) {
 				ans, err := ch("", "", []string{"Password: "}, []bool{false})
+				if err == nil {
+					s.countTry()
+				}
 				if err == nil && c.User() == o.User && len(ans) == 1 && ans[0] == o.Password {
 					return nil, nil
 				}
@@ -111,6 +131,9 @@ func Start(t testing.TB, o Options) *Server {
 			}
 			return nil, errors.New("unknown key")
 		}
+	}
+	for _, k := range o.ExtraHostKeys {
+		s.cfg.AddHostKey(k)
 	}
 	s.cfg.AddHostKey(hk)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

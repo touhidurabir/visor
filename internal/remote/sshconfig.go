@@ -148,6 +148,19 @@ func resolve(ctx context.Context, t Target, depth int) (Target, error) {
 	return t, nil
 }
 
+// ParseJump reads a ProxyJump list ("user@host:port,host2").
+func ParseJump(s string) ([]Target, error) {
+	var out []Target
+	for _, hop := range strings.Split(s, ",") {
+		t, err := parseHop(strings.TrimSpace(hop))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, nil
+}
+
 // parseHop reads one ProxyJump entry: [user@]host[:port] or ssh://[user@]host[:port].
 func parseHop(s string) (Target, error) {
 	s = strings.TrimPrefix(s, "ssh://")

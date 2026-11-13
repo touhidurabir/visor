@@ -51,7 +51,7 @@ func (t *BridgeTransport) Bridge(ctx context.Context) (*Bridge, error) {
 
 // sticky errors need the user to change something before a retry.
 func sticky(err error) bool {
-	return errors.Is(err, ErrSudoRefused) || errors.Is(err, ErrSudoPasswordNeeded) ||
+	return errors.Is(err, ErrSudoRefused) || errors.Is(err, ErrSudoPasswordNeeded) || errors.Is(err, ErrSudoUnconfirmed) ||
 		errors.Is(err, ErrSudoNotAllowed) || errors.Is(err, ErrSudoNeedsTTY) || errors.Is(err, ErrNoPython)
 }
 

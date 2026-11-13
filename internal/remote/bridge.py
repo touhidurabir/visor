@@ -46,8 +46,13 @@ def send(kind, ident, payload=b""):
 
 def send_error(ident, e):
     code = getattr(e, "errno", None) or 0
-    msg = getattr(e, "strerror", None) or str(e)
-    send("e", ident, json.dumps({"errno": code, "msg": msg}))
+    msg = getattr(e, "strerror", None)
+    if not msg:
+        try:
+            msg = str(e)
+        except Exception:  # Python 2: a unicode message that isn't ASCII
+            msg = repr(e)
+    send("e", ident, json.dumps({"errno": code, "code": errno.errorcode.get(code, ""), "msg": msg}))
 
 
 def name_of(fn, ident):

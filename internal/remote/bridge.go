@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -111,12 +110,13 @@ func FindPython(ctx context.Context, c *Conn) (string, error) {
 
 // StartBridge starts the bridge over c, with sudo when o.Sudo is set.
 func StartBridge(ctx context.Context, c *Conn, o BridgeOptions) (*Bridge, error) {
-	ctx, cancel := context.WithTimeout(ctx, BridgeStartTimeout)
-	defer cancel()
 	py := o.Python
 	if py == "" {
+		fctx, cancel := context.WithTimeout(ctx, BridgeStartTimeout)
 		var err error
-		if py, err = FindPython(ctx, c); err != nil {
+		py, err = FindPython(fctx, c)
+		cancel()
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -147,25 +147,42 @@ func StartBridge(ctx context.Context, c *Conn, o BridgeOptions) (*Bridge, error)
 	return b, nil
 }
 
+// ErrSudoUnconfirmed means sudo was given the password but never said
+// whether it took it. Like a refusal, it is not retried on its own, so a
+// wrong password can't count against the server's lockout twice.
+var ErrSudoUnconfirmed = errors.New("sudo was sent the password but didn't answer in time")
+
 // boot answers sudo's prompt (once), waits for the bootstrap, sends the
-// bridge and reads its hello.
-func (b *Bridge) boot(ctx context.Context, o BridgeOptions) error {
+// bridge and reads its hello. It runs on its own clock (BridgeStartTimeout):
+// the caller may give up before sudo has the password, but once it has, the
+// outcome is always waited for.
+func (b *Bridge) boot(caller context.Context, o BridgeOptions) error {
+	own, cancel := context.WithTimeout(context.Background(), BridgeStartTimeout)
+	defer cancel()
 	prompts := make(chan struct{}, 4)
 	go func() {
 		buf := make([]byte, 1024)
-		var seen strings.Builder
+		var seen string
 		for {
 			n, err := b.proc.Stderr.Read(buf)
 			if n > 0 {
 				_, _ = b.stderr.Write(buf[:n])
-				seen.Write(buf[:n])
-				for strings.Contains(seen.String(), sudoPrompt) {
-					s := strings.Replace(seen.String(), sudoPrompt, "", 1)
-					seen.Reset()
-					seen.WriteString(s)
-					select {
-					case prompts <- struct{}{}:
-					default:
+				if o.Sudo {
+					seen += string(buf[:n])
+					for {
+						i := strings.Index(seen, sudoPrompt)
+						if i < 0 {
+							break
+						}
+						seen = seen[i+len(sudoPrompt):]
+						select {
+						case prompts <- struct{}{}:
+						default:
+						}
+					}
+					// Keep only what could be the start of a prompt.
+					if len(seen) > len(sudoPrompt) {
+						seen = seen[len(seen)-len(sudoPrompt):]
 					}
 				}
 			}
@@ -195,6 +212,11 @@ func (b *Bridge) boot(ctx context.Context, o BridgeOptions) error {
 	}()
 	answered := false
 	for {
+		// The caller can cancel only until sudo has the password.
+		var callerDone <-chan struct{}
+		if !answered {
+			callerDone = caller.Done()
+		}
 		select {
 		case <-prompts:
 			if answered {
@@ -205,30 +227,57 @@ func (b *Bridge) boot(ctx context.Context, o BridgeOptions) error {
 			}
 			answered = true
 			if _, err := io.WriteString(b.proc.Stdin, o.SudoPassword+"\n"); err != nil {
-				return err
+				return ErrSudoUnconfirmed
 			}
 		case err := <-booted:
 			if err != nil {
-				return b.startError()
+				if e := b.startError(); answered && errors.Is(e, ErrBridgeClosed) {
+					return ErrSudoUnconfirmed
+				} else {
+					return e
+				}
 			}
-			src := strconv.Itoa(len(bridgeSource)) + "\n"
-			if _, err := io.WriteString(b.proc.Stdin, src); err != nil {
-				return err
+			return b.sendBridge(own)
+		case <-callerDone:
+			return fmt.Errorf("starting the helper on the server: %w", caller.Err())
+		case <-own.Done():
+			if answered {
+				return ErrSudoUnconfirmed
 			}
-			if _, err := b.proc.Stdin.Write(bridgeSource); err != nil {
-				return err
-			}
-			f, err := readFrame(b.proc.Stdout)
-			if err != nil || f.kind != 'H' {
-				return b.startError()
-			}
-			if err := json.Unmarshal(f.payload, &b.hello); err != nil {
-				return fmt.Errorf("bridge hello: %w", err)
-			}
-			return nil
-		case <-ctx.Done():
-			return fmt.Errorf("starting the helper on the server: %w", ctx.Err())
+			return errors.New("the helper on the server didn't start in time")
 		}
+	}
+}
+
+// sendBridge sends the bridge's source and waits for its hello.
+func (b *Bridge) sendBridge(ctx context.Context) error {
+	src := strconv.Itoa(len(bridgeSource)) + "\n"
+	if _, err := io.WriteString(b.proc.Stdin, src); err != nil {
+		return b.startError()
+	}
+	if _, err := b.proc.Stdin.Write(bridgeSource); err != nil {
+		return b.startError()
+	}
+	type result struct {
+		f   frame
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		f, err := readFrame(b.proc.Stdout)
+		ch <- result{f, err}
+	}()
+	select {
+	case r := <-ch:
+		if r.err != nil || r.f.kind != 'H' {
+			return b.startError()
+		}
+		if err := json.Unmarshal(r.f.payload, &b.hello); err != nil {
+			return fmt.Errorf("bridge hello: %w", err)
+		}
+		return nil
+	case <-ctx.Done():
+		return errors.New("the helper on the server didn't answer in time")
 	}
 }
 
@@ -387,20 +436,22 @@ func (b *Bridge) request(ctx context.Context, kind byte, payload []byte) (frame,
 	}
 }
 
-// RemoteError is an error the bridge reported, with the server's errno.
+// RemoteError is an error the bridge reported. Code is the server's errno
+// name ("ENOENT"): errno numbers differ between Linux and macOS.
 type RemoteError struct {
-	Errno int
-	Msg   string
+	Errno int    `json:"errno"`
+	Code  string `json:"code"`
+	Msg   string `json:"msg"`
 }
 
 func (e *RemoteError) Error() string { return e.Msg }
 
 // Is maps the server's errno to the fs errors callers check.
 func (e *RemoteError) Is(target error) bool {
-	switch syscall.Errno(e.Errno) {
-	case syscall.ENOENT:
+	switch e.Code {
+	case "ENOENT":
 		return target == fs.ErrNotExist
-	case syscall.EACCES, syscall.EPERM:
+	case "EACCES", "EPERM":
 		return target == fs.ErrPermission
 	}
 	return false

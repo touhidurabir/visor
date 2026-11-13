@@ -65,7 +65,7 @@ var trustMu sync.Mutex
 
 // callback returns a HostKeyCallback over the existing files. Missing files
 // are skipped; an unreadable or malformed one is an error.
-func (h HostKeys) callback() (ssh.HostKeyCallback, error) {
+func (h HostKeys) callback() (ssh.HostKeyCallback, func(addr string) []string, error) {
 	var files []string
 	for _, f := range append(append([]string{}, h.UserFiles...), h.VisorFile) {
 		if f == "" {
@@ -75,7 +75,7 @@ func (h HostKeys) callback() (ssh.HostKeyCallback, error) {
 			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
-			return nil, err
+			return nil, nil, err
 		}
 		files = append(files, f)
 	}
@@ -83,7 +83,12 @@ func (h HostKeys) callback() (ssh.HostKeyCallback, error) {
 	if len(files) > 0 {
 		cb, err := knownhosts.New(files...)
 		if err != nil {
-			return nil, fmt.Errorf("read known hosts: %w", err)
+			// Like OpenSSH, skip lines that can't be read (a key type Go
+			// doesn't know) instead of refusing every connection.
+			cb, err = tolerantKnownHosts(files)
+			if err != nil {
+				return nil, nil, fmt.Errorf("read known hosts: %w", err)
+			}
 		}
 		known = cb
 	}
@@ -107,7 +112,7 @@ func (h HostKeys) callback() (ssh.HostKeyCallback, error) {
 			return ch
 		}
 		return err
-	}, nil
+	}, func(addr string) []string { return algorithms(known, addr) }, nil
 }
 
 // Trust records key for host:port in VisorFile (created 0600 with its folder).
@@ -130,4 +135,86 @@ func (h HostKeys) Trust(host string, port int, key ssh.PublicKey) error {
 		return err
 	}
 	return f.Close()
+}
+
+// tolerantKnownHosts loads files keeping only the lines that parse.
+func tolerantKnownHosts(files []string) (ssh.HostKeyCallback, error) {
+	tmp, err := os.CreateTemp("", "visor-known-hosts-*")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			_ = tmp.Close()
+			return nil, err
+		}
+		for _, line := range strings.Split(string(b), "\n") {
+			if t := strings.TrimSpace(line); t == "" || strings.HasPrefix(t, "#") {
+				continue
+			}
+			if _, _, _, _, _, err := ssh.ParseKnownHosts([]byte(line)); err != nil {
+				continue
+			}
+			if _, err := tmp.WriteString(line + "\n"); err != nil {
+				_ = tmp.Close()
+				return nil, err
+			}
+		}
+	}
+	if err := tmp.Close(); err != nil {
+		return nil, err
+	}
+	return knownhosts.New(tmp.Name())
+}
+
+// probeAddr is a net.Addr for asking the database about a host before dialling.
+type probeAddr string
+
+func (a probeAddr) Network() string { return "tcp" }
+func (a probeAddr) String() string  { return string(a) }
+
+var probeKey = func() ssh.PublicKey {
+	k, _ := ssh.ParsePublicKey(ed25519Probe)
+	return k
+}()
+
+// ed25519Probe is a fixed public key no host has (all zero bytes).
+var ed25519Probe = ssh.Marshal(struct {
+	Name string
+	Key  []byte
+}{ssh.KeyAlgoED25519, make([]byte, 32)})
+
+// algorithms returns the host key algorithms to ask addr for: the types of
+// the keys on file for it, so a server with several keys offers one Visor
+// knows instead of one that looks changed. nil when none is on file.
+func algorithms(known ssh.HostKeyCallback, addr string) []string {
+	if known == nil {
+		return nil
+	}
+	err := known(addr, probeAddr(addr), probeKey)
+	var ke *knownhosts.KeyError
+	if !errors.As(err, &ke) || len(ke.Want) == 0 {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	add := func(a ...string) {
+		for _, x := range a {
+			if !seen[x] {
+				seen[x] = true
+				out = append(out, x)
+			}
+		}
+	}
+	for _, w := range ke.Want {
+		switch t := w.Key.Type(); t {
+		case ssh.KeyAlgoRSA:
+			add(ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSA)
+		default:
+			add(t)
+		}
+	}
+	return out
 }
