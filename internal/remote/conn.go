@@ -31,6 +31,7 @@ func newConn(c *ssh.Client, t Target, cleanup func()) *Conn {
 		err := c.Wait()
 		conn.markClosed(err)
 	}()
+	go conn.keepalive()
 	return conn
 }
 
