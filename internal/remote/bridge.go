@@ -81,6 +81,8 @@ var BridgeStartTimeout = 20 * time.Second
 type Bridge struct {
 	proc  *Process
 	hello Hello
+	// prompted: sudo asked for the password (false with NOPASSWD).
+	prompted bool
 
 	wmu     sync.Mutex
 	mu      sync.Mutex
@@ -226,6 +228,7 @@ func (b *Bridge) boot(caller context.Context, o BridgeOptions) error {
 				return ErrSudoPasswordNeeded
 			}
 			answered = true
+			b.prompted = true
 			if _, err := io.WriteString(b.proc.Stdin, o.SudoPassword+"\n"); err != nil {
 				return ErrSudoUnconfirmed
 			}
@@ -308,6 +311,9 @@ func (b *Bridge) startError() error {
 
 // Hello is what the bridge reported at start (its user and groups).
 func (b *Bridge) Hello() Hello { return b.hello }
+
+// Prompted reports whether sudo asked for the password (false: NOPASSWD).
+func (b *Bridge) Prompted() bool { return b.prompted }
 
 // Done is closed when the bridge stops.
 func (b *Bridge) Done() <-chan struct{} { return b.dead }

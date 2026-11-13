@@ -283,6 +283,45 @@ export interface FolderView {
 }
 
 /**
+ * HostKeyView is a host key Visor asks about: one it hasn't seen (Status
+ * "unknown", trust it with RemoteService.Trust) or one that changed
+ * ("changed", refused).
+ */
+export interface HostKeyView {
+    /**
+     * "unknown" or "changed"
+     */
+    "Status": string;
+
+    /**
+     * host:port as dialled
+     */
+    "Host": string;
+
+    /**
+     * ssh-ed25519, ecdsa-sha2-nistp256, …
+     */
+    "Type": string;
+    "Fingerprint": string;
+
+    /**
+     * changed: the fingerprints on file
+     */
+    "Old": string[] | null;
+
+    /**
+     * changed: where the old key is
+     */
+    "File": string;
+    "Line": number;
+
+    /**
+     * changed: the command that removes the old key
+     */
+    "Fix": string;
+}
+
+/**
  * HostView is which machine a tab shows.
  */
 export interface HostView {
@@ -406,6 +445,14 @@ export interface LastErrorView {
     "ExitStatus": number;
     "StderrTail": string;
     "StderrLog": string;
+}
+
+/**
+ * LimitsView is the server limit for the tab bar.
+ */
+export interface LimitsView {
+    "MaxServers": number;
+    "Open": number;
 }
 
 /**
@@ -613,6 +660,16 @@ export interface NotificationsView {
 }
 
 /**
+ * OpenView is the result of opening a server's tab. HostKey or Report is
+ * set when the tab could not connect and the user has something to do.
+ */
+export interface OpenView {
+    "Overview": OverviewView | null;
+    "HostKey": HostKeyView | null;
+    "Report": ReportView | null;
+}
+
+/**
  * OverviewView is everything the dashboard shows for one server. It is
  * sent as the visor:overview event after every poll and every action.
  */
@@ -712,6 +769,55 @@ export interface RemovedView {
     "FileName": string;
     "BackupID": string;
     "At": string;
+}
+
+/**
+ * ReportView is a server's capability report.
+ */
+export interface ReportView {
+    "Rows": doctor$0.ReportRow[] | null;
+
+    /**
+     * something stops the tab from working
+     */
+    "Blocked": boolean;
+
+    /**
+     * set when the host key needs the user
+     */
+    "HostKey": HostKeyView | null;
+    "AtMs": number;
+}
+
+/**
+ * SavedServerView is a saved server for the list and the form: which
+ * secrets are saved (never the secrets) and whether its tab is open.
+ */
+export interface SavedServerView {
+    "Server": settings$0.Server;
+    "HasPassword": boolean;
+    "HasKeyPassphrase": boolean;
+    "HasSudoPassword": boolean;
+    "Open": boolean;
+}
+
+/**
+ * SecretInput changes one secret: Keep leaves the saved one as it is,
+ * otherwise Value replaces it ("" removes it).
+ */
+export interface SecretInput {
+    "Keep": boolean;
+    "Value": string;
+}
+
+/**
+ * ServerInput is the form: the server and what to do with each secret.
+ */
+export interface ServerInput {
+    "Server": settings$0.Server;
+    "Password": SecretInput;
+    "KeyPassphrase": SecretInput;
+    "SudoPassword": SecretInput;
 }
 
 /**

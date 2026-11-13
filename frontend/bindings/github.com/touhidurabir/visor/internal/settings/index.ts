@@ -5,5 +5,6 @@ export type {
     ActivityMutes,
     CrashLoopRules,
     NotifyPrefs,
+    Server,
     Settings
 } from "./models.js";

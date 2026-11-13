@@ -71,6 +71,7 @@ func main() {
 		HostKeys: remote.DefaultHostKeys(stateDir),
 		Closed:   shell.Forget,
 	})
+	remoteService := app.NewRemoteService(hub, stateDir, keychain, remote.DefaultHostKeys(stateDir), rt.Settings)
 	dockService := dock.New()
 	settingsService := app.NewSettingsService(rt, stateDir, envConfig, keychain, loadErr)
 	settingsService.ApplyToServers(hub.ApplySettings)
@@ -85,13 +86,15 @@ func main() {
 			// Before ServerService, so notifications are ready by the first poll.
 			application.NewService(notifier),
 			// The hub starts rt with the app and stops every tab at quit.
-			application.NewService(hub),
+			application.NewService(app.NewHubService(hub)),
 			// Per-tab services: each method takes the tab's id first.
 			application.NewService(app.NewServerAPI(hub)),
 			application.NewService(app.NewIssueAPI(hub)),
 			application.NewService(app.NewInboxAPI(hub)),
 			application.NewService(app.NewConfigAPI(hub)),
 			application.NewService(app.NewLogAPI(hub)),
+			// Saved servers: the form, Settings → Servers and the tab bar.
+			application.NewService(remoteService),
 			application.NewService(settingsService),
 			application.NewService(app.NewDoctorService(rt, settingsService, loginService)),
 			application.NewService(app.NewShellService(shell)),

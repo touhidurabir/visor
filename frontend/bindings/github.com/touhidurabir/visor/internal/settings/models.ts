@@ -52,6 +52,51 @@ export interface NotifyPrefs {
 }
 
 /**
+ * Server is a saved server. Secrets are in the Keychain or keyring under
+ * ServerAccount(ID, …), never here.
+ */
+export interface Server {
+    "id": string;
+    "name": string;
+    "tag": string;
+    "color": string;
+    "host": string;
+    "port": number;
+    "user": string;
+
+    /**
+     * KeyPath is a private key file; "" uses ~/.ssh/config and the agent.
+     */
+    "keyPath": string;
+
+    /**
+     * Jump is ProxyJump hosts ("user@host:port,host2") when not set in ~/.ssh/config.
+     */
+    "jump"?: string;
+    "useSudo": boolean;
+
+    /**
+     * SudoSameAsSSH, SudoOwn or SudoNone
+     */
+    "sudoPassword": string;
+
+    /**
+     * ConfigPath is supervisord.conf on the server; "" discovers it.
+     */
+    "configPath"?: string;
+
+    /**
+     * ReadOnly hides and refuses every action: view only.
+     */
+    "readOnly": boolean;
+
+    /**
+     * Mutes are the activity kinds whose notifications are off for this server.
+     */
+    "mutes": ActivityMutes;
+}
+
+/**
  * Settings are Visor's preferences. Durations are stored in JSON as
  * nanoseconds, like time.Duration.
  */

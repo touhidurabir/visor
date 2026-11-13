@@ -58,7 +58,10 @@ func PlanSystemStart(d config.Discovery, f platform.Family) (StartPlan, bool) {
 
 // SocketFacts are what the root-socket fix depends on.
 type SocketFacts struct {
-	User    string
+	User string
+	// Owner is the user supervisord runs as (the socket's owner); "" or
+	// "root" for the usual root daemon. The fix keeps it as the owner.
+	Owner   string
 	Service string // systemd unit, from the family
 	// Chown is [unix_http_server] chown= ("root:supervisor"), "" if unset.
 	Chown string
@@ -94,13 +97,17 @@ func GroupFix(s SocketFacts) RootFix {
 		user = "$USER"
 	}
 	group := ChownGroup(s.Chown)
+	owner := s.Owner
+	if owner == "" {
+		owner = "root"
+	}
 	restart := FixStep{Text: "Restart supervisord so the socket is made again with them.", Command: "sudo systemctl restart " + s.Service}
 	relogin := FixStep{Text: "Log out and back in (or restart), so your session has the new group. Then open Visor again."}
 	join := FixStep{Text: "Add yourself to that group.", Command: fmt.Sprintf("sudo usermod -aG %s %s", group, user)}
 	switch {
-	case group == "" || group == "root":
+	case group == "" || group == "root" || group == owner:
 		return RootFix{Variant: "setup", Group: supervisorGroup, Steps: []FixStep{
-			{Text: "In supervisord.conf, under [unix_http_server], let a group use the socket:", Command: "chmod=0770\nchown=root:" + supervisorGroup},
+			{Text: "In supervisord.conf, under [unix_http_server], let a group use the socket:", Command: "chmod=0770\nchown=" + owner + ":" + supervisorGroup},
 			{Text: "Create the group and add yourself to it.", Command: fmt.Sprintf("sudo groupadd -f %s && sudo usermod -aG %s %s", supervisorGroup, supervisorGroup, user)},
 			restart,
 			relogin,

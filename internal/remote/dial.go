@@ -85,12 +85,21 @@ func Dial(ctx context.Context, t Target, s Secrets, hk HostKeys) (*Conn, error) 
 		closers = append(closers, func() { _ = c.Close() })
 		dial = func(ctx context.Context, addr string) (net.Conn, error) { return dialVia(ctx, c, addr) }
 	}
-	client, err := handshake(ctx, dial, t, s, cb, algos)
+	var seen ssh.PublicKey
+	final := func(host string, addr net.Addr, key ssh.PublicKey) error {
+		err := cb(host, addr, key)
+		if err == nil {
+			seen = key
+		}
+		return err
+	}
+	client, err := handshake(ctx, dial, t, s, final, algos)
 	if err != nil {
 		cleanup()
 		return nil, err
 	}
 	conn := newConn(client, t, cleanup)
+	conn.hostKey = seen
 	return conn, nil
 }
 

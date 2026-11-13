@@ -89,12 +89,38 @@ func NewHostKey(t testing.TB) ssh.Signer {
 // Start runs a server until the test ends.
 func Start(t testing.TB, o Options) *Server {
 	t.Helper()
+	if o.HostKey == nil {
+		o.HostKey = NewHostKey(t)
+	}
+	s, err := Serve(o, "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+	return s
+}
+
+// GenerateHostKey returns a fresh ed25519 host key.
+func GenerateHostKey() (ssh.Signer, error) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	return ssh.NewSignerFromKey(priv)
+}
+
+// Serve runs a server on addr (a 127.0.0.1 address) until Close. The e2e
+// SSH server (cmd/visor-e2e-ssh) uses it outside tests.
+func Serve(o Options, addr string) (*Server, error) {
 	if o.User == "" {
 		o.User = "visor"
 	}
 	hk := o.HostKey
 	if hk == nil {
-		hk = NewHostKey(t)
+		var err error
+		if hk, err = GenerateHostKey(); err != nil {
+			return nil, err
+		}
 	}
 	s := &Server{opts: o, HostKey: hk.PublicKey(), conns: map[net.Conn]struct{}{}}
 	s.cfg = &ssh.ServerConfig{}
@@ -136,9 +162,9 @@ func Start(t testing.TB, o Options) *Server {
 		s.cfg.AddHostKey(k)
 	}
 	s.cfg.AddHostKey(hk)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	s.ln = ln
 	s.Addr = ln.Addr().String()
@@ -147,8 +173,7 @@ func Start(t testing.TB, o Options) *Server {
 	s.Port, _ = strconv.Atoi(port)
 	s.wg.Add(1)
 	go s.serve()
-	t.Cleanup(s.Close)
-	return s
+	return s, nil
 }
 
 // Close stops the server and drops every connection.

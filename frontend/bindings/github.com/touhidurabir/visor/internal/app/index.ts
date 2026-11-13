@@ -8,6 +8,7 @@ import * as IssueAPI from "./issueapi.js";
 import * as LogAPI from "./logapi.js";
 import * as LoginItemService from "./loginitemservice.js";
 import * as NotifyService from "./notifyservice.js";
+import * as RemoteService from "./remoteservice.js";
 import * as ServerAPI from "./serverapi.js";
 import * as SettingsService from "./settingsservice.js";
 import * as ShellService from "./shellservice.js";
@@ -20,6 +21,7 @@ export {
     LogAPI,
     LoginItemService,
     NotifyService,
+    RemoteService,
     ServerAPI,
     SettingsService,
     ShellService,
@@ -41,6 +43,7 @@ export type {
     ExplainView,
     FileView,
     FolderView,
+    HostKeyView,
     HostView,
     ImportItem,
     ImportResultView,
@@ -48,6 +51,7 @@ export type {
     IssueStats,
     IssueView,
     LastErrorView,
+    LimitsView,
     LinePathView,
     LinuxAdvice,
     LoadedDiffView,
@@ -59,6 +63,7 @@ export type {
     NotLoadedView,
     NotificationView,
     NotificationsView,
+    OpenView,
     OverviewView,
     PathView,
     ProblemView,
@@ -66,6 +71,10 @@ export type {
     ProcessView,
     ProgramForm,
     RemovedView,
+    ReportView,
+    SavedServerView,
+    SecretInput,
+    ServerInput,
     ServerView,
     SettingsView,
     StartFailure,

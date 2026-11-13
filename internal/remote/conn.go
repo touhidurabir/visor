@@ -16,6 +16,7 @@ import (
 // forwarding, the bridge, file reads) goes over it.
 type Conn struct {
 	client  *ssh.Client
+	hostKey ssh.PublicKey
 	target  Target
 	cleanup func()
 
@@ -159,3 +160,6 @@ func (p *Process) Err() error { <-p.done; return p.err }
 
 // Kill closes the session (the server sends the command SIGHUP).
 func (p *Process) Kill() { _ = p.s.Close() }
+
+// HostKey is the key the server proved itself with.
+func (c *Conn) HostKey() ssh.PublicKey { return c.hostKey }

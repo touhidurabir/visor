@@ -230,3 +230,11 @@ func (r *Runtime) hostView() HostView {
 	r.mu.Unlock()
 	return h
 }
+
+// ConnErr is why the current connection failed (nil when it works or before
+// it was tried).
+func (r *Runtime) ConnErr() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.connErr
+}
