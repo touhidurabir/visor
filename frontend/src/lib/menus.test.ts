@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bulkConfirm, configMenu, ctlName, processMenu, serverMenu, withoutSupervisord, type MenuItem } from './menus'
+import { bulkConfirm, configMenu, ctlName, forHost, processMenu, serverMenu, SERVER_CONFIGS_READ_ONLY, withoutSupervisord, type MenuItem } from './menus'
 import type { ConfigView, ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 
 const proc = (o: Partial<ProcessView>) =>
@@ -143,5 +143,28 @@ describe('bulkConfirm', () => {
     const c = bulkConfirm('restart', 1)!
     expect(c.message).toContain('1 process ')
     expect(c.confirmLabel).toBe('Restart all')
+  })
+})
+
+describe('forHost', () => {
+  const c = { Path: '/etc/supervisor/conf.d/a.conf', FileName: 'a.conf', Changed: true, Uncertain: false, Watched: true, Summary: '', Processes: [], NotLoaded: [] } as unknown as Parameters<typeof configMenu>[0]
+  it('leaves this computer’s menus alone', () => {
+    expect(forHost(configMenu(c), { remote: false, readOnly: false })).toEqual(configMenu(c))
+  })
+  it('on a server: Download in place of Finder, no editor, config changes off with the reason', () => {
+    const m = forHost(configMenu(c), { remote: true, readOnly: false })
+    const ids = m.map((i) => i.id)
+    expect(ids).toContain('download')
+    expect(ids).not.toContain('reveal')
+    expect(ids).not.toContain('open-log')
+    for (const id of ['apply', 'remove']) {
+      const it = m.find((i) => i.id === id)!
+      expect(it.disabled).toBe(true)
+      expect(it.title).toBe(SERVER_CONFIGS_READ_ONLY)
+    }
+  })
+  it('a Read only server keeps no action that changes anything', () => {
+    const ids = forHost(serverMenu(), { remote: true, readOnly: true }).map((i) => i.id)
+    expect(ids).toEqual(['log', 'settings'])
   })
 })

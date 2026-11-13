@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"github.com/wailsapp/wails/v3/pkg/application"
 	"os"
 	"path/filepath"
 	"slices"
@@ -412,12 +413,18 @@ type FolderView struct {
 	Writable bool
 	Missing  bool
 	Owner    string
+	// Remote: the folder is on a server, where configs are read only in
+	// this version (not a permission problem).
+	Remote bool
 }
 
 // Folder is the include folder's state for the read-only banner. With no
 // include folder there is nothing to say, so it reads as writable.
 func (s *ConfigService) Folder() FolderView {
 	dir, _ := s.rt.newFileHome()
+	if s.rt.Remote() {
+		return FolderView{Dir: dir, Remote: true}
+	}
 	return folderView(dir, os.Stat, platform.DirWritable, ownerName)
 }
 
@@ -501,6 +508,9 @@ type CopyDraftView struct {
 // file name already in the include folder. Nothing is written; the draft is
 // saved with Create like any new config.
 func (s *ConfigService) CopyDraft(path string) (CopyDraftView, error) {
+	if err := s.rt.CheckConfigWrite(); err != nil {
+		return CopyDraftView{}, err
+	}
 	if _, err := s.rt.includeFile(path); err != nil {
 		return CopyDraftView{}, err
 	}
@@ -570,7 +580,7 @@ func (r *Runtime) validateEnv(selfPath string) validate.Env {
 	d := r.d
 	r.mu.Unlock()
 	inv, _ := config.LoadInventory(d)
-	return validate.Env{Inventory: inv, IncludeGlobs: d.IncludeGlobs, SelfPath: selfPath}
+	return validate.Env{Inventory: inv, IncludeGlobs: d.IncludeGlobs, SelfPath: selfPath, Remote: r.Remote()}
 }
 
 func (r *Runtime) watcherOrNil() *config.Watcher {
@@ -606,7 +616,11 @@ func (r *Runtime) checkNotMain(path string) error {
 	r.mu.Lock()
 	main := r.d.ConfigPath
 	r.mu.Unlock()
-	if main != "" && sameFile(path, main) {
+	same := sameFile
+	if r.Remote() { // the paths are on the server: compare them as written
+		same = func(a, b string) bool { return filepath.Clean(a) == filepath.Clean(b) }
+	}
+	if main != "" && same(path, main) {
 		return fmt.Errorf("%s: %w", path, ErrMainConfig)
 	}
 	return nil
@@ -658,4 +672,37 @@ func (r *Runtime) matchesInclude(path string) bool {
 		}
 	}
 	return false
+}
+
+// Download saves a copy of an include file on a server (or this computer)
+// where the person picks, with the save dialog. It returns where it went,
+// or "" when they cancelled.
+func (s *ConfigService) Download(path string) (string, error) {
+	if _, err := s.rt.includeFile(path); err != nil {
+		return "", err
+	}
+	data, err := s.rt.files().ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", path, err)
+	}
+	return saveCopy(filepath.Base(path), data)
+}
+
+// saveCopy asks where to save data (named name) and writes it there.
+var saveCopy = func(name string, data []byte) (string, error) {
+	a := application.Get()
+	if a == nil {
+		return "", errors.New("cannot show the save dialog: Visor is not running as an app")
+	}
+	dest, err := a.Dialog.SaveFile().
+		SetFilename(name).
+		AttachToWindow(a.Window.Current()).
+		PromptForSingleSelection()
+	if err != nil || dest == "" {
+		return "", nil
+	}
+	if err := os.WriteFile(dest, data, 0o644); err != nil {
+		return "", err
+	}
+	return dest, nil
 }

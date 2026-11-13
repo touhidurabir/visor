@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { effectScope, ref, watch } from 'vue'
+import { computed, effectScope, ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import AppShell from './components/AppShell.vue'
 import Doctor from './views/Doctor.vue'
 import { useOverview } from './lib/overview'
 import { loadSettings } from './lib/settings'
-import { currentTab } from './lib/tabs'
+import { currentTab, LOCAL } from './lib/tabs'
 
 const route = useRoute()
 const router = useRouter()
+// The tab the page on screen belongs to (from its route, not currentTab,
+// which changes a moment before the new tab's route is in place).
+const routeTab = computed(() => (typeof route.params.server === 'string' ? route.params.server : LOCAL))
 
 // First run (spec §5.1): Doctor fills the main window until setup is
 // finished. null while the settings load; a failed load opens the app.
@@ -68,6 +71,6 @@ function leaveSetup(to: string) {
   <Doctor v-else-if="firstRun && !leftSetup" first-run @done="finishSetup" @leave="leaveSetup" />
   <AppShell v-else>
     <!-- Keyed by tab, so a page shared by two tabs reloads for the new one. -->
-    <RouterView :key="currentTab" />
+    <RouterView :key="routeTab" />
   </AppShell>
 </template>

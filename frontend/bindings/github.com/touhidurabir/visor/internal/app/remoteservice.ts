@@ -111,9 +111,10 @@ export function Test($in: $models.ServerInput): $CancellablePromise<$models.Repo
 }
 
 /**
- * Trust records the host key with this fingerprint (one Test or Open just
- * showed) in Visor's own known_hosts. ~/.ssh/known_hosts is never changed.
+ * Trust records the host key of host (host:port as the prompt showed it)
+ * with this fingerprint, one Test or Open just showed, in Visor's own
+ * known_hosts. ~/.ssh/known_hosts is never changed.
  */
-export function Trust(fingerprint: string): $CancellablePromise<void> {
-    return $Call.ByID(2535441991, fingerprint);
+export function Trust(host: string, fingerprint: string): $CancellablePromise<void> {
+    return $Call.ByID(2535441991, host, fingerprint);
 }

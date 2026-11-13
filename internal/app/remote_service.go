@@ -149,13 +149,18 @@ func (s *RemoteService) Save(in ServerInput) (settings.Server, error) {
 			return settings.Server{}, &settings.FieldError{Field: "keyPath", Msg: "Visor can't read that key file: " + err.Error()}
 		}
 	}
+	var noKeyring error
 	for kind, si := range map[string]SecretInput{
 		settings.SecretPassword: in.Password, settings.SecretKeyPassphrase: in.KeyPassphrase, settings.SecretSudo: in.SudoPassword,
 	} {
 		if si.Keep {
 			continue
 		}
-		if err := settings.SetServerSecret(s.keychain, sv.ID, kind, si.Value); err != nil && !errors.Is(err, settings.ErrNoKeyring) {
+		err := settings.SetServerSecret(s.keychain, sv.ID, kind, si.Value)
+		switch {
+		case errors.Is(err, settings.ErrNoKeyring):
+			noKeyring = err // kept until Visor quits; said after saving
+		case err != nil:
 			return settings.Server{}, err
 		}
 	}
@@ -167,6 +172,13 @@ func (s *RemoteService) Save(in ServerInput) (settings.Server, error) {
 	}
 	if err := settings.SaveServers(s.stateDir, list); err != nil {
 		return settings.Server{}, err
+	}
+	// An open tab takes the new name, tag and Read only at once.
+	if t, err := s.hub.Tab(sv.ID); err == nil && t.RT.Remote() {
+		t.RT.SetServer(sv)
+	}
+	if noKeyring != nil {
+		return sv, fmt.Errorf("%s was saved, but %w", sv.Name, noKeyring)
 	}
 	return sv, nil
 }
@@ -257,16 +269,17 @@ func (s *RemoteService) remember(rep ReportView, key ssh.PublicKey) {
 	p := 22
 	_, _ = fmt.Sscanf(port, "%d", &p)
 	s.mu.Lock()
-	s.pending[rep.HostKey.Fingerprint] = pendingKey{host: host, port: p, key: key}
+	s.pending[rep.HostKey.Host+" "+rep.HostKey.Fingerprint] = pendingKey{host: host, port: p, key: key}
 	s.mu.Unlock()
 }
 
-// Trust records the host key with this fingerprint (one Test or Open just
-// showed) in Visor's own known_hosts. ~/.ssh/known_hosts is never changed.
-func (s *RemoteService) Trust(fingerprint string) error {
+// Trust records the host key of host (host:port as the prompt showed it)
+// with this fingerprint, one Test or Open just showed, in Visor's own
+// known_hosts. ~/.ssh/known_hosts is never changed.
+func (s *RemoteService) Trust(host, fingerprint string) error {
 	s.mu.Lock()
-	pk, ok := s.pending[fingerprint]
-	delete(s.pending, fingerprint)
+	pk, ok := s.pending[host+" "+fingerprint]
+	delete(s.pending, host+" "+fingerprint)
 	s.mu.Unlock()
 	if !ok {
 		return errors.New("that host key is no longer waiting to be trusted: test the connection again")
@@ -294,8 +307,7 @@ func (s *RemoteService) Open(id string) (OpenView, error) {
 		return OpenView{}, errors.New("that server isn't saved any more")
 	}
 	sv := list[i]
-	if slices.Contains(s.hub.Open(), id) {
-		t, _ := s.hub.Tab(id)
+	if t, err := s.hub.Tab(id); err == nil && slices.Contains(s.hub.Open(), id) {
 		ov := t.RT.Overview()
 		return OpenView{Overview: &ov}, nil
 	}
@@ -321,6 +333,14 @@ func (s *RemoteService) Open(id string) (OpenView, error) {
 		}
 		s.remember(rep, key)
 		return OpenView{HostKey: hkv, Report: &rep}, nil
+	}
+	if remote.IsCredentialError(cerr) {
+		// A refused password: say so without trying it again.
+		rep := credentialReport(sv, cerr)
+		s.mu.Lock()
+		s.reports[id] = rep
+		s.mu.Unlock()
+		return OpenView{Overview: &ov, Report: &rep}, nil
 	}
 	sec, sudo, err := ServerSecrets(s.keychain, sv)
 	if err != nil {

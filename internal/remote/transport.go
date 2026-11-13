@@ -49,6 +49,12 @@ func (t *BridgeTransport) Bridge(ctx context.Context) (*Bridge, error) {
 	return b, nil
 }
 
+// IsCredentialError reports a login or sudo password problem: trying again
+// without a change can only count against the server's lockout.
+func IsCredentialError(err error) bool {
+	return sticky(err) || errors.Is(err, ErrAuthFailed) || errors.Is(err, ErrPassphraseWrong) || errors.Is(err, ErrPassphraseNeeded)
+}
+
 // sticky errors need the user to change something before a retry.
 func sticky(err error) bool {
 	return errors.Is(err, ErrSudoRefused) || errors.Is(err, ErrSudoPasswordNeeded) || errors.Is(err, ErrSudoUnconfirmed) ||

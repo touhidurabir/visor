@@ -67,7 +67,14 @@ type Env struct {
 	UserExists   func(string) bool
 	Stat         func(string) (fs.FileInfo, error)
 	Writable     func(dir string) bool
+	// Remote: the file is on a server, so checks that need the server's
+	// file system (folders, users, commands) are not run here: each says
+	// "not checked on servers yet" instead of a false result.
+	Remote bool
 }
+
+// notOnServers is what a check that needs the server's disk says on a server.
+const notOnServers = "not checked on servers yet"
 
 func (e Env) withDefaults() Env {
 	if e.LookPath == nil {
@@ -278,6 +285,8 @@ func checkProgram(s config.Section, env Env, add adder) {
 		case !filepath.IsAbs(dir):
 			e(line, "directory", "directory must be an absolute path").
 				with("Give the full path, starting with /.", nil)
+		case env.Remote:
+			ok("directory", "%s: %s", dir, notOnServers)
 		default:
 			if fi, err := env.Stat(dir); err != nil {
 				w(line, "directory", "%s does not exist yet", dir).
@@ -298,6 +307,8 @@ func checkProgram(s config.Section, env Env, add adder) {
 		case u == "root":
 			w(line, "user", "%s runs as root", name).
 				with("Run it as a normal user unless it really needs root: anything it does, it does with full access.", nil)
+		case env.Remote:
+			ok("user", "user %s: %s", u, notOnServers)
 		case !env.UserExists(u):
 			e(line, "user", "user %s does not exist on this Mac, so supervisord would refuse this config", u).
 				with("Use a user that exists on this Mac, or remove the line to run it as the user supervisord runs as.", nil)
@@ -314,6 +325,13 @@ func checkProgram(s config.Section, env Env, add adder) {
 		}
 		d := filepath.Dir(v)
 		if !filepath.IsAbs(v) || strings.Contains(d, "%(") {
+			continue
+		}
+		if env.Remote {
+			if !seen[d] {
+				seen[d] = true
+				ok(key, "log folder %s: %s", d, notOnServers)
+			}
 			continue
 		}
 		if fi, err := env.Stat(d); err != nil || !fi.IsDir() {
@@ -410,6 +428,10 @@ func checkCommand(cmd string, line int, dir string, hasDir bool, env Env,
 	e, w func(int, string, string, ...any) *Check, ok func(string, string, ...any)) {
 	bin := firstWord(cmd)
 	if bin == "" || strings.Contains(bin, "%(") {
+		return
+	}
+	if env.Remote {
+		ok("command", "%s: %s", bin, notOnServers)
 		return
 	}
 	if strings.Contains(bin, "/") && !filepath.IsAbs(bin) {

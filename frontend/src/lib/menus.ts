@@ -143,3 +143,32 @@ export function bulkConfirm(what: 'start' | 'stop' | 'restart', processes: numbe
   }
   return null
 }
+
+/** What a menu needs to know about the tab's machine. */
+export interface HostRules {
+  remote: boolean
+  readOnly: boolean
+}
+
+/** Why config changes are off on a server (M7: configs there are read only). */
+export const SERVER_CONFIGS_READ_ONLY = 'Configs on servers are read only in this version of Visor'
+
+const WRITES_CONFIG = new Set(['load', 'apply', 'remove', 'apply-all'])
+
+/**
+ * forHost adapts a menu to the tab: on a server, files open as a Download
+ * (no Finder or editor here), config changes are off with the reason, and
+ * with Read only every action that changes something is gone.
+ */
+export function forHost(items: MenuItem[], h: HostRules | null | undefined): MenuItem[] {
+  if (!h?.remote) return items
+  let out = items.flatMap((i): MenuItem[] => {
+    if (i.id === 'reveal') return [item('download', 'Download a copy', '')]
+    if (i.id === 'open-log') return []
+    if (i.id === 'open-config') return [{ ...i, label: 'Open config' }]
+    if (WRITES_CONFIG.has(i.id)) return [{ ...i, disabled: true, title: SERVER_CONFIGS_READ_ONLY }]
+    return [i]
+  })
+  if (h.readOnly) out = out.filter((i) => !NEEDS_SUPERVISORD.has(i.id) && i.id !== 'restart')
+  return out
+}

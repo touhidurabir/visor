@@ -142,3 +142,30 @@ func TestRemoteRuntimeConnectError(t *testing.T) {
 		t.Fatalf("want an error in the overview: %+v", ov.Server)
 	}
 }
+
+func TestRemoteReadOnlyStillReadsTheMainLog(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	f := startRemoteRuntime(t, inst, func(s *settings.Server) { s.ReadOnly = true })
+	waitRunning(t, f.svc, "sleeper:sleeper")
+	if _, err := f.svc.MainLogLines(MainLogQuery{Limit: 10}); err != nil {
+		t.Fatalf("main log on a Read only server: %v", err)
+	}
+	if _, err := f.svc.CheckForChanges(); err != nil {
+		t.Fatalf("reread on a Read only server: %v", err)
+	}
+}
+
+func TestSetServerAppliesReadOnlyAtOnce(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	f := startRemoteRuntime(t, inst, nil)
+	waitRunning(t, f.svc, "sleeper:sleeper")
+	s := f.server
+	s.ReadOnly, s.Tag = true, settings.TagProduction
+	f.rt.SetServer(s)
+	if err := f.svc.Stop("sleeper:sleeper"); !errors.Is(err, ErrServerReadOnly) {
+		t.Fatalf("stop after Read only was saved: %v", err)
+	}
+	if h := f.svc.Overview().Host; !h.ReadOnly || h.Tag != settings.TagProduction {
+		t.Fatalf("host: %+v", h)
+	}
+}

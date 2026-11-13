@@ -23,6 +23,8 @@ export interface TabInfo {
 
 /** The open server tabs, in the order opened (the local tab is not listed). */
 export const serverTabs = ref<TabInfo[]>([])
+/** serverTabs has been loaded from Go (refreshTabs). */
+export const tabsLoaded = ref(false)
 
 export function isServerOpen(id: string): boolean {
   return serverTabs.value.some((t) => t.id === id)
@@ -79,6 +81,11 @@ export function tabGuard(to: RouteLocationNormalized): RouteLocationRaw | true {
   if (to.meta.bare) return true
   const server = typeof to.params.server === 'string' ? to.params.server : ''
   if (server) {
+    // A closed tab (history, a reload after it closed) goes to this computer.
+    if (tabsLoaded.value && !serverTabs.value.some((t) => t.id === server)) {
+      setCurrentTab(LOCAL)
+      return '/'
+    }
     setCurrentTab(server)
     return true
   }

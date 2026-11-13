@@ -10,6 +10,7 @@ import { isProblem } from './explain'
 import { currentTab, LOCAL } from './tabs'
 
 export function errorMessage(e: unknown): string {
+  if (e instanceof Error && e.name === 'CancelledError') return '' // the person said no
   return e instanceof Error ? e.message : String(e)
 }
 

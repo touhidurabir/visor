@@ -76,8 +76,10 @@ type Hub struct {
 	ctx   context.Context
 	tabs  map[string]*Tab
 	order []string
-	// opening holds ids being connected, so a double click opens one tab.
-	opening map[string]bool
+	// opening holds ids being connected (a double click opens one tab);
+	// cancelled marks those closed, deleted or shut down meanwhile.
+	opening   map[string]bool
+	cancelled map[string]bool
 }
 
 // NewHub returns a Hub around this computer's Runtime.
@@ -96,7 +98,7 @@ func NewHub(local *Runtime, o HubOptions) *Hub {
 	}
 	return &Hub{
 		o: o, local: newTab(local, o.LogEmit, ""), ctx: context.Background(),
-		tabs: map[string]*Tab{}, opening: map[string]bool{},
+		tabs: map[string]*Tab{}, opening: map[string]bool{}, cancelled: map[string]bool{},
 	}
 }
 
@@ -125,6 +127,9 @@ func (h *Hub) Start(ctx context.Context) error {
 // Shutdown stops every tab.
 func (h *Hub) Shutdown() error {
 	h.mu.Lock()
+	for id := range h.opening {
+		h.cancelled[id] = true
+	}
 	tabs := make([]*Tab, 0, len(h.tabs))
 	for _, t := range h.tabs {
 		tabs = append(tabs, t)
@@ -198,6 +203,12 @@ func (h *Hub) OpenServer(s settings.Server) (OverviewView, error) {
 
 	h.mu.Lock()
 	delete(h.opening, s.ID)
+	if h.cancelled[s.ID] {
+		delete(h.cancelled, s.ID)
+		h.mu.Unlock()
+		rt.Stop()
+		return OverviewView{}, errors.New("the tab was closed while it connected")
+	}
 	if err != nil {
 		h.mu.Unlock()
 		rt.Stop()
@@ -218,6 +229,9 @@ func (h *Hub) CloseServer(id string) error {
 		return errors.New("this computer's tab can't be closed")
 	}
 	h.mu.Lock()
+	if h.opening[id] {
+		h.cancelled[id] = true // OpenServer stops it once it has connected
+	}
 	t, ok := h.tabs[id]
 	if ok {
 		delete(h.tabs, id)

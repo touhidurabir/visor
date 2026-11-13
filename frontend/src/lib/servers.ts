@@ -5,7 +5,7 @@ import { ref } from 'vue'
 import { RemoteService, type HostKeyView, type ReportView, type SavedServerView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { Server } from '../../bindings/github.com/touhidurabir/visor/internal/settings/models'
 import { errorMessage } from './overview'
-import { forgetTab, homeOf, LOCAL, pathFor, serverTabs, setCurrentTab, currentTab, type TabInfo } from './tabs'
+import { forgetTab, homeOf, LOCAL, pathFor, serverTabs, setCurrentTab, currentTab, tabsLoaded, type TabInfo } from './tabs'
 import { showToast } from './toast'
 
 type Router = { push: (to: string) => unknown }
@@ -51,6 +51,7 @@ export async function refreshTabs() {
   } catch {
     serverTabs.value = []
   }
+  tabsLoaded.value = true
   if (currentTab.value !== LOCAL && !serverTabs.value.some((t) => t.id === currentTab.value)) setCurrentTab(LOCAL)
 }
 

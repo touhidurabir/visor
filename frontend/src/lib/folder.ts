@@ -27,6 +27,7 @@ export function useFolder() {
  * tooltip say it; "" when they can.
  */
 export function readOnlyReason(f: FolderView | null): string {
+  if (f?.Remote) return 'Read-only: configs on servers can’t be changed in this version of Visor'
   if (!f || f.Writable || !f.Dir) return ''
   if (f.Missing) return `Read-only: ${f.Dir} doesn’t exist yet`
   return f.Owner ? `Read-only: ${f.Dir} belongs to ${f.Owner}` : `Read-only: ${f.Dir} isn’t writable for you`

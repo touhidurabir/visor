@@ -369,6 +369,17 @@ func (a *ConfigAPI) Describe(server string, content string) ([]describe.Program,
 	return t.Config.Describe(content)
 }
 
+// Download saves a copy of an include file on a server (or this computer)
+// where the person picks, with the save dialog. It returns where it went,
+// or "" when they cancelled.
+func (a *ConfigAPI) Download(server string, path string) (string, error) {
+	t, err := a.hub.Tab(server)
+	if err != nil {
+		return "", err
+	}
+	return t.Config.Download(path)
+}
+
 // Explain explains content line by line as the file fileName: what each
 // line means, its problems and how to fix them, and the paths it points
 // to. selfPath is the file on disk being edited ("" for a new one).

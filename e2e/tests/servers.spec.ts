@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { collectErrors, openApp } from './helpers'
+import { collectErrors, openApp, processAction, words } from './helpers'
 
 // A server tab against the e2e SSH server (bin/visor-e2e-ssh on
 // 127.0.0.1:8767, started by serve.sh) in front of the sandbox supervisord.
@@ -116,6 +116,67 @@ test.describe('server tabs', () => {
     await page.getByRole('button', { name: 'Add or open a server' }).click()
     await page.getByRole('menuitem', { name: new RegExp(NAME) }).click()
     await expect(tab).toHaveAttribute('aria-selected', 'true', { timeout: 20_000 })
+  })
+
+  test('configs on a server are read only: the page says so and offers Download', async ({ page }) => {
+    await openApp(page, '/')
+    const tab = tabs(page).getByRole('tab', { name: new RegExp(NAME) })
+    if (!(await tab.count())) {
+      await page.getByRole('button', { name: 'Add or open a server' }).click()
+      await page.getByRole('menuitem', { name: new RegExp(NAME) }).click()
+    }
+    await tab.click()
+    await page.getByRole('link', { name: 'reports.ini', exact: true }).click()
+    await expect(page).toHaveURL(/#\/s\/s[0-9a-f]{10}\/config\//)
+    await expect(page.getByText('configs on servers can’t be changed')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Download a copy' })).toBeVisible()
+    await expect(page.getByRole('button', { name: words.reveal })).toHaveCount(0)
+
+    await tab.click() // back to its dashboard
+    await page.getByRole('navigation', { name: NAME }).getByRole('link', { name: 'Dashboard' }).click()
+    await page.getByRole('button', { name: 'Actions for reports.ini' }).click()
+    await expect(page.getByRole('menuitem', { name: /^Download a copy/ })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: /^Remove from supervisor/ })).toBeDisabled()
+    await page.keyboard.press('Escape')
+  })
+
+  test('a production server asks before Restart, naming the server', async ({ page }) => {
+    await openApp(page, '/settings')
+    const card = page.getByRole('region', { name: 'Servers' })
+    await card.locator(`[data-server="${NAME}"]`).getByRole('button', { name: `Edit ${NAME}` }).click()
+    const form = page.getByRole('dialog', { name: `Edit ${NAME}` })
+    await form.getByLabel('Tag').selectOption('production')
+    await form.getByRole('button', { name: 'Save' }).click()
+    await expect(form).toBeHidden()
+
+    const tab = tabs(page).getByRole('tab', { name: new RegExp(NAME) })
+    await expect(tab).toContainText('PRODUCTION')
+    await tab.click()
+    await page.getByRole('navigation', { name: NAME }).getByRole('link', { name: 'Dashboard' }).click()
+    await processAction(page, 'reports-sync:reports-sync', 'Restart')
+    const ask = page.getByRole('alertdialog', { name: `Restart reports-sync:reports-sync on ${NAME}?` })
+    await expect(ask).toBeVisible()
+    await expect(ask).toContainText('tagged Production')
+    await ask.getByRole('button', { name: 'Cancel' }).click()
+    await expect(ask).toBeHidden()
+  })
+
+  test('a Read only server shows no actions', async ({ page }) => {
+    await openApp(page, '/settings')
+    const card = page.getByRole('region', { name: 'Servers' })
+    await card.locator(`[data-server="${NAME}"]`).getByRole('button', { name: `Edit ${NAME}` }).click()
+    const form = page.getByRole('dialog', { name: `Edit ${NAME}` })
+    await form.getByRole('switch', { name: 'Read only' }).check()
+    await form.getByRole('button', { name: 'Save' }).click()
+    await expect(form).toBeHidden()
+    await tabs(page).getByRole('tab', { name: new RegExp(NAME) }).click()
+    await page.getByRole('navigation', { name: NAME }).getByRole('link', { name: 'Dashboard' }).click()
+    await expect(page.getByRole('link', { name: 'reports.ini', exact: true })).toBeVisible()
+    await expect(page.getByRole('group', { name: 'All processes' })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Actions for reports-sync:reports-sync' }).click()
+    await expect(page.getByRole('menuitem', { name: /^Restart/ })).toHaveCount(0)
+    await expect(page.getByRole('menuitem', { name: /^View logs/ })).toBeVisible()
+    await page.keyboard.press('Escape')
   })
 
   test('Settings lists the server; Delete removes it and closes its tab', async ({ page }) => {

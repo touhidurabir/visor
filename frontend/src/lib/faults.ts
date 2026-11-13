@@ -22,6 +22,7 @@ export function faultMessage(code: string): string {
 
 /** describeError turns whatever a service call threw into a sentence for a toast. */
 export function describeError(e: unknown): string {
+  if (e instanceof Error && e.name === 'CancelledError') return ''
   const text = e instanceof Error ? e.message : String(e)
   const fault = /xmlrpc fault \d+: ([A-Z_]+)/.exec(text)
   if (fault) return faultMessage(fault[1])

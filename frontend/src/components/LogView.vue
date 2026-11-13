@@ -7,13 +7,17 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { Events } from '@wailsio/runtime'
 import { type LogChunkView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
-import { LogService, ServerService } from '../lib/api'
+import { useApi } from '../lib/api'
+import { withConsent } from '../lib/production'
 import { VisorLog } from '../../bindings/events'
 import { describeError } from '../lib/faults'
 import { onMenu } from '../lib/menu'
 import { applyChunk, countMatches, emptyLog, highlight, noLogMessage, shownLines, type Stream } from '../lib/logview'
 import { showToast } from '../lib/toast'
 import ConfirmDialog from './ConfirmDialog.vue'
+
+// Bound to this view's tab for its whole life (a follow it stops is that tab's).
+const { LogService, ServerService } = useApi()
 
 // running: supervisord clears the logs of a running process only; for any
 // other it answers success and leaves the files alone.
@@ -127,7 +131,7 @@ function togglePause() {
 async function clearLogs() {
   confirmClear.value = false
   try {
-    await ServerService.ClearLogs(props.process)
+    await withConsent(() => ServerService.ClearLogs(props.process)) // its dialog asked
     showToast(`Cleared the logs of ${props.process}.`)
   } catch (e) {
     showToast(describeError(e), 'error')

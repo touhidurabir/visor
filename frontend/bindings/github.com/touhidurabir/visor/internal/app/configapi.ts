@@ -79,6 +79,15 @@ export function Describe(server: string, content: string): $CancellablePromise<d
 }
 
 /**
+ * Download saves a copy of an include file on a server (or this computer)
+ * where the person picks, with the save dialog. It returns where it went,
+ * or "" when they cancelled.
+ */
+export function Download(server: string, path: string): $CancellablePromise<string> {
+    return $Call.ByID(971814882, server, path);
+}
+
+/**
  * Explain explains content line by line as the file fileName: what each
  * line means, its problems and how to fix them, and the paths it points
  * to. selfPath is the file on disk being edited ("" for a new one).

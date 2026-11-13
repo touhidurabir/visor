@@ -103,6 +103,12 @@ func ConnectServer(s settings.Server, k settings.Keychain, hk remote.HostKeys) f
 			files.Close()
 			_ = c.Close()
 		}
+		// Start the helper first, so sudo's answer (a refused password)
+		// comes back as it is, not as "no config found".
+		if _, err := files.Bridge(ctx); err != nil {
+			closeAll()
+			return nil, err
+		}
 		paths := config.PathsFor("linux")
 		if configPath != "" {
 			paths = []string{configPath}
@@ -175,12 +181,30 @@ type HostView struct {
 	Address  string // user@host:port on a server
 }
 
-// remoteServer returns the server this Runtime manages, if any.
+// remoteServer returns the server this Runtime manages, if any, as last
+// saved (SetServer).
 func (r *Runtime) remoteServer() (settings.Server, bool) {
 	if r.opts.Remote == nil {
 		return settings.Server{}, false
 	}
-	return r.opts.Remote.Server, true
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.server == nil {
+		return r.opts.Remote.Server, true
+	}
+	return *r.server, true
+}
+
+// SetServer puts a saved server's new name, tag, colour and Read only into
+// use on its open tab at once; connection settings apply when it reopens.
+func (r *Runtime) SetServer(s settings.Server) {
+	if r.opts.Remote == nil {
+		return
+	}
+	r.mu.Lock()
+	r.server = &s
+	r.mu.Unlock()
+	r.emitOverview()
 }
 
 // ID is the tab id: LocalID or the server's id.

@@ -6,11 +6,14 @@
 // visible.
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ServerService } from '../lib/api'
+import { useApi } from '../lib/api'
 import type { MainLogLineView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { describeError } from '../lib/faults'
 import { DATE_OPTIONS, dateRange, type DatePreset } from '../lib/issues-page'
 import { DEFAULT_GROUPS, LEVEL_GROUPS, appendLines, footerNote, groupsParam, levelClass, levelsFor, logTime, parseGroups, type LevelGroup } from '../lib/main-log'
+
+// Bound to this view's tab for its whole life.
+const { ServerService } = useApi()
 
 const FOLLOW_MS = 2000
 const LIMIT = 2000

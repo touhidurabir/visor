@@ -1,7 +1,7 @@
 package app
 
 import (
-	"os"
+	"errors"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -294,7 +294,11 @@ func (r *Runtime) linePaths(l describe.Line, prog config.Program, here string, p
 			return nil
 		}
 		if !strings.Contains(bin, "/") {
-			found, err := lookPath(bin)
+			look := lookPath
+			if r.Remote() { // not on the server's PATH from here
+				look = func(string) (string, error) { return "", errors.New("not looked up on servers") }
+			}
+			found, err := look(bin)
 			if err != nil {
 				return []LinePathView{{Label: "Program", Path: bin, Kind: "bin", Size: -1}}
 			}
@@ -340,7 +344,7 @@ func (r *Runtime) linePaths(l describe.Line, prog config.Program, here string, p
 			p.Size = -1
 			continue
 		}
-		fi, err := os.Stat(p.Path)
+		fi, err := r.files().Stat(p.Path)
 		p.Exists, p.Size = err == nil, -1
 		if err == nil && !fi.IsDir() {
 			p.Size = fi.Size()

@@ -185,6 +185,8 @@ type Runtime struct {
 	// when its files were last checked.
 	session *RemoteSession
 	filesAt time.Time
+	// server is the saved server after an edit (SetServer); nil until then.
+	server *settings.Server
 
 	wg sync.WaitGroup
 
@@ -887,6 +889,12 @@ func (r *Runtime) act(e expectation, do func(ctx context.Context, c *supervisor.
 	if err := r.CheckAction(); err != nil {
 		return err
 	}
+	return r.call(e, do)
+}
+
+// call is act without the Read only check, for calls that change nothing
+// (reading supervisord's log, rereading the config to compare).
+func (r *Runtime) call(e expectation, do func(ctx context.Context, c *supervisor.Client) error) error {
 	ac, err := r.conn()
 	if err != nil {
 		return err

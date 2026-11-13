@@ -38,9 +38,12 @@ type HostKeyView struct {
 // ReportView is a server's capability report.
 type ReportView struct {
 	Rows    []doctor.ReportRow
-	Blocked bool         // something stops the tab from working
-	HostKey *HostKeyView // set when the host key needs the user
-	AtMs    int64
+	Blocked bool // something stops the tab from working
+	// Credentials: a password or key was refused. The report is never
+	// re-checked on its own then: each try would count against the lockout.
+	Credentials bool
+	HostKey     *HostKeyView // set when the host key needs the user
+	AtMs        int64
 }
 
 // pendingKey is a host key shown to the user, kept so Trust writes the very
@@ -140,9 +143,10 @@ func probeServer(ctx context.Context, s settings.Server, sec remote.Secrets, sud
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	f := doctor.RemoteFacts{Server: s.Name, Sudo: s.UseSudo}
+	credentials := false
 	done := func(key ssh.PublicKey, hkv *HostKeyView) (ReportView, ssh.PublicKey) {
 		rows := doctor.RemoteReport(f)
-		return ReportView{Rows: rows, Blocked: doctor.Blocked(rows) || hkv != nil, HostKey: hkv, AtMs: time.Now().UnixMilli()}, key
+		return ReportView{Rows: rows, Blocked: doctor.Blocked(rows) || hkv != nil, Credentials: credentials, HostKey: hkv, AtMs: time.Now().UnixMilli()}, key
 	}
 	t, err := ServerTarget(ctx, s)
 	if err != nil {
@@ -160,6 +164,7 @@ func probeServer(ctx context.Context, s settings.Server, sec remote.Secrets, sud
 			f.SSHError = "Visor hasn't seen this server's host key before. Check its fingerprint and trust it to go on."
 		default:
 			f.SSHError = sshErrorText(err, t)
+			credentials = remote.IsCredentialError(err)
 		}
 		return done(key, hkv)
 	}
@@ -174,6 +179,7 @@ func probeServer(ctx context.Context, s settings.Server, sec remote.Secrets, sud
 	b, err := files.Bridge(ctx)
 	if s.UseSudo {
 		f.SudoResult = sudoResult(err, b)
+		credentials = err != nil && remote.IsCredentialError(err)
 	}
 	if err != nil {
 		if f.SudoResult == "" {
@@ -252,4 +258,17 @@ func configErrorText(err error, paths []string) string {
 		return err.Error()
 	}
 	return err.Error()
+}
+
+// credentialReport is the report for a connection that failed on a password
+// or key, built without connecting again (that would be another try).
+func credentialReport(s settings.Server, err error) ReportView {
+	f := doctor.RemoteFacts{Server: s.Name, Sudo: s.UseSudo, Login: s.User + "@" + s.Host}
+	if r := sudoResult(err, nil); r != "" && r != "nopasswd" {
+		f.HostKey, f.SudoResult = "connected", r
+	} else {
+		f.SSHError = sshErrorText(err, remote.Target{Host: s.Host, Port: s.Port, User: s.User})
+	}
+	rows := doctor.RemoteReport(f)
+	return ReportView{Rows: rows, Blocked: true, Credentials: true, AtMs: time.Now().UnixMilli()}
 }

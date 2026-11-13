@@ -45,8 +45,10 @@ onMounted(async () => {
   const list = await RemoteService.List().catch(() => null)
   saved.value = list?.find((s) => s.Server.id === id) ?? null
   if (!report.value) await check()
+  // Re-check a blocked tab on its own, except after a refused password or
+  // key: each try would count against the server's lockout.
   timer = setInterval(() => {
-    if (blocked.value && !checking.value) void check()
+    if (blocked.value && !report.value?.Credentials && !checking.value) void check()
   }, 30_000)
 })
 onBeforeUnmount(() => clearInterval(timer))

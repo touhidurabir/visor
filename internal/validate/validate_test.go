@@ -332,3 +332,26 @@ func TestChecksSayHowToFix(t *testing.T) {
 		})
 	}
 }
+
+func TestRemoteSkipsDiskChecks(t *testing.T) {
+	content := "[program:w]\ncommand=/srv/app/bin/worker\ndirectory=/srv/app\nuser=www-data\nstdout_logfile=/var/log/app/w.log\n"
+	env := Env{Remote: true,
+		Stat:       func(string) (fs.FileInfo, error) { t.Fatal("stat on a server file"); return nil, nil },
+		LookPath:   func(string) (string, error) { t.Fatal("lookpath"); return "", nil },
+		UserExists: func(string) bool { t.Fatal("user lookup"); return false },
+		Writable:   func(string) bool { t.Fatal("writable"); return false },
+	}
+	checks := File("w.conf", content, env)
+	n := 0
+	for _, c := range checks {
+		if c.Level == Error || c.Level == Warning {
+			t.Errorf("%+v", c)
+		}
+		if strings.Contains(c.Message, "not checked on servers yet") {
+			n++
+		}
+	}
+	if n != 4 {
+		t.Fatalf("want 4 skipped checks, got %d: %+v", n, checks)
+	}
+}

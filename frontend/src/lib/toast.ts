@@ -28,6 +28,7 @@ export function toastLifetime(kind: Toast['kind'], action?: ToastAction): number
 }
 
 export function showToast(text: string, kind: Toast['kind'] = 'info', action?: ToastAction) {
+  if (!text) return // nothing to say (a production question answered No)
   const id = next++
   toasts.value = [...toasts.value.slice(-2), { id, kind, text, ...(action ? { action } : {}) }]
   setTimeout(() => dismissToast(id), toastLifetime(kind, action))

@@ -10,21 +10,22 @@ import { RouterLink } from 'vue-router'
 import type { ConfigView, ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { sinceLabel } from '../lib/format'
 import { isFailing, reasonClass, summaryParts } from '../lib/health'
-import { configMenu, processMenu, withoutSupervisord, type MenuItem } from '../lib/menus'
+import { configMenu, forHost, processMenu, withoutSupervisord, type HostRules, type MenuItem } from '../lib/menus'
 import { configRoute } from '../lib/links'
 import ActionMenu from './ActionMenu.vue'
 import StateText from './StateText.vue'
 import { readOnlyReason, useFolder } from '../lib/folder'
 
-const props = defineProps<{ configs: ConfigView[]; nowMs: number; offline?: string; note?: string }>()
+// host: the tab's machine (a server's menus differ: forHost).
+const props = defineProps<{ configs: ConfigView[]; nowMs: number; offline?: string; note?: string; host?: HostRules }>()
 const emit = defineEmits<{
   process: [p: ProcessView, c: ConfigView, id: string]
   config: [c: ConfigView, id: string]
   watch: [c: ConfigView, on: boolean]
 }>()
 
-const NEEDS_FILE = ['open-config', 'describe', 'reveal', 'open-log', 'load', 'apply', 'remove']
-const online = (items: MenuItem[]) => (props.offline ? withoutSupervisord(items, props.offline) : items)
+const NEEDS_FILE = ['open-config', 'describe', 'reveal', 'download', 'open-log', 'load', 'apply', 'remove']
+const online = (items: MenuItem[]) => forHost(props.offline ? withoutSupervisord(items, props.offline) : items, props.host)
 // Removing moves the file out of the config folder, so a read-only folder
 // turns it off, with the reason as its tooltip.
 const folder = useFolder()

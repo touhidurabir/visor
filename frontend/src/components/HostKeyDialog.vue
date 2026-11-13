@@ -21,7 +21,7 @@ async function trust() {
   busy.value = true
   failed.value = ''
   try {
-    await RemoteService.Trust(props.view.Fingerprint)
+    await RemoteService.Trust(props.view.Host, props.view.Fingerprint)
     emit('trusted') // before close, which drops the prompt (and its retry)
     emit('close')
   } catch (e) {

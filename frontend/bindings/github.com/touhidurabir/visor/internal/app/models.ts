@@ -280,6 +280,12 @@ export interface FolderView {
     "Writable": boolean;
     "Missing": boolean;
     "Owner": string;
+
+    /**
+     * Remote: the folder is on a server, where configs are read only in
+     * this version (not a permission problem).
+     */
+    "Remote": boolean;
 }
 
 /**
@@ -781,6 +787,12 @@ export interface ReportView {
      * something stops the tab from working
      */
     "Blocked": boolean;
+
+    /**
+     * Credentials: a password or key was refused. The report is never
+     * re-checked on its own then: each try would count against the lockout.
+     */
+    "Credentials": boolean;
 
     /**
      * set when the host key needs the user
