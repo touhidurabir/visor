@@ -73,7 +73,7 @@ func (w *Watcher) Check() (ChangeSet, error) {
 	dirty := false
 	for _, p := range paths {
 		present[p] = true
-		data, rerr := os.ReadFile(p)
+		data, rerr := w.d.Files().ReadFile(p)
 		if rerr != nil {
 			continue
 		}
@@ -140,7 +140,7 @@ func (w *Watcher) mtime(path string) (time.Time, bool) {
 	if path == "" {
 		return time.Time{}, false
 	}
-	fi, err := os.Stat(path)
+	fi, err := w.d.Files().Stat(path)
 	if err != nil {
 		return time.Time{}, false
 	}
@@ -162,7 +162,7 @@ func (w *Watcher) MarkLoaded(paths ...string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for _, p := range paths {
-		data, err := os.ReadFile(p)
+		data, err := w.d.Files().ReadFile(p)
 		switch {
 		case err == nil:
 			w.loaded[p] = snapshot{Content: string(data), At: time.Now()}
