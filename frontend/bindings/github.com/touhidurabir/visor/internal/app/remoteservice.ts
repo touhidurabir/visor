@@ -20,6 +20,14 @@ import * as settings$0 from "../settings/models.js";
 import * as $models from "./models.js";
 
 /**
+ * ChooseKey shows the open-file dialog for a private key (in ~/.ssh) and
+ * returns its path, or "" when the person cancels.
+ */
+export function ChooseKey(): $CancellablePromise<string> {
+    return $Call.ByID(1514125869);
+}
+
+/**
  * Close closes a server's tab (the server stays saved).
  */
 export function Close(id: string): $CancellablePromise<void> {

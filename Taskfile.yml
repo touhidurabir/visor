@@ -42,6 +42,7 @@ tasks:
     cmds:
       - npm --prefix frontend run build
       - go build -tags server -o bin/visor-e2e .
+      - go build -o bin/visor-e2e-ssh ./internal/remote/remotetest/cmd/visor-e2e-ssh
       - npm --prefix e2e ci
       - npm --prefix e2e exec -- playwright install webkit
       - npm --prefix e2e test -- {{.CLI_ARGS}}

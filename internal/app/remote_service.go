@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/wailsapp/wails/v3/pkg/application"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/touhidurabir/visor/internal/doctor"
@@ -369,4 +373,30 @@ func (s *RemoteService) SetMutes(id string, m settings.ActivityMutes) error {
 	}
 	list[i].Mutes = m
 	return settings.SaveServers(s.stateDir, list)
+}
+
+// ChooseKey shows the open-file dialog for a private key (in ~/.ssh) and
+// returns its path, or "" when the person cancels.
+func (s *RemoteService) ChooseKey() (string, error) {
+	a := application.Get()
+	if a == nil {
+		return "", errors.New("cannot show the file dialog: type the key's path instead")
+	}
+	d := a.Dialog.OpenFile().
+		SetTitle("Choose an SSH key").
+		CanChooseFiles(true).
+		CanChooseDirectories(false).
+		ShowHiddenFiles(true).
+		AttachToWindow(a.Window.Current())
+	if home, err := os.UserHomeDir(); err == nil {
+		d.SetDirectory(filepath.Join(home, ".ssh"))
+	}
+	path, err := d.PromptForSingleSelection()
+	if err != nil {
+		return "", nil // cancelled
+	}
+	if home, herr := os.UserHomeDir(); herr == nil && strings.HasPrefix(path, home+"/") {
+		path = "~" + path[len(home):]
+	}
+	return path, nil
 }

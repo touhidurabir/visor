@@ -33,7 +33,7 @@ test.describe('navigation', () => {
     expect(errors).toEqual([])
   })
 
-  test('the sidebar marks the current page and keeps remote servers for later', async ({ page }) => {
+  test('the sidebar marks the current page; servers open as tabs above it', async ({ page }) => {
     const errors = collectErrors(page)
     await page.goto('/#/issues')
     const nav = page.getByRole('navigation', { name: 'Servers' })
@@ -46,8 +46,10 @@ test.describe('navigation', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'notes.ini' })).toBeVisible()
     await expect(nav.getByRole('link', { name: 'Dashboard' })).toHaveClass(/\bon\b/)
 
-    await expect(nav.getByRole('button', { name: /Add a server/ })).toBeDisabled()
-    await expect(nav.getByText('Soon')).toBeVisible()
+    // Servers open as tabs: this computer's tab is first and selected, with + beside it.
+    const tabs = page.getByRole('tablist', { name: 'Servers' })
+    await expect(tabs.getByRole('tab', { name: /This computer/ })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('button', { name: 'Add or open a server' })).toBeVisible()
     expect(errors).toEqual([])
   })
 

@@ -18,11 +18,16 @@ if [[ ! -x $BIN ]]; then
 fi
 
 pid=
+sshpid=
 cleanup() {
   trap - EXIT TERM INT HUP
   if [[ -n $pid ]]; then
     kill "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
+  fi
+  if [[ -n $sshpid ]]; then
+    kill "$sshpid" 2>/dev/null || true
+    wait "$sshpid" 2>/dev/null || true
   fi
   "$ROOT/scripts/sandbox.sh" down >/dev/null 2>&1 || true
 }
@@ -36,6 +41,14 @@ trap 'exit 143' TERM INT HUP
 # Visors on fresh state to see Doctor.
 mkdir -p "$VISOR_SANDBOX_DIR/state"
 printf '{"onboarded":true}\n' >"$VISOR_SANDBOX_DIR/state/settings.json"
+
+# A test SSH server on 127.0.0.1:8767 (user e2e, password e2e) in front of
+# the same sandbox, for the server-tab specs (servers.spec.ts).
+SSHBIN=$ROOT/bin/visor-e2e-ssh
+if [[ -x $SSHBIN ]]; then
+  "$SSHBIN" -addr 127.0.0.1:8767 >>"$ROOT/e2e/visor-ssh.log" 2>&1 &
+  sshpid=$!
+fi
 
 # Visor's own log goes to a file (uploaded by CI on failure); DEBUG_SERVER=1
 # also shows it live.

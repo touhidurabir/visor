@@ -10,6 +10,7 @@ import { ServerService } from '../lib/api'
 import type { ConnectionInput, SettingsView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { Settings } from '../../bindings/github.com/touhidurabir/visor/internal/settings'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import ServersCard from '../components/ServersCard.vue'
 import ThemeSwitch from '../components/ThemeSwitch.vue'
 import { loginHint, loginLocked, useLaunchAtLogin } from '../lib/login-item'
 import { describeError } from '../lib/faults'
@@ -397,8 +398,9 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
       <p>{{ describeError(warning) }}</p>
     </div>
 
-    <!-- Card order (flow change 3): General, Connection, Notifications,
-         Checking and history. M7's remote servers go above General. -->
+    <!-- Card order (flow change 3): Servers (M7) across the top, then General,
+         Connection, Notifications, Checking and history. -->
+    <ServersCard v-if="view && s" :max-servers="s.maxServers || 3" @limit="(n) => save((next) => (next.maxServers = n))" />
     <div v-if="view && s" class="cards">
       <!-- General -->
       <div class="card c-gen" role="group" aria-labelledby="general-title">

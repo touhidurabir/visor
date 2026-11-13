@@ -1,20 +1,37 @@
 <script setup lang="ts">
-// The main window frame: sidebar plus a scrolling content area. The sidebar
-// health comes from the same visor:overview feed as every other view.
-import { computed, onBeforeUnmount, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+// The main window frame: the tab bar across the top, then the sidebar and a
+// scrolling content area for the tab on screen. The sidebar health comes
+// from the same visor:overview feed as every other view.
+import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { connectionBadge, connectionProblem } from '../lib/connection'
 import { useOverview } from '../lib/overview'
 import { Application, Window } from '@wailsio/runtime'
-import { followMenu, runMenu } from '../lib/menu'
+import { followMenu, onMenu, runMenu } from '../lib/menu'
 import { followDrops } from '../lib/import-files'
 import { isMac } from '../lib/platform'
 import { shortcutOf } from '../lib/shortcuts'
+import { closeServer, hostKeyPrompt, refreshTabs, serverForm, switchTab } from '../lib/servers'
+import { currentTab, LOCAL, neighbour, rememberPath } from '../lib/tabs'
+import HostKeyDialog from './HostKeyDialog.vue'
+import ServerForm from './ServerForm.vue'
 import Sidebar from './Sidebar.vue'
+import TabBar from './TabBar.vue'
 import ToastHost from './ToastHost.vue'
 
 const router = useRouter()
+const route = useRoute()
 const { overview } = useOverview()
+
+// Open tabs survive a reload of the page; each tab remembers its page.
+void refreshTabs()
+watch(
+  () => route.fullPath,
+  (p) => {
+    if (!route.meta.bare && route.name !== 'settings') rememberPath(currentTab.value, p)
+  },
+  { immediate: true },
+)
 
 // Choices from Visor's menu bar (Find, Reload Config, Restart All…).
 followMenu(router)
@@ -27,6 +44,11 @@ followDrops(router)
 // every shortcut is carried out here, Close Window and Quit included. A key
 // an editor already handled (CodeMirror's own Ctrl+F) is left alone.
 function onKey(e: KeyboardEvent) {
+  // Ctrl+Tab and Ctrl+Shift+Tab move between tabs, as in a browser.
+  if (!e.defaultPrevented && e.key === 'Tab' && e.ctrlKey && !e.metaKey && !e.altKey) {
+    e.preventDefault()
+    return switchTab(router, neighbour(e.shiftKey ? -1 : 1))
+  }
   const id = e.defaultPrevented ? null : shortcutOf(e)
   if (!id) return
   const nativeOnly = id === 'closeWindow' || id === 'quit'
@@ -39,13 +61,22 @@ function onKey(e: KeyboardEvent) {
     case 'issues': return void router.push('/issues')
     case 'find': return runMenu('find')
     case 'reload': return runMenu('reload')
-    case 'closeWindow': return void Window.Close()
+    case 'closeWindow': return closeTabOrWindow()
     case 'quit': return void Application.Quit()
   }
 }
+// ⌘W / Ctrl+W closes a server's tab; on this computer's tab, the window.
+function closeTabOrWindow() {
+  if (currentTab.value !== LOCAL) return void closeServer(router, currentTab.value)
+  void Window.Close()
+}
+onMenu('close', closeTabOrWindow)
+
 onMounted(() => window.addEventListener('keydown', onKey))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
-const name = computed(() => overview.value?.Server.Name ?? 'Local')
+const name = computed(() => (overview.value?.Host?.Remote ? overview.value.Host.Name : overview.value?.Server.Name) ?? 'Local')
+const remote = computed(() => currentTab.value !== LOCAL)
+const color = computed(() => overview.value?.Host?.Color ?? '')
 const health = computed(() => overview.value?.Server.Health ?? 'unknown')
 const failing = computed(() => overview.value?.Stats.Failing ?? 0)
 const openIssues = computed(() => overview.value?.Stats.OpenIssues ?? 0)
@@ -55,15 +86,21 @@ const connection = computed(() => connectionBadge(connectionProblem(overview.val
 </script>
 
 <template>
-  <div class="shell" data-file-drop-target>
-    <Sidebar :name="name" :health="health" :failing="failing" :open-issues="openIssues" :connection="connection" />
-    <main class="content"><slot /></main>
+  <div class="frame">
+    <TabBar />
+    <div class="shell" data-file-drop-target>
+      <Sidebar :name="name" :health="health" :failing="failing" :open-issues="openIssues" :connection="connection" :remote="remote" :color="color" />
+      <main class="content"><slot /></main>
+    </div>
+    <ServerForm v-if="serverForm" :editing="serverForm.server" @close="serverForm = null" />
+    <HostKeyDialog v-if="hostKeyPrompt" :view="hostKeyPrompt.view" :server="hostKeyPrompt.server" @trusted="hostKeyPrompt?.then()" @close="hostKeyPrompt = null" />
     <ToastHost />
   </div>
 </template>
 
 <style scoped>
-.shell { display: flex; height: 100vh; background: var(--bg); color: var(--text); }
+.frame { display: flex; flex-direction: column; height: 100vh; background: var(--bg); color: var(--text); }
+.shell { display: flex; flex: 1; min-height: 0; background: var(--bg); color: var(--text); }
 /* Files dragged over the window (they open in Add new → Import files). */
 .shell.file-drop-target-active .content { outline: 2px dashed var(--accent); outline-offset: -6px; }
 .content { flex: 1; min-width: 0; overflow: auto; box-sizing: border-box; padding: 40px 28px 40px; }

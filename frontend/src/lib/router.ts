@@ -8,8 +8,10 @@ import ConfigDetail from '../views/ConfigDetail.vue'
 import Dashboard from '../views/Dashboard.vue'
 import Doctor from '../views/Doctor.vue'
 import Issues from '../views/Issues.vue'
+import ServerReport from '../views/ServerReport.vue'
 import Settings from '../views/Settings.vue'
 import Tray from '../views/Tray.vue'
+import { tabGuard } from './tabs'
 
 export const routes: RouteRecordRaw[] = [
   { path: '/', name: 'dashboard', component: Dashboard },
@@ -22,9 +24,17 @@ export const routes: RouteRecordRaw[] = [
   { path: '/settings', name: 'settings', component: Settings, meta: { title: 'Settings' } },
   { path: '/doctor', name: 'doctor', component: Doctor, meta: { title: 'Doctor' } },
   { path: '/tray', name: 'tray', component: Tray, meta: { bare: true } },
+  // A server's tab: the same pages under /s/<server id> (lib/tabs.ts).
+  { path: '/s/:server', name: 'server-dashboard', component: Dashboard },
+  { path: '/s/:server/config/:path(.*)', name: 'server-config', component: ConfigDetail, meta: { title: 'Config' } },
+  { path: '/s/:server/issues', name: 'server-issues', component: Issues, meta: { title: 'Issues' } },
+  { path: '/s/:server/issues/log', name: 'server-issues-log', component: Issues, meta: { title: 'Issues' } },
+  { path: '/s/:server/report', name: 'server-report', component: ServerReport, meta: { title: 'Server report' } },
   { path: '/:rest(.*)*', redirect: '/' },
 ]
 
 export function createAppRouter(history = createWebHashHistory()) {
-  return createRouter({ history, routes })
+  const router = createRouter({ history, routes })
+  router.beforeEach(tabGuard)
+  return router
 }

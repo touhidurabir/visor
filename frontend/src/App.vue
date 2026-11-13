@@ -5,6 +5,7 @@ import AppShell from './components/AppShell.vue'
 import Doctor from './views/Doctor.vue'
 import { useOverview } from './lib/overview'
 import { loadSettings } from './lib/settings'
+import { currentTab } from './lib/tabs'
 
 const route = useRoute()
 const router = useRouter()
@@ -41,7 +42,7 @@ function openDoctorIfDown() {
       const server = v?.Server
       if (first === null || !server || server.Health === 'unknown') return
       queueMicrotask(() => scope.stop()) // decided once: stop listening
-      if (!server.Reachable && first === false && route.name === 'dashboard') void router.replace('/doctor')
+      if (!server.Reachable && first === false && route.name === 'dashboard' && currentTab.value === 'local') void router.replace('/doctor')
     })
   })
 }
@@ -66,6 +67,7 @@ function leaveSetup(to: string) {
   <template v-else-if="firstRun === null" />
   <Doctor v-else-if="firstRun && !leftSetup" first-run @done="finishSetup" @leave="leaveSetup" />
   <AppShell v-else>
-    <RouterView />
+    <!-- Keyed by tab, so a page shared by two tabs reloads for the new one. -->
+    <RouterView :key="currentTab" />
   </AppShell>
 </template>
