@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"os"
+	"os/exec"
+	"strings"
 	"path/filepath"
 	"testing"
 	"time"
@@ -78,4 +80,78 @@ func TestLiveServerTab(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 	}
 	t.Fatalf("%s did not restart", name)
+}
+
+// TestLiveActivity changes things on a test server behind Visor's back and
+// checks each shows as activity and notifies: VISOR_SSH_ACTIVITY=1 with
+// VISOR_SSH_TEST and VISOR_SSH_SUDO=1 (NOPASSWD). It restarts sleeper:sleeper,
+// appends a comment to /etc/supervisor/conf.d/sleeper.conf (and takes it
+// out again) and restarts supervisor. Only on a test machine.
+func TestLiveActivity(t *testing.T) {
+	alias := os.Getenv("VISOR_SSH_TEST")
+	if alias == "" || os.Getenv("VISOR_SSH_ACTIVITY") != "1" {
+		t.Skip("set VISOR_SSH_TEST and VISOR_SSH_ACTIVITY=1 to run")
+	}
+	oldWait := activityGroupWait
+	activityGroupWait = time.Second
+	t.Cleanup(func() { activityGroupWait = oldWait })
+	state := t.TempDir()
+	k := &settings.MemoryKeychain{}
+	s := settings.Server{ID: settings.NewServerID(), Name: alias, Host: alias, UseSudo: true, SudoPassword: settings.SudoNone}.Normalize()
+	sender := &fakeSender{}
+	rt := NewRuntime(RuntimeOptions{
+		StateDir: settings.ServerStateDir(state, s.ID), Interval: time.Second, Keychain: k, Notifier: sender,
+		Remote: &RemoteSource{Server: s, Connect: ConnectServer(k, remote.DefaultHostKeys(state))},
+	})
+	if err := rt.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Stop()
+	svc := NewServerService(rt)
+	waitRunning(t, svc, "sleeper:sleeper")
+	run := func(cmd string) {
+		t.Helper()
+		if out, err := exec.Command("ssh", "-o", "BatchMode=yes", alias, cmd).CombinedOutput(); err != nil {
+			t.Fatalf("%s: %v %s", cmd, err, out)
+		}
+	}
+	waitKind := func(kind string) ActivityEventView {
+		t.Helper()
+		deadline := time.Now().Add(40 * time.Second)
+		for time.Now().Before(deadline) {
+			for _, e := range NewIssueService(rt).Activity(ActivityQuery{}).Events {
+				if e.Kind == kind {
+					return e
+				}
+			}
+			time.Sleep(300 * time.Millisecond)
+		}
+		t.Fatalf("no %s event", kind)
+		return ActivityEventView{}
+	}
+	// Files are checked every 10 s on a server: let the first check see
+	// things as they are, so later changes are changes.
+	time.Sleep(remoteFileCheck + 2*time.Second)
+	run("sudo -n systemctl restart supervisor")
+	e := waitKind("daemon_restarted")
+	t.Logf("event: %s", e.Text)
+
+	waitRunning(t, svc, "sleeper:sleeper")
+	run("sudo -n supervisorctl restart sleeper")
+	e = waitKind("process_restarted")
+	t.Logf("event: %s (by Visor %v)", e.Text, e.ByVisor)
+
+	time.Sleep(remoteFileCheck + 2*time.Second)
+	conf := "/etc/supervisor/conf.d/sleeper.conf"
+	run("echo '# visor live test' | sudo -n tee -a " + conf + " >/dev/null")
+	t.Cleanup(func() { run("sudo -n sed -i '/^# visor live test$/d' " + conf) })
+	e = waitKind("file_changed")
+	t.Logf("event: %s", e.Text)
+
+	time.Sleep(2 * time.Second)
+	for _, m := range sender.messages() {
+		if strings.HasPrefix(m.ID, "activity-") {
+			t.Logf("notified: %s · %s", m.Title, m.Body)
+		}
+	}
 }
