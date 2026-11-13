@@ -11,16 +11,8 @@
 // stands, and the explanation starts with "To fix before saving".
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import {
-  ConfigService,
-  type ApplyResultView,
-  type BackupView,
-  type EditView,
-  type ExplainView,
-  type FileView,
-  type LoadedDiffView,
-  type ProcessView,
-} from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { type ApplyResultView, type BackupView, type EditView, type ExplainView, type FileView, type LoadedDiffView, type ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ConfigService } from '../lib/api'
 import { classifySaveError, saveErrorText } from '../lib/config-errors'
 import { addLines, applyEdit, explainMarks, fixToSave } from '../lib/explain'
 import { saveReason } from '../lib/fix-list'

@@ -32,6 +32,11 @@ export interface Info {
      * Notifications and Login Items).
      */
     "systemSettings": boolean;
+
+    /**
+     * Local names this computer's tab: "This Mac" or "This computer".
+     */
+    "local": string;
 }
 
 /**

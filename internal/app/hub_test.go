@@ -54,7 +54,7 @@ func TestHubTabsReachTheirOwnSupervisord(t *testing.T) {
 	if err := hub.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = hub.ServiceShutdown() })
+	t.Cleanup(func() { _ = hub.Shutdown() })
 
 	api := NewServerAPI(hub)
 	for _, s := range []settings.Server{sa, sb} {

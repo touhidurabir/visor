@@ -21,13 +21,14 @@ vi.mock('@wailsio/runtime', () => ({
 }))
 vi.mock('../../bindings/events', () => ({ VisorOverview: 'visor:overview' }))
 vi.mock('../../bindings/github.com/touhidurabir/visor/internal/app', () => ({
-  ServerService: { Overview: () => overviewCall() },
+  ServerAPI: { Overview: () => overviewCall() },
 }))
 
 const { opensOnProblems, useOverview } = await import('./overview')
 
 function view(health: string, running: number): OverviewView {
   return {
+    Host: { ID: 'local', Name: 'This Mac', Remote: false, Tag: '', Color: '', ReadOnly: false, Sudo: false, Via: '', Address: '' },
     Server: { Name: 'Local', Version: '', UptimeMs: 0, ConfigPath: '', Reachable: true, Error: '', Health: health },
     Stats: { Configs: 0, Processes: running, Running: running, Failing: 0, Stopped: 0, OpenIssues: 0 },
     Configs: [],

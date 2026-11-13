@@ -6,6 +6,32 @@
 import * as time$0 from "../../../../../time/models.js";
 
 /**
+ * ActivityMutes turn off notifications for changes made outside Visor, per
+ * kind. Everything notifies by default.
+ */
+export interface ActivityMutes {
+    /**
+     * started, stopped or restarted outside Visor
+     */
+    "processes": boolean;
+
+    /**
+     * added, removed or changed by an update outside Visor
+     */
+    "programs": boolean;
+
+    /**
+     * config files added, changed or removed on disk
+     */
+    "files": boolean;
+
+    /**
+     * supervisord restarted, shut down or back
+     */
+    "daemon": boolean;
+}
+
+/**
  * CrashLoopRules: Restarts restarts within Window open a crash-loop issue.
  */
 export interface CrashLoopRules {
@@ -56,4 +82,14 @@ export interface Settings {
      * MenuBarCount shows the unread count beside the menu-bar icon.
      */
     "menuBarCount": boolean;
+
+    /**
+     * MaxServers is how many servers can be connected at once.
+     */
+    "maxServers": number;
+
+    /**
+     * Mutes are the activity kinds whose notifications are off for this computer.
+     */
+    "mutes": ActivityMutes;
 }

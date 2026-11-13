@@ -3,7 +3,8 @@
 // (spec §5.3 History tab). `version` changes whenever the process's state
 // does, so the list reloads.
 import { ref, watch } from 'vue'
-import { IssueService, type TransitionView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { type TransitionView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { IssueService } from '../lib/api'
 import { describeError } from '../lib/faults'
 import { historyNote, historyTime } from '../lib/format'
 import StateBadge from './StateBadge.vue'

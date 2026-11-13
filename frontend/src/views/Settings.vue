@@ -5,7 +5,8 @@
 // Everything else saves as it changes and applies straight away; Go clamps
 // out-of-range values and the page shows what it kept.
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { NotifyService, ServerService, SettingsService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { NotifyService, SettingsService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ServerService } from '../lib/api'
 import type { ConnectionInput, SettingsView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { Settings } from '../../bindings/github.com/touhidurabir/visor/internal/settings'
 import ConfirmDialog from '../components/ConfirmDialog.vue'

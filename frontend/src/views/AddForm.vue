@@ -6,7 +6,7 @@
 // that explains every line. The text is the same one "Write it" edits. Save sits in the sticky bar at the bottom.
 import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import { ConfigService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ConfigService } from '../lib/api'
 import AddHeader from '../components/AddHeader.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import CopyPicker from '../components/CopyPicker.vue'

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('../../bindings/github.com/touhidurabir/visor/internal/app', () => ({ ConfigService: { Folder: vi.fn() } }))
+vi.mock('./api', () => ({ ConfigService: { Folder: vi.fn() } }))
 
 const { readOnlyReason } = await import('./folder')
 

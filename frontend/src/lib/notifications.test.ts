@@ -10,7 +10,7 @@ vi.mock('@wailsio/runtime', () => ({
   Events: { On: (name: string, cb: (ev: { data: unknown }) => void) => (handlers.set(name, cb), () => handlers.delete(name)) },
 }))
 vi.mock('../../bindings/events', () => ({ VisorNotifications: 'visor:notifications' }))
-vi.mock('../../bindings/github.com/touhidurabir/visor/internal/app', () => ({
+vi.mock('./api', () => ({
   InboxService: { Notifications: () => list(), MarkRead: (id: string) => markRead(id), MarkAllRead: () => markAll() },
 }))
 
@@ -33,19 +33,19 @@ describe('useNotifications', () => {
   })
 
   it('loads once, counts unread and follows events', async () => {
-    list.mockResolvedValue({ Unread: 1, Items: [n(), n({ ID: 'n2', Read: true })] })
+    list.mockResolvedValue({ Server: 'local', Unread: 1, Items: [n(), n({ ID: 'n2', Read: true })] })
     const a = useNotifications()
     const b = useNotifications()
     await flush()
     expect(list).toHaveBeenCalledTimes(1)
     expect(a.unread.value).toBe(1)
-    handlers.get('visor:notifications')!({ data: { Unread: 2, Items: [n({ ID: 'n3' }), n()] } })
+    handlers.get('visor:notifications')!({ data: { Server: 'local', Unread: 2, Items: [n({ ID: 'n3' }), n()] } })
     expect(b.items.value.map((x) => x.ID)).toEqual(['n3', 'n1'])
     expect(b.unread.value).toBe(2)
   })
 
   it('marks read at once and tells Go', async () => {
-    list.mockResolvedValue({ Unread: 2, Items: [n(), n({ ID: 'n2' })] })
+    list.mockResolvedValue({ Server: 'local', Unread: 2, Items: [n(), n({ ID: 'n2' })] })
     const s = useNotifications()
     await flush()
     await s.markRead('n1')

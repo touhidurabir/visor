@@ -3,7 +3,7 @@ import type { IssueView } from '../../bindings/github.com/touhidurabir/visor/int
 import { KIND_ICONS, KIND_SEVERITY, issueKind, lasted, statusLabel } from './issue-status'
 
 const issue = (over: Partial<IssueView> = {}): IssueView => ({
-  ID: 'i1', Kind: 'fatal', Process: 'web:web', Config: '/etc/web.conf', Message: 'm',
+  Server: '', ID: 'i1', Kind: 'fatal', Process: 'web:web', Config: '/etc/web.conf', Message: 'm',
   OpenedMs: 1_000_000, ClosedMs: 0, Status: 'open', Notified: false, Note: '', ...over,
 })
 

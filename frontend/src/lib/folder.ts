@@ -3,7 +3,8 @@
 // owns (supervisord installed from a Linux package) makes configs
 // read-only: Programs pages say so and the writing actions are off.
 import { ref } from 'vue'
-import { ConfigService, type FolderView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { type FolderView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ConfigService } from './api'
 
 const folder = ref<FolderView | null>(null)
 

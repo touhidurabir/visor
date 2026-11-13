@@ -6,7 +6,7 @@
 // visible.
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ServerService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ServerService } from '../lib/api'
 import type { MainLogLineView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { describeError } from '../lib/faults'
 import { DATE_OPTIONS, dateRange, type DatePreset } from '../lib/issues-page'

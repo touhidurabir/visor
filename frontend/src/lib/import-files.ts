@@ -4,7 +4,8 @@
 // one go. The originals are only read. Pure helpers are exported for tests.
 import { computed, reactive, ref, watch } from 'vue'
 import { Events } from '@wailsio/runtime'
-import { ConfigService, type DroppedFileView, type ExplainView, type ImportResultView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { type DroppedFileView, type ExplainView, type ImportResultView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ConfigService } from './api'
 import { VisorFilesDropped } from '../../bindings/events'
 import { showToast } from './toast'
 import { describeError } from './faults'

@@ -1,22 +1,28 @@
 // Visor's own notification list (the bell): one shared copy, loaded once
 // and kept current by visor:notifications events. Banners from macOS are
 // extra; everything Visor notifies about lands here with read/unread state.
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Events } from '@wailsio/runtime'
 import type { RouteLocationRaw } from 'vue-router'
-import { InboxService, type NotificationView, type NotificationsView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { type NotificationView, type NotificationsView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { InboxService } from './api'
 import { VisorNotifications } from '../../bindings/events'
 import { historyTime } from './format'
 import { configRoute } from './links'
 import { issueKind } from './issue-status'
+import { currentTab, LOCAL } from './tabs'
 
+// Each tab has its own list; the bell shows the tab on screen.
 const items = ref<NotificationView[]>([])
 const loaded = ref(false)
 const failed = ref<string | null>(null)
 let started = false
 let fromEvent = false
+const byTab = new Map<string, NotificationView[]>()
 
 function apply(v: NotificationsView) {
+  byTab.set(v.Server || LOCAL, v.Items ?? [])
+  if ((v.Server || LOCAL) !== currentTab.value) return
   items.value = v.Items ?? []
   loaded.value = true
   failed.value = null
@@ -27,8 +33,12 @@ export function useNotifications() {
   if (!started) {
     started = true
     Events.On(VisorNotifications, (ev) => {
-      fromEvent = true
+      if ((ev.data?.Server || LOCAL) === currentTab.value) fromEvent = true
       apply(ev.data)
+    })
+    watch(currentTab, (id) => {
+      items.value = byTab.get(id) ?? []
+      void reload()
     })
     void reload()
   }
@@ -37,11 +47,12 @@ export function useNotifications() {
 
 async function reload() {
   fromEvent = false
+  const id = currentTab.value
   try {
     const v = await InboxService.Notifications()
-    if (!fromEvent) apply(v)
+    if (!fromEvent && id === currentTab.value) apply({ ...v, Server: v.Server || id })
   } catch (e) {
-    if (!fromEvent) failed.value = e instanceof Error ? e.message : String(e)
+    if (!fromEvent && id === currentTab.value) failed.value = e instanceof Error ? e.message : String(e)
   }
 }
 
@@ -65,6 +76,7 @@ export function resetNotifications() {
   failed.value = null
   started = false
   fromEvent = false
+  byTab.clear()
 }
 
 /** When it happened: "just now", "5 min ago", "3 h ago", then "Yesterday 21:40". */

@@ -8,7 +8,8 @@
 // &stream=stderr&line=9), so links land on them.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { ServerService, type ConfigDetailView, type EditView, type ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { type ConfigDetailView, type EditView, type ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ServerService } from '../lib/api'
 import ConfigEditor from '../components/ConfigEditor.vue'
 import ExplainPanel from '../components/ExplainPanel.vue'
 import HistoryList from '../components/HistoryList.vue'

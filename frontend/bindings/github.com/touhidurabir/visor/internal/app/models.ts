@@ -283,6 +283,29 @@ export interface FolderView {
 }
 
 /**
+ * HostView is which machine a tab shows.
+ */
+export interface HostView {
+    "ID": string;
+    "Name": string;
+    "Remote": boolean;
+    "Tag": string;
+    "Color": string;
+    "ReadOnly": boolean;
+    "Sudo": boolean;
+
+    /**
+     * how supervisord is reached on a server
+     */
+    "Via": string;
+
+    /**
+     * user@host:port on a server
+     */
+    "Address": string;
+}
+
+/**
  * ImportItem is one config file brought in from elsewhere (a repo, a file
  * an assistant wrote): the name it gets in the include folder, and its text.
  */
@@ -347,6 +370,10 @@ export interface IssueStats {
  * Visor closed it, e.g. "program removed" ("" otherwise).
  */
 export interface IssueView {
+    /**
+     * Server is the tab the issue belongs to (set on events).
+     */
+    "Server": string;
     "ID": string;
     "Kind": string;
     "Process": string;
@@ -577,6 +604,10 @@ export interface NotificationView {
  * how many are unread.
  */
 export interface NotificationsView {
+    /**
+     * Server is the tab the list belongs to (LocalID for this computer).
+     */
+    "Server": string;
     "Unread": number;
     "Items": NotificationView[] | null;
 }
@@ -586,6 +617,10 @@ export interface NotificationsView {
  * sent as the visor:overview event after every poll and every action.
  */
 export interface OverviewView {
+    /**
+     * Host is the machine this tab shows: this computer or a server.
+     */
+    "Host": HostView;
     "Server": ServerView;
     "Stats": StatsView;
     "Configs": ConfigView[] | null;

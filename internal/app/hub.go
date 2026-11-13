@@ -100,10 +100,19 @@ func NewHub(local *Runtime, o HubOptions) *Hub {
 	}
 }
 
+// HubService binds the Hub's life to the app's (and exposes nothing else).
+type HubService struct{ hub *Hub }
+
+// NewHubService returns the Wails service that starts and stops hub.
+func NewHubService(hub *Hub) *HubService { return &HubService{hub: hub} }
+
 // ServiceStartup starts this computer's Runtime with the app.
-func (h *Hub) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
-	return h.Start(ctx)
+func (s *HubService) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
+	return s.hub.Start(ctx)
 }
+
+// ServiceShutdown stops every tab.
+func (s *HubService) ServiceShutdown() error { return s.hub.Shutdown() }
 
 // Start starts this computer's Runtime (ServiceStartup without Wails).
 func (h *Hub) Start(ctx context.Context) error {
@@ -113,8 +122,8 @@ func (h *Hub) Start(ctx context.Context) error {
 	return h.local.RT.Start(ctx)
 }
 
-// ServiceShutdown stops every tab.
-func (h *Hub) ServiceShutdown() error {
+// Shutdown stops every tab.
+func (h *Hub) Shutdown() error {
 	h.mu.Lock()
 	tabs := make([]*Tab, 0, len(h.tabs))
 	for _, t := range h.tabs {

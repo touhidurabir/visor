@@ -6,7 +6,8 @@
 // following when it unmounts.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { Events } from '@wailsio/runtime'
-import { LogService, ServerService, type LogChunkView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { type LogChunkView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { LogService, ServerService } from '../lib/api'
 import { VisorLog } from '../../bindings/events'
 import { describeError } from '../lib/faults'
 import { onMenu } from '../lib/menu'

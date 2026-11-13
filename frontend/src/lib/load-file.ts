@@ -2,7 +2,7 @@
 // yet (ConfigService.LoadFile, supervisorctl update for just those groups).
 // Resolves to the sentence to show; throws when supervisord reported a
 // problem, so callers show it as an error.
-import { ConfigService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ConfigService } from './api'
 
 export async function loadFile(path: string, fileName: string): Promise<string> {
   const res = await ConfigService.LoadFile(path)

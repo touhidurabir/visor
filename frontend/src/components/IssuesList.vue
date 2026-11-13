@@ -7,7 +7,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import { Events } from '@wailsio/runtime'
-import { IssueService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { IssueService } from '../lib/api'
 import type { IssueStats, IssueView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { VisorIssueOpened } from '../../bindings/events'
 import ConfirmDialog from './ConfirmDialog.vue'
