@@ -192,7 +192,7 @@ func NewRuntime(o RuntimeOptions) *Runtime {
 		o.Emit = func(string, any) {}
 	}
 	prefs := o.Settings
-	if prefs == (settings.Settings{}) {
+	if prefs.PollInterval == 0 && prefs.RetentionDays == 0 && prefs.Appearance == "" {
 		prefs = settings.Defaults()
 	}
 	prefs = prefs.Clamp()

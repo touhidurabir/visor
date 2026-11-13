@@ -45,6 +45,19 @@ type Settings struct {
 	Appearance string `json:"appearance"`
 	// MenuBarCount shows the unread count beside the menu-bar icon.
 	MenuBarCount bool `json:"menuBarCount"`
+	// MaxServers is how many servers can be connected at once.
+	MaxServers int `json:"maxServers"`
+	// Mutes are the activity kinds whose notifications are off for this computer.
+	Mutes ActivityMutes `json:"mutes"`
+}
+
+// ActivityMutes turn off notifications for changes made outside Visor, per
+// kind. Everything notifies by default.
+type ActivityMutes struct {
+	Processes bool `json:"processes"` // started, stopped or restarted outside Visor
+	Programs  bool `json:"programs"`  // added, removed or changed by an update outside Visor
+	Files     bool `json:"files"`     // config files added, changed or removed on disk
+	Daemon    bool `json:"daemon"`    // supervisord restarted, shut down or back
 }
 
 // Appearance values.
@@ -79,6 +92,7 @@ func Defaults() Settings {
 		RetentionDays: 90,
 		Appearance:    AppearanceSystem,
 		MenuBarCount:  true,
+		MaxServers:    DefaultMaxServers,
 	}
 }
 
@@ -96,6 +110,7 @@ func (s Settings) Clamp() Settings {
 	s.RetentionDays = min(max(s.RetentionDays, MinRetentionDays), MaxRetentionDays)
 	s.CrashLoop.Restarts = min(max(s.CrashLoop.Restarts, MinCrashLoopRestart), MaxCrashLoopRestart)
 	s.CrashLoop.Window = min(max(s.CrashLoop.Window, MinCrashLoopWindow), MaxCrashLoopWindow)
+	s.MaxServers = min(max(s.MaxServers, MinMaxServers), MaxMaxServers)
 	return s
 }
 

@@ -176,6 +176,8 @@ func TestRoundTrip(t *testing.T) {
 		RetentionDays: 30,
 		Onboarded:     true,
 		Appearance:    AppearanceDark,
+		MaxServers:    5,
+		Mutes:         ActivityMutes{Files: true},
 	}
 	if err := Save(dir, in); err != nil {
 		t.Fatal(err)
