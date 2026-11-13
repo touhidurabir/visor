@@ -56,7 +56,7 @@ const run = (v: TrayVerb, item: TrayItem) =>
     const targets = actionTargets(v, item)
     if (!targets.length) return
     await guard(props.tab.id, METHOD[v], [item.multi ? `every copy of ${item.name}` : item.name])
-    await withConsent(() => Promise.all(targets.map((p) => calls[v](p.FullName))))
+    await withConsent(() => Promise.all(targets.map((p) => calls[v](p.FullName))), props.tab.id)
   })
 </script>
 

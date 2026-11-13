@@ -193,6 +193,9 @@ func (s *DoctorService) StartSupervisord() (DoctorView, error) {
 		return v, nil // nothing to start
 	}
 	mark := doctor.LogSize(logPath) // show only what this start writes
+	// Visor starts it: "supervisord is back" is Visor's doing.
+	done := s.rt.recordAct(expectation{daemon: true}, minRestartGrace)
+	defer done()
 	out, err := s.start(context.Background(), *plan, platform.LoginPATH())
 	if err == nil {
 		for deadline := time.Now().Add(s.startWait); ; time.Sleep(300 * time.Millisecond) {

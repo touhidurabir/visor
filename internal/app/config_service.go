@@ -147,6 +147,7 @@ func (s *ConfigService) Save(path, content, hash string) (ApplyResultView, error
 	}
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
+	defer s.rt.markWrites()() // its file changes are Visor's, not outside ones
 	return s.save(path, content, hash)
 }
 
@@ -238,6 +239,7 @@ func (s *ConfigService) ApplyFile(path string) (ApplyResultView, error) {
 	}
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
+	defer s.rt.markWrites()() // its file changes are Visor's, not outside ones
 	if _, err := s.rt.includeFile(path); err != nil {
 		return ApplyResultView{}, err
 	}
@@ -301,6 +303,7 @@ func (s *ConfigService) Restore(path, backupID string) (ApplyResultView, error) 
 	}
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
+	defer s.rt.markWrites()() // its file changes are Visor's, not outside ones
 	if err := s.rt.checkManaged(path); err != nil {
 		return ApplyResultView{}, err
 	}
@@ -474,6 +477,7 @@ func (s *ConfigService) Create(fileName, content string) (ApplyResultView, error
 	}
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
+	defer s.rt.markWrites()() // its file changes are Visor's, not outside ones
 	dir, _ := s.rt.newFileHome()
 	if dir == "" {
 		return ApplyResultView{}, errors.New("supervisord's [include] files= setting names no folder Visor can write to")

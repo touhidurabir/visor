@@ -1,10 +1,13 @@
 package activity
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/touhidurabir/visor/internal/config"
+	"github.com/touhidurabir/visor/internal/issues"
 	"github.com/touhidurabir/visor/internal/monitor"
 	"github.com/touhidurabir/visor/internal/supervisor"
 )
@@ -121,16 +124,48 @@ func TestDaemonRestartDownAndBack(t *testing.T) {
 	if got := kinds(d.Next(in)); len(got) != 1 || got[0] != DaemonRestarted {
 		t.Fatalf("%v", got)
 	}
-	down := upd(4 * time.Second)
-	down.Update.Snapshot.Reachable = false
-	down.Update.Events = []monitor.Event{{Kind: monitor.Unreachable}}
-	if got := kinds(d.Next(down)); len(got) != 1 || got[0] != DaemonDown {
+	failing := func(at time.Duration, err error) Input {
+		in := upd(at)
+		in.Update.Snapshot.Reachable, in.Update.Snapshot.Err = false, err
+		return in
+	}
+	// One failed poll is not "down"; two are.
+	if got := d.Next(failing(4*time.Second, errors.New("timeout"))); len(got) != 0 {
+		t.Fatalf("one poll: %v", kinds(got))
+	}
+	if got := kinds(d.Next(failing(6*time.Second, errors.New("timeout")))); len(got) != 1 || got[0] != DaemonDown {
 		t.Fatalf("%v", got)
 	}
-	back := upd(6*time.Second, monitor.Event{Kind: monitor.Reconnected})
+	back := upd(8*time.Second, monitor.Event{Kind: monitor.Reconnected})
 	back.PidMtime = t0.Add(time.Second)
 	if got := kinds(d.Next(back)); len(got) != 1 || got[0] != DaemonBack {
 		t.Fatalf("%v", got)
+	}
+	// A lost SSH connection and supervisord restarting are not "down".
+	for i, err := range []error{fmt.Errorf("poll: %w", issues.ErrHostDown), supervisor.ErrShutdownState} {
+		for k := range 3 {
+			if got := d.Next(failing(time.Duration(10+i*10+k)*time.Second, err)); len(got) != 0 {
+				t.Fatalf("%v: %v", err, kinds(got))
+			}
+		}
+		if got := d.Next(upd(time.Duration(20+i*10) * time.Second)); len(got) != 0 {
+			t.Fatalf("back after %v: %v", err, kinds(got))
+		}
+	}
+}
+
+func TestFileEventsAskAboutTheFile(t *testing.T) {
+	d := started()
+	in := upd(0)
+	in.Checked = true
+	d.Next(in)
+	in = upd(time.Second)
+	in.Checked, in.Changes = true, config.ChangeSet{Changed: []string{"/c/web.conf"}}
+	var asked string
+	in.ByVisor = func(p string, _ time.Time) bool { asked = p; return true }
+	out := d.Next(in)
+	if asked != "file:/c/web.conf" || len(out) != 1 || !out[0].ByVisor {
+		t.Fatalf("%q %+v", asked, out)
 	}
 }
 

@@ -11,7 +11,10 @@ import (
 	"path/filepath"
 	"time"
 
+	"errors"
+
 	"github.com/touhidurabir/visor/internal/config"
+	"github.com/touhidurabir/visor/internal/issues"
 	"github.com/touhidurabir/visor/internal/monitor"
 	"github.com/touhidurabir/visor/internal/supervisor"
 )
@@ -99,7 +102,7 @@ type Input struct {
 	// ConfigOf finds a process's config file ("" when unknown).
 	ConfigOf func(process string) string
 	// ByVisor reports whether this Visor's own action covers the process
-	// ("" is supervisord itself) at time t.
+	// ("" is supervisord itself; "file:<path>" a config file) at time t.
 	ByVisor func(process string, t time.Time) bool
 	// Crashed reports a process the issue tracker found crashing in this
 	// update: its restart is supervisord's autorestart, not a change.
@@ -116,10 +119,14 @@ type Deriver struct {
 	files     map[string]Kind  // the last ChangeSet, by path
 	haveFiles bool
 	pid       time.Time
-	down      bool
+	failed    int  // polls in a row supervisord didn't answer (not counting SSH drops and restarts)
+	down      bool // DaemonDown was reported
 	seen      bool // a reachable update was handled: the next ones are changes
 	seq       int
 }
+
+// DownPolls failed polls in a row make supervisord "down".
+const DownPolls = 2
 
 // NewDeriver returns a Deriver with a 10 s restart window.
 func NewDeriver() *Deriver {
@@ -146,8 +153,11 @@ func (d *Deriver) Next(in Input) []Event {
 		e := Event{ID: d.id(at), At: at, Kind: k, Process: process, Config: conf}
 		if in.ByVisor != nil {
 			p := process
-			if k == DaemonRestarted || k == DaemonDown || k == DaemonBack {
+			switch k.Group() {
+			case "daemon":
 				p = ""
+			case "files":
+				p = "file:" + conf
 			}
 			e.ByVisor = in.ByVisor(p, at)
 		}
@@ -168,18 +178,24 @@ func (d *Deriver) Next(in Input) []Event {
 		}
 		d.pid = in.PidMtime
 	}
-	for _, ev := range in.Update.Events {
-		switch ev.Kind {
-		case monitor.Unreachable:
-			if !d.down {
-				d.down = true
-				out = append(out, mk(DaemonDown, "", "", now))
-			}
-		case monitor.Reconnected:
+	// Down after DownPolls failed polls, like the tracker's unreachable
+	// issue; a lost SSH connection or supervisord restarting is not
+	// supervisord going down.
+	snap := in.Update.Snapshot
+	switch {
+	case snap.Reachable:
+		d.failed = 0
+		if d.down {
 			d.down = false
 			if !restartedDaemon {
 				out = append(out, mk(DaemonBack, "", "", now))
 			}
+		}
+	case !snap.At.IsZero() && !errors.Is(snap.Err, issues.ErrHostDown) && !errors.Is(snap.Err, supervisor.ErrShutdownState):
+		d.failed++
+		if d.failed >= DownPolls && !d.down {
+			d.down = true
+			out = append(out, mk(DaemonDown, "", "", now))
 		}
 	}
 	if restartedDaemon {

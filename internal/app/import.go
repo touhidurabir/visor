@@ -165,6 +165,7 @@ func (s *ConfigService) Import(items []ImportItem, start bool) ([]ImportResultVi
 	}
 
 	s.rt.applyMu.Lock()
+	defer s.rt.markWrites()() // its file changes are Visor's, not outside ones
 	for i, v := range s.CheckImport(items) {
 		if v.SaveErrors > 0 {
 			s.rt.applyMu.Unlock()

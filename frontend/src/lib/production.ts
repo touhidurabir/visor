@@ -4,7 +4,7 @@
 // call through guard(); a dialog that already asked (a menu's or a bulk
 // confirm) calls withConsent() so the person isn't asked twice.
 import { ref } from 'vue'
-import { serverTabs } from './tabs'
+import { currentTab, serverTabs } from './tabs'
 
 /** CancelledError: the person said no. Views treat it as nothing done, quietly. */
 export class CancelledError extends Error {
@@ -27,25 +27,32 @@ export interface ProductionAsk {
 /** The question on screen; AppShell (and the popover) show it. */
 export const productionAsk = ref<ProductionAsk | null>(null)
 
-let consent = false
-let lasting = 0
+let consent: string | null = null
+const lasting = new Map<string, number>()
 
 /**
- * Runs fn with the person's go-ahead already given (their dialog asked).
- * When fn returns a promise, the go-ahead lasts until it settles, so one
- * answer covers every call of that action (Stop all, group by group).
+ * Runs fn with the person's go-ahead already given (their dialog asked) for
+ * tab (the one on screen by default). When fn returns a promise, the
+ * go-ahead lasts until it settles, so one answer covers every call of that
+ * action (Stop all, group by group), on that tab only.
  */
-export function withConsent<T>(fn: () => T): T {
-  consent = true
+export function withConsent<T>(fn: () => T, tab: string = currentTab.value): T {
+  consent = tab
   let out: T
   try {
     out = fn()
   } finally {
-    consent = false
+    consent = null
   }
   if (out instanceof Promise) {
-    lasting++
-    void out.finally(() => lasting--).catch(() => {})
+    lasting.set(tab, (lasting.get(tab) ?? 0) + 1)
+    void out
+      .finally(() => {
+        const n = (lasting.get(tab) ?? 1) - 1
+        if (n > 0) lasting.set(tab, n)
+        else lasting.delete(tab)
+      })
+      .catch(() => {})
   }
   return out
 }
@@ -80,7 +87,7 @@ export function isProduction(tab: string): boolean {
  * call may go ahead and rejects with CancelledError when the person says no.
  */
 export async function guard(tab: string, method: string, args: unknown[]): Promise<void> {
-  const ok = consent || lasting > 0 // read now, before any wait
+  const ok = consent === tab || (lasting.get(tab) ?? 0) > 0 // read now, before any wait
   if (ok || !GUARDED.has(method) || !isProduction(tab)) return
   const server = serverTabs.value.find((t) => t.id === tab)?.name ?? 'this server'
   const [what, message, label] = QUESTIONS[method](args)

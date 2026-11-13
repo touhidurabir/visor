@@ -3,6 +3,7 @@ package app
 import (
 	"log"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/touhidurabir/visor/internal/activity"
@@ -57,6 +58,7 @@ func baseName(p string) string {
 // changes made outside it.
 type visorAct struct {
 	e           expectation
+	files       bool // config files Visor writes, moves or removes
 	from, until time.Time
 }
 
@@ -64,17 +66,34 @@ type visorAct struct {
 // Visor's: the activity deriver's restart window plus two polls.
 const visorWindow = 15 * time.Second
 
-// recordAct remembers an action from now; done moves its end.
-func (r *Runtime) recordAct(e expectation) (done func()) {
+// recordAct remembers an action from now; done moves its end to grace
+// after it (at least visorWindow; a daemon action also gets a file check,
+// since supervisord's restart is seen there on a server).
+func (r *Runtime) recordAct(e expectation, grace time.Duration) (done func()) {
+	tail := max(visorWindow, grace)
+	if e.daemon {
+		tail += remoteFileCheck
+	}
+	return r.addAct(&visorAct{e: e}, actionTimeout+tail, tail)
+}
+
+// markWrites marks config file changes as Visor's while it writes, moves
+// or removes files (and a file check after).
+func (r *Runtime) markWrites() (done func()) {
+	tail := visorWindow + remoteFileCheck
+	return r.addAct(&visorAct{files: true}, time.Hour, tail)
+}
+
+func (r *Runtime) addAct(a *visorAct, during, after time.Duration) func() {
 	now := time.Now()
-	a := &visorAct{e: e, from: now.Add(-time.Second), until: now.Add(actionTimeout + visorWindow)}
+	a.from, a.until = now.Add(-time.Second), now.Add(during)
 	r.mu.Lock()
 	r.visorActs = slices.DeleteFunc(r.visorActs, func(x *visorAct) bool { return now.Sub(x.until) > time.Minute })
 	r.visorActs = append(r.visorActs, a)
 	r.mu.Unlock()
 	return func() {
 		r.mu.Lock()
-		a.until = time.Now().Add(visorWindow)
+		a.until = time.Now().Add(after)
 		r.mu.Unlock()
 	}
 }
@@ -84,11 +103,17 @@ func (r *Runtime) recordAct(e expectation) (done func()) {
 func (r *Runtime) byVisor(process string, t time.Time) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	file := strings.HasPrefix(process, "file:")
 	for _, a := range r.visorActs {
 		if t.Before(a.from) || t.After(a.until) {
 			continue
 		}
-		if a.e.daemon || (process != "" && a.e.match != nil && a.e.match(process)) {
+		switch {
+		case file:
+			if a.files {
+				return true
+			}
+		case a.e.daemon, process != "" && a.e.match != nil && a.e.match(process):
 			return true
 		}
 	}
@@ -121,9 +146,18 @@ func (r *Runtime) recordActivity(u monitor.Update, d config.Discovery, changes c
 	if der == nil || store == nil {
 		return
 	}
+	// A process the tracker sees crashing (now, or with an issue still
+	// open, as inside a crash loop) restarts by supervisord's autorestart.
 	crashed := map[string]bool{}
-	for _, is := range slices.Concat(res.Opened, res.Repeated) {
-		if is.Process != "" {
+	r.mu.Lock()
+	tracker := r.tracker
+	r.mu.Unlock()
+	open := []issues.Issue(nil)
+	if tracker != nil {
+		open = tracker.Open()
+	}
+	for _, is := range slices.Concat(res.Opened, res.Repeated, open) {
+		if is.Process != "" && is.Kind != issues.KindUnreachable && is.Kind != issues.KindHostDown {
 			crashed[is.Process] = true
 		}
 	}
@@ -131,7 +165,13 @@ func (r *Runtime) recordActivity(u monitor.Update, d config.Discovery, changes c
 		Update: u, Changes: changes, Checked: checked, ConfigOf: r.configOf, ByVisor: r.byVisor,
 		Crashed: func(p string) bool { return crashed[p] },
 	}
-	if checked && d.PidFile != "" {
+	reconnected := false
+	for _, ev := range u.Events {
+		reconnected = reconnected || ev.Kind == monitor.Reconnected
+	}
+	// Read on every file check, and when supervisord answers again: a
+	// restart is told from an outage by the pidfile.
+	if (checked || reconnected) && d.PidFile != "" {
 		if fi, err := d.Files().Stat(d.PidFile); err == nil {
 			in.PidMtime = fi.ModTime()
 		}

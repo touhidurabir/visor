@@ -207,6 +207,7 @@ func (r *Runtime) unloadedGroups(ac actionConn, groups []string) ([]string, erro
 func (r *Runtime) loadGroups(path string, groups []string) (ApplyResultView, error) {
 	r.applyMu.Lock()
 	defer r.applyMu.Unlock()
+	defer r.markWrites()()
 	if _, err := r.includeFile(path); err != nil {
 		return ApplyResultView{}, err
 	}
@@ -323,6 +324,7 @@ func (s *ServerService) ApplyChanges(groups []string) (ApplyResultView, error) {
 	}
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
+	defer s.rt.markWrites()() // its file changes are Visor's, not outside ones
 	res, err := s.rt.applyChanges(groups)
 	return toApplyResultView(res), err
 }
@@ -339,6 +341,7 @@ func (s *ServerService) RemoveFromSupervisor(path string) (ApplyResultView, erro
 	}
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
+	defer s.rt.markWrites()() // its file changes are Visor's, not outside ones
 	res, err := s.rt.removeFromSupervisor(path)
 	return toApplyResultView(res), err
 }
@@ -348,6 +351,7 @@ func (s *ServerService) RemoveFromSupervisor(path string) (ApplyResultView, erro
 func (s *ServerService) RestartDaemon() error {
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
+	defer s.rt.markWrites()() // its file changes are Visor's, not outside ones
 	err := s.rt.act(expectDaemonRestart(), func(ctx context.Context, c *supervisor.Client) error {
 		return wrap("restart supervisord", c.Restart(ctx))
 	})
@@ -365,6 +369,7 @@ func (s *ServerService) RestartDaemon() error {
 func (s *ServerService) ShutdownDaemon() error {
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
+	defer s.rt.markWrites()() // its file changes are Visor's, not outside ones
 	return s.rt.act(expectDaemonShutdown(), func(ctx context.Context, c *supervisor.Client) error {
 		return wrap("shut down supervisord", c.Shutdown(ctx))
 	})

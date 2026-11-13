@@ -14,14 +14,38 @@ import (
 )
 
 // activityGroupWait is how long changes made outside Visor are gathered
-// before one notification tells of them all.
-var activityGroupWait = 3 * time.Second
+// before one notification tells of them all; activityMinGap is the least
+// time between two such notifications from one tab (what comes in between
+// is told in the next one).
+var (
+	activityGroupWait = 3 * time.Second
+	activityMinGap    = 30 * time.Second
+)
 
 // activityBatch holds outside changes waiting to be notified.
 type activityBatch struct {
 	mu      sync.Mutex
 	pending []activity.Event
 	timer   *time.Timer
+	last    time.Time // the last notification
+	stopped bool
+}
+
+// stopActivity drops the waiting notification: the tab is closing.
+func (r *Runtime) stopActivity() {
+	r.mu.Lock()
+	b := r.actBatch
+	r.mu.Unlock()
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	b.stopped = true
+	if b.timer != nil {
+		b.timer.Stop()
+	}
+	b.pending, b.timer = nil, nil
+	b.mu.Unlock()
 }
 
 // ActivityRoute is the main window's route to a tab's Activity.
@@ -64,12 +88,7 @@ func (r *Runtime) notifyActivity(events []activity.Event) {
 		return
 	}
 	m := r.mutes()
-	var keep []activity.Event
-	for _, e := range events {
-		if !e.ByVisor && !muted(m, e.Kind) {
-			keep = append(keep, e)
-		}
-	}
+	keep := notifiable(events, m)
 	if len(keep) == 0 {
 		return
 	}
@@ -81,17 +100,46 @@ func (r *Runtime) notifyActivity(events []activity.Event) {
 	r.mu.Unlock()
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.stopped {
+		return
+	}
 	b.pending = append(b.pending, keep...)
 	if b.timer == nil {
-		b.timer = time.AfterFunc(activityGroupWait, func() { r.flushActivity(b) })
+		wait := max(activityGroupWait, activityMinGap-time.Since(b.last))
+		b.timer = time.AfterFunc(wait, func() { r.flushActivity(b) })
 	}
+}
+
+// notifiable keeps the events that notify: made outside Visor, not muted,
+// and not supervisord down or back (its issue already says so).
+func notifiable(events []activity.Event, m settings.ActivityMutes) []activity.Event {
+	var keep []activity.Event
+	for _, e := range events {
+		if e.ByVisor || muted(m, e.Kind) || e.Kind == activity.DaemonDown || e.Kind == activity.DaemonBack {
+			continue
+		}
+		keep = append(keep, e)
+	}
+	return keep
 }
 
 func (r *Runtime) flushActivity(b *activityBatch) {
 	b.mu.Lock()
 	events := b.pending
 	b.pending, b.timer = nil, nil
+	stopped := b.stopped
+	if !stopped && len(events) > 0 {
+		b.last = time.Now()
+	}
 	b.mu.Unlock()
+	// Settings may have changed while the events waited.
+	r.mu.Lock()
+	on := r.prefs.Notify.Enabled
+	r.mu.Unlock()
+	if stopped || !on {
+		return
+	}
+	events = notifiable(events, r.mutes())
 	if len(events) == 0 {
 		return
 	}

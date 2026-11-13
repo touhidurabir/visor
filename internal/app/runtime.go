@@ -1,11 +1,11 @@
 package app
 
 import (
-	"github.com/touhidurabir/visor/internal/activity"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/touhidurabir/visor/internal/activity"
 	"log"
 	"os"
 	"path/filepath"
@@ -259,6 +259,7 @@ func (r *Runtime) Stop() {
 	r.life.Lock()
 	defer r.life.Unlock()
 	r.stopped = true
+	r.stopActivity()
 	r.disconnect()
 	done := make(chan struct{})
 	go func() {
@@ -937,7 +938,7 @@ func (r *Runtime) call(e expectation, do func(ctx context.Context, c *supervisor
 	}
 	grace := r.actionGrace(e)
 	settle := e.register(ac.tracker, time.Now().Add(actionTimeout+grace))
-	done := r.recordAct(e)
+	done := r.recordAct(e, grace)
 	defer done()
 	ctx, cancel := context.WithTimeout(ac.ctx, actionTimeout)
 	defer cancel()

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // The dashboard's strip for the latest change made outside Visor in the last
-// day ("web:web restarted outside Visor · 2 min ago · Activity"). It can be
+// day (not a file change: the changed-on-disk banner says those) ("web:web restarted outside Visor · 2 min ago · Activity"). It can be
 // hidden until something else changes.
 import { computed, ref } from 'vue'
 import { useActivity } from '../lib/activity'
@@ -10,7 +10,8 @@ import { tabHref } from '../lib/tabs'
 const { events } = useActivity(undefined, 50)
 const hidden = ref('')
 const latest = computed(() => {
-  const e = events.value.find((x) => !x.ByVisor)
+  // Files changed on disk have their own banner (ChangedBanner) with Apply.
+  const e = events.value.find((x) => !x.ByVisor && x.Group !== 'files')
   if (!e || Date.now() - e.AtMs > 24 * 3600_000 || e.ID === hidden.value) return null
   return e
 })

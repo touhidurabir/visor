@@ -3,6 +3,7 @@ package activity
 import (
 	"bufio"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -21,16 +22,18 @@ const maxKept = 5000
 // Store keeps events in memory and appends them to dir/activity.jsonl.
 // Events older than the retention are dropped when the store opens.
 type Store struct {
-	mu     sync.Mutex
-	path   string
-	events []Event // oldest first
+	mu        sync.Mutex
+	path      string
+	retention time.Duration
+	events    []Event // oldest first
+	lines     int     // lines in the file, to compact it while Visor runs
 }
 
 // Open reads dir/activity.jsonl, dropping events older than retention (0
 // keeps everything) and lines it can't read, and rewrites it when it dropped
 // any. A missing file is an empty store.
 func Open(dir string, retention time.Duration, now time.Time) (*Store, error) {
-	s := &Store{path: filepath.Join(dir, fileName)}
+	s := &Store{path: filepath.Join(dir, fileName), retention: retention}
 	f, err := os.Open(s.path)
 	if os.IsNotExist(err) {
 		return s, nil
@@ -40,11 +43,18 @@ func Open(dir string, retention time.Duration, now time.Time) (*Store, error) {
 	}
 	defer func() { _ = f.Close() }()
 	dropped := false
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64<<10), 1<<20)
-	for sc.Scan() {
+	rd := bufio.NewReader(f) // no limit on a line's length: a bad one is skipped, not the rest
+	var readErr error
+	for {
+		line, err := rd.ReadBytes('\n')
+		if len(line) == 0 && err != nil {
+			if err != io.EOF {
+				readErr = err
+			}
+			break
+		}
 		var e Event
-		if json.Unmarshal(sc.Bytes(), &e) != nil {
+		if json.Unmarshal(line, &e) != nil {
 			dropped = true
 			continue
 		}
@@ -58,10 +68,11 @@ func Open(dir string, retention time.Duration, now time.Time) (*Store, error) {
 		s.events = s.events[len(s.events)-maxKept:]
 		dropped = true
 	}
-	if dropped {
+	s.lines = len(s.events)
+	if dropped && readErr == nil {
 		_ = s.rewrite()
 	}
-	return s, sc.Err()
+	return s, readErr
 }
 
 func (s *Store) rewrite() error {
@@ -102,6 +113,16 @@ func (s *Store) Add(events ...Event) error {
 	s.events = append(s.events, events...)
 	if len(s.events) > maxKept {
 		s.events = s.events[len(s.events)-maxKept:]
+	}
+	s.lines += len(events)
+	if s.lines > 2*maxKept {
+		// Compact while running, as Open does: retention and the cap.
+		if s.retention > 0 {
+			cut := time.Now().Add(-s.retention)
+			s.events = slices.DeleteFunc(s.events, func(e Event) bool { return e.At.Before(cut) })
+		}
+		s.lines = len(s.events)
+		return s.rewrite()
 	}
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return err

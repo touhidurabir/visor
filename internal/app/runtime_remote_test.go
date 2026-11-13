@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/touhidurabir/visor/internal/activity"
 	"github.com/touhidurabir/visor/internal/notify"
 	"github.com/touhidurabir/visor/internal/remote"
 	"github.com/touhidurabir/visor/internal/remote/remotetest"
@@ -403,5 +404,41 @@ func TestMainLogFromFileWhenSupervisordIsDown(t *testing.T) {
 				time.Sleep(200 * time.Millisecond)
 			}
 		})
+	}
+}
+
+// Visor's own save of a config is not a change "outside Visor", even though
+// the file differs from what supervisord runs until the apply ends.
+func TestOwnSaveIsNotOutside(t *testing.T) {
+	cs, _, rt, inst := configFixture(t)
+	path := filepath.Join(inst.Dir(), "conf.d", "sleeper.ini")
+	fv, err := cs.Read(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cs.Save(path, fv.Content+"startsecs=0\n", fv.Hash); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1500 * time.Millisecond) // a few polls with file checks
+	for _, e := range rt.Activity(activity.Query{}).Events {
+		if !e.ByVisor && strings.HasPrefix(e.Kind, "file_") {
+			t.Fatalf("own save reported as outside: %+v", e)
+		}
+	}
+}
+
+func TestNoActivityNotificationAfterStop(t *testing.T) {
+	old := activityGroupWait
+	activityGroupWait = 300 * time.Millisecond
+	t.Cleanup(func() { activityGroupWait = old })
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	sender := &fakeSender{}
+	f := startRemoteRuntimeWith(t, inst, nil, sender)
+	waitRunning(t, f.svc, "sleeper:sleeper")
+	f.rt.notifyActivity([]activity.Event{{ID: "x", At: time.Now(), Kind: activity.ProcessRestarted, Process: "sleeper:sleeper"}})
+	f.rt.Stop()
+	time.Sleep(600 * time.Millisecond)
+	if n := len(sender.messages()); n != 0 {
+		t.Fatalf("%d notifications after Stop", n)
 	}
 }
