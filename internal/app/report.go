@@ -43,12 +43,8 @@ type ReportView struct {
 	AtMs    int64
 }
 
-// pendingKeys remembers host keys shown to the user, so Trust writes the
-// very key they saw (by fingerprint), not whatever the server says later.
-type pendingKeys struct {
-	keys map[string]pendingKey
-}
-
+// pendingKey is a host key shown to the user, kept so Trust writes the very
+// key they saw (by fingerprint), not whatever the server says later.
 type pendingKey struct {
 	host string
 	port int
