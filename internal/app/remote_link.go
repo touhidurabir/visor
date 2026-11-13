@@ -157,7 +157,14 @@ func (r *Runtime) watchLink(ctx context.Context, l *remoteLink, src *RemoteSourc
 				return
 			case <-time.After(wait):
 			}
-			s, err := src.Connect(ctx, src.Server.ConfigPath)
+			// As saved now, and with the config this tab found first.
+			cur, _ := r.remoteServer()
+			r.mu.Lock()
+			if r.d.ConfigPath != "" {
+				cur.ConfigPath = r.d.ConfigPath
+			}
+			r.mu.Unlock()
+			s, err := src.Connect(ctx, cur)
 			if err == nil {
 				if ctx.Err() != nil {
 					s.Close()

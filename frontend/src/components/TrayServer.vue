@@ -10,7 +10,8 @@ import { forTab } from '../lib/api'
 import { connectionProblem } from '../lib/connection'
 import { errorMessage, useOverview } from '../lib/overview'
 import { tagOf } from '../lib/servers'
-import { VERB_LABEL, itemActions, itemLook, trayGroups, trayHeader, type TrayItem, type TrayVerb } from '../lib/tray'
+import { guard, withConsent } from '../lib/production'
+import { VERB_LABEL, actionTargets, itemActions, itemLook, trayGroups, trayHeader, type TrayItem, type TrayVerb } from '../lib/tray'
 import type { TabInfo } from '../lib/tabs'
 
 const props = defineProps<{ tab: TabInfo }>()
@@ -44,7 +45,19 @@ async function act(fn: () => Promise<unknown>) {
   }
 }
 
-const run = (v: TrayVerb, item: TrayItem) => act(() => Promise.all(item.procs.map((p) => calls[v](p.FullName))))
+const METHOD: Record<TrayVerb, string> = { start: 'Start', stop: 'Stop', restart: 'Restart' }
+
+/**
+ * A row's button: on every copy it applies to, with one production
+ * question for the row, not one per copy.
+ */
+const run = (v: TrayVerb, item: TrayItem) =>
+  act(async () => {
+    const targets = actionTargets(v, item)
+    if (!targets.length) return
+    await guard(props.tab.id, METHOD[v], [item.multi ? `every copy of ${item.name}` : item.name])
+    await withConsent(() => Promise.all(targets.map((p) => calls[v](p.FullName))))
+  })
 </script>
 
 <template>

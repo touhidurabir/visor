@@ -26,6 +26,20 @@ describe('production guard', () => {
     productionAsk.value!.answer(false)
     await expect(p).rejects.toSatisfy(isCancelled)
   })
+  it('one answer covers every call of an action, also after a wait', async () => {
+    await withConsent(async () => {
+      await guard('sprod', 'StopGroup', ['a'])
+      await flush()
+      await guard('sprod', 'StopGroup', ['b'])
+    })
+    expect(productionAsk.value).toBeNull()
+    // …and only while it runs.
+    const p = guard('sprod', 'StopGroup', ['c'])
+    await flush()
+    expect(productionAsk.value).not.toBeNull()
+    productionAsk.value!.answer(false)
+    await expect(p).rejects.toSatisfy(isCancelled)
+  })
   it('never asks elsewhere, for calls that don’t interrupt, or after a dialog asked', async () => {
     await guard('sdev', 'Restart', ['x'])
     await guard('local', 'StopAll', [])

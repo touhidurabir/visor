@@ -61,7 +61,7 @@ type HubOptions struct {
 	// HostKeys are where Visor's own known_hosts lives (DefaultHostKeys).
 	HostKeys remote.HostKeys
 	// Connect builds a server's connector; ConnectServer when nil (tests fake it).
-	Connect func(settings.Server, settings.Keychain, remote.HostKeys) func(context.Context, string) (*RemoteSession, error)
+	Connect func(settings.Keychain, remote.HostKeys) ConnectFunc
 	// Closed is told when a server tab closes (the Shell forgets its health).
 	Closed func(id string)
 }
@@ -197,7 +197,7 @@ func (h *Hub) OpenServer(s settings.Server) (OverviewView, error) {
 		Keychain: h.o.Keychain,
 		Emit:     h.o.Emit,
 		Notifier: h.o.Notifier,
-		Remote:   &RemoteSource{Server: s, Connect: h.o.Connect(s, h.o.Keychain, h.o.HostKeys)},
+		Remote:   &RemoteSource{Server: s, Connect: h.o.Connect(h.o.Keychain, h.o.HostKeys)},
 	})
 	err := rt.Start(ctx)
 
@@ -255,6 +255,10 @@ func (h *Hub) CloseServer(id string) error {
 	h.o.Emit(EventTabs, h.Open())
 	return nil
 }
+
+// TabsChanged tells the windows that an open tab's saved details (name,
+// tag, Read only) changed, as when one opens or closes.
+func (h *Hub) TabsChanged() { h.o.Emit(EventTabs, h.Open()) }
 
 // Each calls fn for this computer's tab and every open server tab.
 func (h *Hub) Each(fn func(id string, t *Tab)) {

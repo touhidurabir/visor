@@ -22,8 +22,8 @@ func linuxOptions(m notify.Message, markup bool) notifications.NotificationOptio
 	if m.IssueID != "" {
 		data["issueId"] = m.IssueID
 	}
-	if m.Server != "" {
-		data["server"] = m.Server
+	if m.Route != "" {
+		data["route"] = m.Route
 	}
 	o := notifications.NotificationOptions{
 		ID:       m.ID,

@@ -550,6 +550,15 @@ type IssueAPI struct{ hub *Hub }
 // NewIssueAPI returns the wrapper over hub's tabs.
 func NewIssueAPI(hub *Hub) *IssueAPI { return &IssueAPI{hub: hub} }
 
+// Activity lists what changed on this tab's supervisord, newest first.
+func (a *IssueAPI) Activity(server string, q ActivityQuery) (ActivityView, error) {
+	t, err := a.hub.Tab(server)
+	if err != nil {
+		return ActivityView{}, err
+	}
+	return t.Issue.Activity(q), nil
+}
+
 // Delete removes the closed issues among ids for good and returns how many
 // it removed; open issues and unknown ids are skipped. The history stays,
 // and so does the fact that the user closed an issue: the same failure

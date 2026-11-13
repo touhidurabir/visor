@@ -8,6 +8,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch 
 import { Events } from '@wailsio/runtime'
 import { type LogChunkView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { useApi } from '../lib/api'
+import { currentTab, LOCAL } from '../lib/tabs'
 import { withConsent } from '../lib/production'
 import { VisorLog } from '../../bindings/events'
 import { describeError } from '../lib/faults'
@@ -18,6 +19,8 @@ import ConfirmDialog from './ConfirmDialog.vue'
 
 // Bound to this view's tab for its whole life (a follow it stops is that tab's).
 const { LogService, ServerService } = useApi()
+// A server's log files are on the server: no editor here (Save… works).
+const local = currentTab.value === LOCAL
 
 // running: supervisord clears the logs of a running process only; for any
 // other it answers success and leaves the files alone.
@@ -217,6 +220,7 @@ onBeforeUnmount(() => {
       <div class="file">
         <button type="button" class="btn quiet sm" :disabled="!!noLog || saving" @click="save">{{ saving ? 'Saving…' : 'Save…' }}</button>
         <button
+          v-if="local"
           type="button"
           class="btn quiet sm"
           :disabled="!editorPath"

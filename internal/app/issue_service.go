@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"github.com/touhidurabir/visor/internal/activity"
 	"time"
 
 	"github.com/touhidurabir/visor/internal/issues"
@@ -161,4 +162,19 @@ func (s *IssueService) History(process string, limit int) ([]TransitionView, err
 		out = append(out, toTransitionView(t))
 	}
 	return out, nil
+}
+
+// ActivityQuery selects activity: Kind is a kind or a group ("processes",
+// "programs", "files", "daemon") or ""; Process matches part of a process or
+// file name; Outside keeps only changes made outside Visor; Limit 0 is 500.
+type ActivityQuery struct {
+	Kind    string
+	Process string
+	Outside bool
+	Limit   int
+}
+
+// Activity lists what changed on this tab's supervisord, newest first.
+func (s *IssueService) Activity(q ActivityQuery) ActivityView {
+	return s.rt.Activity(activity.Query{Kind: q.Kind, Process: q.Process, Outside: q.Outside, Limit: q.Limit})
 }

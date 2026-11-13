@@ -12,6 +12,49 @@ import * as doctor$0 from "../doctor/models.js";
 import * as settings$0 from "../settings/models.js";
 
 /**
+ * ActivityEventView is one activity event for the frontend.
+ */
+export interface ActivityEventView {
+    "ID": string;
+    "AtMs": number;
+    "Kind": string;
+
+    /**
+     * processes, programs, files or daemon
+     */
+    "Group": string;
+    "Process": string;
+    "Config": string;
+    "ByVisor": boolean;
+
+    /**
+     * "web:web restarted"
+     */
+    "Text": string;
+    "FileName": string;
+}
+
+/**
+ * ActivityQuery selects activity: Kind is a kind or a group ("processes",
+ * "programs", "files", "daemon") or ""; Process matches part of a process or
+ * file name; Outside keeps only changes made outside Visor; Limit 0 is 500.
+ */
+export interface ActivityQuery {
+    "Kind": string;
+    "Process": string;
+    "Outside": boolean;
+    "Limit": number;
+}
+
+/**
+ * ActivityView is a tab's new events (on EventActivity) or a page of them.
+ */
+export interface ActivityView {
+    "Server": string;
+    "Events": ActivityEventView[] | null;
+}
+
+/**
  * ApplyResultView is the outcome of applying config changes: the groups
  * supervisord added, changed and removed, and any per-group errors.
  */

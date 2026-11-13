@@ -65,7 +65,7 @@ func startRemoteRuntimeWith(t *testing.T, inst *supervisortest.Instance, mod fun
 		Interval: 100 * time.Millisecond,
 		Keychain: k,
 		Notifier: sender,
-		Remote:   &RemoteSource{Server: srv, Connect: ConnectServer(srv, k, hk)},
+		Remote:   &RemoteSource{Server: srv, Connect: ConnectServer(k, hk)},
 	})
 	if err := rt.Start(context.Background()); err != nil {
 		t.Fatal(err)
@@ -159,7 +159,8 @@ func TestRemoteReadOnlyStillReadsTheMainLog(t *testing.T) {
 	if _, err := f.svc.MainLogLines(MainLogQuery{Limit: 10}); err != nil {
 		t.Fatalf("main log on a Read only server: %v", err)
 	}
-	if _, err := f.svc.CheckForChanges(); err != nil {
+	// A reread changes what supervisord has loaded: Read only refuses it.
+	if _, err := f.svc.CheckForChanges(); !errors.Is(err, ErrServerReadOnly) {
 		t.Fatalf("reread on a Read only server: %v", err)
 	}
 }
@@ -204,7 +205,7 @@ func TestRemoteNotificationNamesTheServer(t *testing.T) {
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		for _, m := range sender.messages() {
-			if !strings.HasSuffix(m.Title, " on vm") || m.Server != f.server.ID {
+			if !strings.HasSuffix(m.Title, " on vm") || m.Server != f.server.ID || m.Route != IssuesRoute(f.server.ID) {
 				t.Fatalf("notification %+v", m)
 			}
 			return
@@ -287,5 +288,87 @@ func TestRemoteHostDownOpensItsOwnIssue(t *testing.T) {
 			t.Fatalf("still open: %+v", list)
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func TestActivityOutsideAndByVisor(t *testing.T) {
+	old := activityGroupWait
+	activityGroupWait = 200 * time.Millisecond
+	t.Cleanup(func() { activityGroupWait = old })
+	inst := supervisortest.Start(t, supervisortest.Sleeper, worker)
+	sender := &fakeSender{}
+	f := startRemoteRuntimeWith(t, inst, nil, sender)
+	waitRunning(t, f.svc, "sleeper:sleeper")
+	waitRunning(t, f.svc, "worker:worker")
+	is := NewIssueService(f.rt)
+
+	// Outside Visor: a restart straight over XML-RPC.
+	ctx := context.Background()
+	if err := inst.Client().StopProcess(ctx, "sleeper:sleeper", true); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if err := inst.Client().StartProcess(ctx, "sleeper:sleeper", true); err != nil {
+		t.Fatal(err)
+	}
+	// By Visor.
+	if err := f.svc.Restart("worker:worker"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	var outside, mine bool
+	for time.Now().Before(deadline) && (!outside || !mine) {
+		for _, e := range is.Activity(ActivityQuery{Kind: "processes"}).Events {
+			switch {
+			case e.Process == "sleeper:sleeper" && e.Kind == "process_restarted" && !e.ByVisor:
+				outside = true
+			case e.Process == "worker:worker" && e.ByVisor:
+				mine = true
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !outside || !mine {
+		t.Fatalf("outside %v, by Visor %v: %+v", outside, mine, is.Activity(ActivityQuery{}).Events)
+	}
+	// One notification, for the outside restart only.
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var acts []string
+		for _, m := range sender.messages() {
+			if strings.HasPrefix(m.ID, "activity-") {
+				acts = append(acts, m.Title)
+			}
+		}
+		if len(acts) > 0 {
+			if len(acts) != 1 || !strings.Contains(acts[0], "sleeper:sleeper restarted outside Visor on vm") {
+				t.Fatalf("activity notifications: %q", acts)
+			}
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("no activity notification")
+}
+
+func TestActivityMutedPerServer(t *testing.T) {
+	old := activityGroupWait
+	activityGroupWait = 100 * time.Millisecond
+	t.Cleanup(func() { activityGroupWait = old })
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	sender := &fakeSender{}
+	f := startRemoteRuntimeWith(t, inst, func(s *settings.Server) { s.Mutes.Processes = true }, sender)
+	waitRunning(t, f.svc, "sleeper:sleeper")
+	if err := inst.Client().StopProcess(context.Background(), "sleeper:sleeper", true); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(12 * time.Second) // past the restart window, so the stop is recorded
+	if got := NewIssueService(f.rt).Activity(ActivityQuery{}).Events; len(got) == 0 {
+		t.Fatal("a muted change is still recorded")
+	}
+	for _, m := range sender.messages() {
+		if strings.HasPrefix(m.ID, "activity-") {
+			t.Fatalf("muted, but notified: %q", m.Title)
+		}
 	}
 }

@@ -50,8 +50,10 @@ type Message struct {
 	Process  string
 	Config   string
 	// Server is the server tab the notification belongs to ("" for this
-	// computer); a click opens that tab.
+	// computer). Route is the main window's route a click opens ("" for
+	// this computer's Issues).
 	Server string
+	Route  string
 }
 
 // DaemonThread is the banner thread of notifications that belong to no

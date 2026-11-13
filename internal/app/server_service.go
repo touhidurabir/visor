@@ -291,7 +291,7 @@ func (s *ServerService) ClearLogs(name string) error {
 // (supervisorctl update) no longer reads as changed.
 func (s *ServerService) CheckForChanges() (supervisor.ConfigDiff, error) {
 	var diff supervisor.ConfigDiff
-	err := s.rt.call(expectation{}, func(ctx context.Context, c *supervisor.Client) error {
+	err := s.rt.act(expectation{}, func(ctx context.Context, c *supervisor.Client) error {
 		var err error
 		diff, err = c.ReloadConfig(ctx)
 		return wrap("check for changes", err)

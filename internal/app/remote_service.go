@@ -176,6 +176,7 @@ func (s *RemoteService) Save(in ServerInput) (settings.Server, error) {
 	// An open tab takes the new name, tag and Read only at once.
 	if t, err := s.hub.Tab(sv.ID); err == nil && t.RT.Remote() {
 		t.RT.SetServer(sv)
+		s.hub.TabsChanged() // the popover's sections follow the new tag and Read only
 	}
 	if noKeyring != nil {
 		return sv, fmt.Errorf("%s was saved, but %w", sv.Name, noKeyring)
@@ -392,7 +393,13 @@ func (s *RemoteService) SetMutes(id string, m settings.ActivityMutes) error {
 		return errors.New("that server isn't saved any more")
 	}
 	list[i].Mutes = m
-	return settings.SaveServers(s.stateDir, list)
+	if err := settings.SaveServers(s.stateDir, list); err != nil {
+		return err
+	}
+	if t, err := s.hub.Tab(id); err == nil && t.RT.Remote() {
+		t.RT.SetServer(list[i]) // its next notification already follows it
+	}
+	return nil
 }
 
 // ChooseKey shows the open-file dialog for a private key (in ~/.ssh) and

@@ -364,8 +364,11 @@ func (t *Tracker) apply(u monitor.Update) (opened, closed []Issue) {
 		t.failedPolls++
 		if t.failedPolls >= t.rules.UnreachablePolls && !t.byUser("", now) {
 			if errors.Is(u.Snapshot.Err, ErrHostDown) {
-				// The server, not supervisord: its own issue.
-				opened = append(opened, t.openIssue(KindHostDown, "", "Can't reach the server over SSH: "+u.Snapshot.Err.Error(), now)...)
+				// The server, not supervisord: its own issue, which replaces
+				// a "not responding" opened while the dead connection still
+				// timed out.
+				closed = append(closed, t.closeWhere(func(i *Issue) bool { return i.Kind == KindUnreachable }, StatusResolvedAuto, "", now)...)
+				opened = append(opened, t.openIssue(KindHostDown, "", "Can't reach the server over SSH.", now)...)
 			} else {
 				msg := "supervisord is not responding"
 				if u.Snapshot.Err != nil {

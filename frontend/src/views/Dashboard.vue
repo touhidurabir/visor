@@ -320,7 +320,7 @@ function sendSignal(sig: string) {
             <input id="q" ref="search" v-model="query" class="input" type="search" placeholder="Search" autocomplete="off" />
             <span class="kbd" aria-hidden="true">{{ shortcutHint('find') }}</span>
           </div>
-          <button type="button" class="btn" :disabled="checking || !!offline" :title="offline" @click="checkForChanges">
+          <button v-if="!host.readOnly" type="button" class="btn" :disabled="checking || !!offline" :title="offline" @click="checkForChanges">
             {{ checking ? 'Checking…' : 'Check for changes' }}
           </button>
           <RouterLink v-if="!host.remote" class="btn primary" to="/new">

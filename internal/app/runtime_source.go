@@ -25,10 +25,15 @@ var (
 type RemoteSource struct {
 	Server settings.Server
 	// Connect opens the SSH connection, discovers supervisord.conf on the
-	// server (configPath, or the usual Linux paths when "") and picks how to
-	// reach supervisord. ConnectServer is the real one; tests may fake it.
-	Connect func(ctx context.Context, configPath string) (*RemoteSession, error)
+	// server and picks how to reach supervisord. ConnectServer is the real
+	// one; tests may fake it.
+	Connect ConnectFunc
 }
+
+// ConnectFunc connects to a server as it is saved now (a reconnect after an
+// edit uses the edited user, host and secrets). s.ConfigPath "" discovers
+// supervisord.conf in the usual Linux places.
+type ConnectFunc func(ctx context.Context, s settings.Server) (*RemoteSession, error)
 
 // RemoteSession is one connection to a server.
 type RemoteSession struct {
@@ -92,8 +97,9 @@ var resolveTarget = remote.Resolve
 
 // ConnectServer dials s and reaches its supervisord: the real
 // RemoteSource.Connect. hk holds Visor's own known_hosts.
-func ConnectServer(s settings.Server, k settings.Keychain, hk remote.HostKeys) func(context.Context, string) (*RemoteSession, error) {
-	return func(ctx context.Context, configPath string) (*RemoteSession, error) {
+func ConnectServer(k settings.Keychain, hk remote.HostKeys) ConnectFunc {
+	return func(ctx context.Context, s settings.Server) (*RemoteSession, error) {
+		configPath := s.ConfigPath
 		c, sess, err := dialServer(ctx, s, k, hk)
 		if err != nil {
 			return nil, err
@@ -103,6 +109,10 @@ func ConnectServer(s settings.Server, k settings.Keychain, hk remote.HostKeys) f
 			files.Close()
 			_ = c.Close()
 		}
+		// File reads have their own timeouts: closing the connection when
+		// ctx ends stops them at once (a tab closed or Visor quitting).
+		stop := context.AfterFunc(ctx, closeAll)
+		defer stop()
 		// Start the helper first, so sudo's answer (a refused password)
 		// comes back as it is, not as "no config found".
 		if _, err := files.Bridge(ctx); err != nil {

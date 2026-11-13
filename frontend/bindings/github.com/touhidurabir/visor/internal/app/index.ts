@@ -29,6 +29,9 @@ export {
 };
 
 export type {
+    ActivityEventView,
+    ActivityQuery,
+    ActivityView,
     ApplyResultView,
     BackupView,
     ConfigDetailView,

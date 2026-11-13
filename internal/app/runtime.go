@@ -1,6 +1,7 @@
 package app
 
 import (
+	"github.com/touhidurabir/visor/internal/activity"
 	"context"
 	"encoding/json"
 	"errors"
@@ -46,6 +47,7 @@ func init() {
 	application.RegisterEvent[SettingsView](EventSettings)
 	application.RegisterEvent[NotificationsView](EventNotifications)
 	application.RegisterEvent[[]string](EventTabs)
+	application.RegisterEvent[ActivityView](EventActivity)
 }
 
 const (
@@ -192,6 +194,12 @@ type Runtime struct {
 	filesAt time.Time
 	// server is the saved server after an edit (SetServer); nil until then.
 	server *settings.Server
+	// Activity: the log, this connection's deriver, Visor's own actions and
+	// the notifications waiting to be grouped.
+	actStore  *activity.Store
+	deriver   *activity.Deriver
+	visorActs []*visorAct
+	actBatch  *activityBatch
 
 	wg sync.WaitGroup
 
@@ -236,6 +244,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 	}
 	r.started, r.parent = true, ctx
 	r.openStore()
+	r.openActivity()
 	r.connect()
 	r.emitNotifications() // the menu-bar count from launch on
 	return nil
@@ -452,9 +461,10 @@ func (r *Runtime) connect() {
 	var err error
 	var link *remoteLink
 	if src := r.opts.Remote; src != nil {
-		sess, cerr := src.Connect(ctx, src.Server.ConfigPath)
+		cur, _ := r.remoteServer()
+		sess, cerr := src.Connect(ctx, cur)
 		if cerr != nil {
-			fail(config.Discovery{ConfigPath: src.Server.ConfigPath}, cerr)
+			fail(config.Discovery{ConfigPath: cur.ConfigPath}, cerr)
 			return
 		}
 		// The client and file reads go through the link, so a reconnect
@@ -505,6 +515,7 @@ func (r *Runtime) connect() {
 	r.mu.Lock()
 	r.d, r.client, r.inv, r.watcher, r.mon = d, client, inv, watcher, mon
 	r.filesAt = time.Now()
+	r.deriver = activity.NewDeriver()
 	r.mu.Unlock()
 
 	updates, unsubscribe := mon.Subscribe()
@@ -621,6 +632,7 @@ func (r *Runtime) handle(u monitor.Update) {
 			tracker.CloseAbsent(u.Snapshot.Processes, noteNotHere)
 		}
 	}
+	r.recordActivity(u, d, changes, checkFiles && changesErr == nil, res)
 	r.emitOverview()
 	for _, is := range res.Opened {
 		iv := toIssueView(is)
@@ -671,7 +683,7 @@ func (r *Runtime) notifyIssues(res issues.Result, tracker *issues.Tracker) {
 			msg.Title += " on " + s.Name
 			msg.Headline += " on " + s.Name
 			msg.Thread = s.ID + "/" + msg.Thread
-			msg.Server = s.ID
+			msg.Server, msg.Route = s.ID, IssuesRoute(s.ID)
 		}
 		r.sends.Add(1)
 		go func() {
@@ -925,6 +937,8 @@ func (r *Runtime) call(e expectation, do func(ctx context.Context, c *supervisor
 	}
 	grace := r.actionGrace(e)
 	settle := e.register(ac.tracker, time.Now().Add(actionTimeout+grace))
+	done := r.recordAct(e)
+	defer done()
 	ctx, cancel := context.WithTimeout(ac.ctx, actionTimeout)
 	defer cancel()
 	err = reconnecting(ac.ctx, do(ctx, ac.client))

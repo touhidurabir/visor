@@ -28,15 +28,26 @@ export interface ProductionAsk {
 export const productionAsk = ref<ProductionAsk | null>(null)
 
 let consent = false
+let lasting = 0
 
-/** Runs fn with the person's go-ahead already given (their dialog asked). */
+/**
+ * Runs fn with the person's go-ahead already given (their dialog asked).
+ * When fn returns a promise, the go-ahead lasts until it settles, so one
+ * answer covers every call of that action (Stop all, group by group).
+ */
 export function withConsent<T>(fn: () => T): T {
   consent = true
+  let out: T
   try {
-    return fn()
+    out = fn()
   } finally {
     consent = false
   }
+  if (out instanceof Promise) {
+    lasting++
+    void out.finally(() => lasting--).catch(() => {})
+  }
+  return out
 }
 
 const base = (p: string) => p.split('/').pop() || p
@@ -69,7 +80,7 @@ export function isProduction(tab: string): boolean {
  * call may go ahead and rejects with CancelledError when the person says no.
  */
 export async function guard(tab: string, method: string, args: unknown[]): Promise<void> {
-  const ok = consent // read now: a dialog's consent covers only its own call
+  const ok = consent || lasting > 0 // read now, before any wait
   if (ok || !GUARDED.has(method) || !isProduction(tab)) return
   const server = serverTabs.value.find((t) => t.id === tab)?.name ?? 'this server'
   const [what, message, label] = QUESTIONS[method](args)

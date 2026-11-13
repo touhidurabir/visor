@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -34,7 +35,7 @@ const testThread = "visor-test"
 type nativeNotifier interface {
 	// start prepares notifications and asks for permission once. When it
 	// cannot, it logs why and leaves notifications off; it never fails.
-	start(ctx context.Context, onClick func(server string))
+	start(ctx context.Context, onClick func(route string))
 	send(m notify.Message) error
 	status() string
 }
@@ -48,12 +49,12 @@ type nativeNotifier interface {
 // it does in any binary outside Visor.app.
 type NotifyService struct {
 	native  nativeNotifier
-	onClick func(server string)
+	onClick func(route string)
 }
 
 // NewNotifyService returns a NotifyService that calls onClick (may be nil)
 // when a notification is clicked.
-func NewNotifyService(onClick func(server string)) *NotifyService {
+func NewNotifyService(onClick func(route string)) *NotifyService {
 	return &NotifyService{native: newNativeNotifier(), onClick: onClick}
 }
 
@@ -105,10 +106,10 @@ func unavailableReason(server bool, os platform.OS) error {
 	return errors.New("notifications aren't available: no desktop notification service is running in this session")
 }
 
-// serverOf is the server tab a clicked notification belongs to ("" for this
-// computer), from the data it was sent with.
-func serverOf(info map[string]any) string {
-	if s, ok := info["server"].(string); ok {
+// routeOf is the route a clicked notification opens ("" for this
+// computer's Issues), from the data it was sent with.
+func routeOf(info map[string]any) string {
+	if s, ok := info["route"].(string); ok && strings.HasPrefix(s, "#/") {
 		return s
 	}
 	return ""

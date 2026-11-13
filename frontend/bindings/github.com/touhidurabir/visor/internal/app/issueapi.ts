@@ -15,6 +15,13 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 /**
+ * Activity lists what changed on this tab's supervisord, newest first.
+ */
+export function Activity(server: string, q: $models.ActivityQuery): $CancellablePromise<$models.ActivityView> {
+    return $Call.ByID(2829995058, server, q);
+}
+
+/**
  * Delete removes the closed issues among ids for good and returns how many
  * it removed; open issues and unknown ids are skipped. The history stays,
  * and so does the fact that the user closed an issue: the same failure
