@@ -219,16 +219,34 @@ func (s *ServerService) ConfigDetail(path string) (ConfigDetailView, error) {
 }
 
 // Reveal shows a file or folder in Finder.
-func (s *ServerService) Reveal(path string) error { return platform.Reveal(path) }
+func (s *ServerService) Reveal(path string) error {
+	if s.rt.Remote() {
+		return errOnServer
+	}
+	return platform.Reveal(path)
+}
 
 // OpenInEditor opens a file with its default app, or a folder in Finder.
 // It never launches anything: executable files are refused, and app
 // bundles and file types macOS would run are revealed in Finder instead.
-func (s *ServerService) OpenInEditor(path string) error { return platform.Open(path) }
+func (s *ServerService) OpenInEditor(path string) error {
+	if s.rt.Remote() {
+		return errOnServer
+	}
+	return platform.Open(path)
+}
 
 // OpenLog opens a log file in the default text editor (open -t), whatever
 // its extension, so no other app can run it. Folders are refused.
-func (s *ServerService) OpenLog(path string) error { return platform.OpenText(path) }
+func (s *ServerService) OpenLog(path string) error {
+	if s.rt.Remote() {
+		return errOnServer
+	}
+	return platform.OpenText(path)
+}
+
+// errOnServer: a path on a server can't be opened on this computer.
+var errOnServer = errors.New("that file is on the server: use Download to save a copy")
 
 // StartAll starts every process.
 func (s *ServerService) StartAll() error {

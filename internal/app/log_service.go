@@ -58,7 +58,9 @@ type LogChunkView struct {
 // LogService follows process logs for the frontend: one goroutine per
 // follow, polling every second and emitting visor:log events.
 type LogService struct {
-	rt       *Runtime
+	rt *Runtime
+	// prefix keeps follow ids unique across tabs ("" on this computer).
+	prefix   string
 	emit     func(name string, data any)
 	interval time.Duration
 
@@ -158,7 +160,7 @@ func (s *LogService) start(ctx context.Context, c logs.TailClient, process strin
 		return "", errors.New("cannot follow logs: the app is quitting")
 	}
 	s.next++
-	f := &follow{id: "log-" + strconv.Itoa(s.next), process: process, stream: st, done: make(chan struct{})}
+	f := &follow{id: "log-" + s.prefix + strconv.Itoa(s.next), process: process, stream: st, done: make(chan struct{})}
 	var stop []*follow
 	keep := s.follows[:0]
 	for _, o := range s.follows {

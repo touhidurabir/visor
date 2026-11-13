@@ -319,7 +319,8 @@ func (r *Runtime) ApplySettings(s settings.Settings, reconnect bool) error {
 	mon, tracker := r.mon, r.tracker
 	r.mu.Unlock()
 	running := r.started && !r.stopped
-	connChanged := r.configPathOf(old) != r.configPathOf(s) || old.Username != s.Username
+	// This computer's config path and username mean nothing on a server.
+	connChanged := r.opts.Remote == nil && (r.configPathOf(old) != r.configPathOf(s) || old.Username != s.Username)
 	if !running || (!reconnect && !connChanged) {
 		defer r.life.Unlock()
 		if !running {
@@ -603,7 +604,9 @@ func (r *Runtime) handle(u monitor.Update) {
 	}
 	r.emitOverview()
 	for _, is := range res.Opened {
-		r.opts.Emit(EventIssueOpened, toIssueView(is))
+		iv := toIssueView(is)
+		iv.Server = r.ID()
+		r.opts.Emit(EventIssueOpened, iv)
 	}
 	r.notifyIssues(res, tracker)
 }
@@ -677,7 +680,9 @@ func (r *Runtime) notifyIssues(res issues.Result, tracker *issues.Tracker) {
 
 // emitNotifications sends the notification list to the frontend.
 func (r *Runtime) emitNotifications() {
-	r.opts.Emit(EventNotifications, notificationsView(r.inbox))
+	v := notificationsView(r.inbox)
+	v.Server = r.ID()
+	r.opts.Emit(EventNotifications, v)
 }
 
 func (r *Runtime) configOf(process string) string {

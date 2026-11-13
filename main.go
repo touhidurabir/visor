@@ -12,6 +12,7 @@ import (
 
 	"github.com/touhidurabir/visor/internal/app"
 	"github.com/touhidurabir/visor/internal/platform"
+	"github.com/touhidurabir/visor/internal/remote"
 	"github.com/touhidurabir/visor/internal/settings"
 )
 
@@ -60,8 +61,19 @@ func main() {
 		Emit:       shell.Emit(app.WailsEmit),
 		Notifier:   notifier,
 	})
+	// The hub owns the tabs: this computer's Runtime and one per open server.
+	hub := app.NewHub(rt, app.HubOptions{
+		StateDir: stateDir,
+		Keychain: keychain,
+		Emit:     shell.Emit(app.WailsEmit),
+		LogEmit:  app.WailsEmit,
+		Notifier: notifier,
+		HostKeys: remote.DefaultHostKeys(stateDir),
+		Closed:   shell.Forget,
+	})
 	dockService := dock.New()
 	settingsService := app.NewSettingsService(rt, stateDir, envConfig, keychain, loadErr)
+	settingsService.ApplyToServers(hub.ApplySettings)
 	loginService := app.NewLoginItemService(loginItem, shell.ShowLoginStatus)
 	// LogLevel stays at Wails' default (Info). Do not raise it to Debug:
 	// Wails then logs every binding call with its arguments, which would
@@ -72,15 +84,16 @@ func main() {
 		Services: []application.Service{
 			// Before ServerService, so notifications are ready by the first poll.
 			application.NewService(notifier),
-			// ServerService starts and stops rt with the app.
-			application.NewService(app.NewServerService(rt)),
-			application.NewService(app.NewIssueService(rt)),
-			application.NewService(app.NewInboxService(rt)),
-			application.NewService(app.NewConfigService(rt)),
+			// The hub starts rt with the app and stops every tab at quit.
+			application.NewService(hub),
+			// Per-tab services: each method takes the tab's id first.
+			application.NewService(app.NewServerAPI(hub)),
+			application.NewService(app.NewIssueAPI(hub)),
+			application.NewService(app.NewInboxAPI(hub)),
+			application.NewService(app.NewConfigAPI(hub)),
+			application.NewService(app.NewLogAPI(hub)),
 			application.NewService(settingsService),
 			application.NewService(app.NewDoctorService(rt, settingsService, loginService)),
-			// Log events go to the frontend only; the shell has no use for them.
-			application.NewService(app.NewLogService(rt, app.WailsEmit)),
 			application.NewService(app.NewShellService(shell)),
 			application.NewService(loginService),
 			application.NewService(dockService),

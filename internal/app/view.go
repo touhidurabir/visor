@@ -105,6 +105,8 @@ type ProcessView struct {
 // "resolved_user" or "dismissed"; ClosedMs is 0 while open. Note says why
 // Visor closed it, e.g. "program removed" ("" otherwise).
 type IssueView struct {
+	// Server is the tab the issue belongs to (set on events).
+	Server   string
 	ID       string
 	Kind     string
 	Process  string
