@@ -5,6 +5,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Remote servers
+Visor manages supervisord on your Linux servers over SSH, each in a tab beside this computer's, like a browser. Nothing is installed on the server.
+- **Add a server** from the + beside the tabs or Settings → Servers: name, tag, colour, host and port (or a Host alias from `~/.ssh/config`, whose user, port, key and ProxyJump are used), user, password and/or SSH key (empty uses `~/.ssh/config` and your SSH agent), **Use sudo** with its own password (or the SSH one, or none for NOPASSWD), **Read only**, and under Advanced the config path, a jump host and which outside changes notify you. Passwords stay in your Keychain or keyring; `servers.json` holds none.
+- **Test** connects with the form as it is and shows what this user can do there: the SSH login and host key, sudo, supervisord.conf, the socket (forwarded over SSH, through sudo, or why not, with its owner and mode), how many configs it can read, and supervisord's version. Each gap comes with its fix (turn on Use sudo, or let the user in through a group, with the commands to copy). A server whose tab can't connect opens on this report.
+- **Host keys**: a server Visor hasn't seen shows its key's fingerprint to check before you trust it, in Visor's own list; `~/.ssh/known_hosts` is read, never changed. A changed key is refused, with the command that removes the old one.
+- **sudo is asked once per connection**, not on every check: Visor runs a small Python helper for the length of the connection (Python comes with supervisord). A refused password is never tried again on its own, so it can't lock the account.
+- **Tabs**: this computer's tab is first and always open; servers open in the order you open them (3 at once by default, Settings → Servers). Each tab keeps its page. Ctrl+Tab and Ctrl+Shift+Tab move between tabs; ⌘W (Ctrl+W) closes a server's tab. Visor starts with only this computer's tab.
+- A server tab has everything the dashboard has (processes, groups, actions, logs, Issues, notifications, the supervisord log) except changing configs: configs on servers are **read only** in this version, with **Download a copy** in place of Reveal in Finder. The explanation's checks that need the server's disk say "not checked on servers yet".
+- **Production** servers ask before Stop, Restart, Signal, Clear logs, Stop all, Restart all and restarting or shutting down supervisord, naming the server. **Read only** servers show no actions.
+- The menu-bar popover has a section per open server (its state, its processes, Restart all on it, Open tab); the icon shows the worst state across tabs. Notifications name the server and open its tab.
+- When a server's SSH connection drops, its tab says **Reconnecting…** and comes back on its own (2 s, then longer, up to a minute). While it can't, an issue says "Can't reach the server over SSH", apart from "supervisord isn't responding".
+
+### Activity
+- A new **Activity** page on every tab: processes started, stopped or restarted, programs added or removed, config files changed on disk, supervisord restarted or down, each marked **By Visor** or **Outside Visor** (supervisorctl, a deploy script, another person), by day, with filters. The dashboard shows the latest change made outside Visor in a strip.
+- Changes made outside Visor **notify you**, grouped ("3 processes restarted outside Visor on cpcsl dev"); mute each kind in Settings (this computer) or a server's Notifications.
+- When supervisord is down, Issues → supervisord log shows the end of its log file (on a server, read through the connection), which often says why; the down banner links to it.
+
 ### A new look
 Every screen was redrawn on one set of colours, buttons and type, in light and dark. Buttons still do what they did; the few flow changes are noted below.
 - A new app icon, Pulse: a bright ring on dark glass with a mint pulse line. The menu-bar icon is the same ring and pulse, with a hollow badge for a warning and a filled one for an error.

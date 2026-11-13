@@ -122,7 +122,9 @@ It builds the frontend and `bin/visor-e2e` (the server-mode build, which keeps
 passwords in memory, never the Keychain), then runs Playwright in WebKit.
 Playwright starts `e2e/scripts/serve.sh` itself: it brings up a sandbox in
 `/tmp/visor-e2e`, runs Visor on port 8766, and removes both when the run ends.
-You don't run `serve.sh` by hand. `tests/doctor.spec.ts` (ports 8771–8775)
+You don't run `serve.sh` by hand. It also starts `bin/visor-e2e-ssh`, a test SSH
+server on 127.0.0.1:8767 (user and password `e2e`) in front of the same sandbox,
+for the server-tab specs (`servers.spec.ts`); the task builds it. `tests/doctor.spec.ts` (ports 8771–8775)
 and the supervisord-down cases in the dashboard, connection and tray specs
 (8776–8778) start their own extra Visors with fresh state.
 
@@ -142,6 +144,16 @@ wails3 task test:e2e
 ```
 
 `go test -short ./...` skips the integration tests when you want a quick run.
+
+After changing an exported method of ServerService, ConfigService,
+IssueService, LogService or InboxService, regenerate the per-tab wrappers the
+frontend calls (`internal/app/api_gen.go`; a test fails until you do), then the
+bindings:
+
+```sh
+go run ./scripts/genapi
+wails3 generate bindings -clean=true -ts -i
+```
 
 A read-only check against your real supervisord (it only calls methods that
 read): `VISOR_LIVE=1 go test -run TestLive -v ./internal/supervisor/`
@@ -206,6 +218,7 @@ Installing the `.deb` or `.rpm` (`sudo apt install ./bin/visor.deb`) is a
 | `VISOR_VERSION` | The version `wails3 task linux:package` puts in the `.deb` and `.rpm` (default `0.0.0`) | release workflow |
 | `DEBUG_SERVER=1` | Show Visor's log during e2e runs | you |
 | `VISOR_LIVE=1`, `VISOR_LIVE_SOCKET` | Run the read-only live test against a real supervisord | you |
+| `VISOR_SSH_TEST`, `VISOR_SSH_SUDO`, `VISOR_SSH_SUDO_PASSWORD`, `VISOR_SSH_RESTART`, `VISOR_SSH_ACTIVITY` | Run the live remote-server tests against a real server (see [testing.md](testing.md#remote-servers)) | you |
 | `SIGN_IDENTITY` | Signing identity for `wails3 task darwin:package` (`-` = ad-hoc, the default) | `sign-check.sh`, release workflow |
 
 ## Cleaning up
