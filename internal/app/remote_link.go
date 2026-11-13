@@ -92,6 +92,18 @@ func (l *remoteLink) Glob(pattern string) ([]string, error) {
 	return s.Discovery.Files().Glob(pattern)
 }
 
+// Tail reads the end of a file on the server through the current session.
+func (l *remoteLink) Tail(name string, most int) ([]byte, error) {
+	s, err := l.current()
+	if err != nil {
+		return nil, err
+	}
+	if s.Tail == nil {
+		return nil, errors.New("no file access on this server")
+	}
+	return s.Tail(name, most)
+}
+
 // lost is closed when the current session's SSH connection ends.
 func (l *remoteLink) lost() <-chan struct{} {
 	l.mu.Lock()

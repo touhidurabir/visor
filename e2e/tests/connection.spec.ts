@@ -111,3 +111,28 @@ test.describe('supervisord down', () => {
     }
   })
 })
+
+test.describe('supervisord down, its log', () => {
+  test('the banner links to supervisord’s log, read from its file', async ({ page }) => {
+    test.setTimeout(60_000)
+    const conf = downConfig('connection-down-log')
+    const dir = path.dirname(conf)
+    fs.writeFileSync(
+      path.join(dir, 'supervisord.log'),
+      '2026-11-14 09:00:00,100 INFO supervisord started with pid 4242\n2026-11-14 09:05:00,200 CRIT could not write pidfile ' + dir + '/supervisord.pid\n',
+    )
+    const visor = await startVisor('connection-down-log', 8779, conf, true)
+    try {
+      await page.goto(visor.url + '/#/')
+      await expect(page).toHaveURL(/#\/doctor$/, { timeout: 15_000 })
+      await page.getByRole('link', { name: 'Dashboard' }).first().click()
+      const banner = page.getByRole('alert', { name: 'supervisord isn’t running' })
+      await banner.getByRole('link', { name: 'supervisord’s log' }).click()
+      await expect(page).toHaveURL(/#\/issues\/log/)
+      await expect(page.getByTestId('log-from-file')).toContainText(`${dir}/supervisord.log`)
+      await expect(page.getByText('could not write pidfile')).toBeVisible()
+    } finally {
+      await visor.stop()
+    }
+  })
+})

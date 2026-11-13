@@ -6,6 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/touhidurabir/visor/internal/config"
+	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -406,6 +409,9 @@ type MainLogResult struct {
 	Matched   int  // lines matching the query, which may exceed len(Lines)
 	Since     bool
 	Cursor    string // pass as After to read only newer lines
+	// FromFile is the log file read from disk (through the server's helper
+	// on a server) because supervisord isn't answering; "" otherwise.
+	FromFile string
 }
 
 // MainLogLines reads the last 4 MiB of supervisord's own log, parses it and
@@ -422,6 +428,12 @@ func (s *ServerService) MainLogLines(q MainLogQuery) (MainLogResult, error) {
 		return wrap("read the supervisord log", err)
 	})
 	if err != nil {
+		// supervisord isn't answering: its log file still says why.
+		if q.After == "" {
+			if res, ferr := s.mainLogFromFile(q); ferr == nil {
+				return res, nil
+			}
+		}
 		return MainLogResult{}, err
 	}
 	res := filterMainLog(supervisor.ParseMainLogLines(chunk.Text, time.Local), q)
@@ -521,4 +533,59 @@ func wrap(what string, err error) error {
 		return nil
 	}
 	return fmt.Errorf("cannot %s: %w", what, err)
+}
+
+// mainLogFromFile reads the end of supervisord's [supervisord] logfile=
+// when supervisord can't be asked: from disk here, through the helper on a
+// server.
+func (s *ServerService) mainLogFromFile(q MainLogQuery) (MainLogResult, error) {
+	s.rt.mu.Lock()
+	d := s.rt.d
+	s.rt.mu.Unlock()
+	if d.LogFile == "" {
+		return MainLogResult{}, errors.New("supervisord's config names no log file")
+	}
+	data, err := tailFile(d.Files(), d.LogFile, mainLogReadBytes)
+	if err != nil {
+		return MainLogResult{}, err
+	}
+	res := filterMainLog(supervisor.ParseMainLogLines(string(data), time.Local), q)
+	res.Truncated = len(data) >= mainLogReadBytes
+	res.FromFile = d.LogFile
+	return res, nil
+}
+
+// tailFile reads at most most bytes from the end of name on fsys.
+func tailFile(fsys config.FS, name string, most int) ([]byte, error) {
+	if t, ok := fsys.(interface {
+		Tail(string, int) ([]byte, error)
+	}); ok {
+		return t.Tail(name, most)
+	}
+	if fsys == config.OS {
+		f, err := os.Open(name)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = f.Close() }()
+		fi, err := f.Stat()
+		if err != nil {
+			return nil, err
+		}
+		off := max(0, fi.Size()-int64(most))
+		buf := make([]byte, fi.Size()-off)
+		_, err = f.ReadAt(buf, off)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, err
+		}
+		return buf, nil
+	}
+	data, err := fsys.ReadFile(name)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > most {
+		data = data[len(data)-most:]
+	}
+	return data, nil
 }

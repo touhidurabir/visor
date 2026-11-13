@@ -372,3 +372,36 @@ func TestActivityMutedPerServer(t *testing.T) {
 		}
 	}
 }
+
+func TestMainLogFromFileWhenSupervisordIsDown(t *testing.T) {
+	for _, remoteTab := range []bool{false, true} {
+		t.Run(map[bool]string{false: "local", true: "server"}[remoteTab], func(t *testing.T) {
+			inst := supervisortest.Start(t, supervisortest.Sleeper)
+			var svc *ServerService
+			if remoteTab {
+				svc = startRemoteRuntime(t, inst, nil).svc
+			} else {
+				rt, _ := startRuntime(t, confOf(inst), t.TempDir(), 100*time.Millisecond)
+				svc = NewServerService(rt)
+			}
+			waitRunning(t, svc, "sleeper:sleeper")
+			if err := inst.Client().Shutdown(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			deadline := time.Now().Add(15 * time.Second)
+			for {
+				res, err := svc.MainLogLines(MainLogQuery{Limit: 50})
+				if err == nil && res.FromFile != "" {
+					if len(res.Lines) == 0 {
+						t.Fatal("no lines from the file")
+					}
+					return
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("still %+v %v", res.FromFile, err)
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
+		})
+	}
+}

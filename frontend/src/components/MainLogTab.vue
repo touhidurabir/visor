@@ -34,6 +34,8 @@ const follow = ref(false)
 const lines = ref<MainLogLineView[]>([])
 const matched = ref(0)
 const truncated = ref(false)
+// supervisord isn't answering: the lines come from its log file.
+const fromFile = ref('')
 const loaded = ref(false)
 const fetching = ref(0)
 const error = ref('')
@@ -77,6 +79,7 @@ async function load(stick = true, more = false) {
       lines.value = res.Lines ?? []
       matched.value = res.Matched
       truncated.value = res.Truncated
+      fromFile.value = res.FromFile
     }
     cursor = res.Cursor
     error.value = ''
@@ -199,7 +202,10 @@ onBeforeUnmount(() => {
       <p>{{ error }}</p>
       <button type="button" class="btn" @click="load()">Try again</button>
     </div>
-    <div v-else class="box">
+    <p v-if="!error && fromFile" class="from-file" role="status" data-testid="log-from-file">
+      supervisord isn’t answering, so these are the last lines of its log file, <span class="mono">{{ fromFile }}</span>. They often say why it stopped.
+    </p>
+    <div v-if="!error" class="box">
       <div ref="scroller" class="scroll" tabindex="0" aria-label="supervisord log lines" :aria-busy="!loaded || fetching > 0">
         <p v-if="loaded && nothingPicked()" class="none">Pick at least one level to see lines.</p>
         <p v-else-if="loaded && !lines.length" class="none">No log lines match your filters.</p>
@@ -242,4 +248,5 @@ input[type='search'] { width: 220px; }
 .notice { padding: 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--bg-subtle); }
 .notice p { margin: 4px 0 8px; user-select: text; }
 .sr-only { position: absolute; left: -9999px; }
+.from-file { margin: 0; padding: 9px 12px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); overflow-wrap: anywhere; }
 </style>

@@ -666,6 +666,12 @@ export interface MainLogResult {
      * pass as After to read only newer lines
      */
     "Cursor": string;
+
+    /**
+     * FromFile is the log file read from disk (through the server's helper
+     * on a server) because supervisord isn't answering; "" otherwise.
+     */
+    "FromFile": string;
 }
 
 /**
