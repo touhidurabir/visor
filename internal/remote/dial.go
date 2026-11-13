@@ -95,7 +95,7 @@ func Dial(ctx context.Context, t Target, s Secrets, hk HostKeys) (*Conn, error) 
 }
 
 func handshake(ctx context.Context, dial func(context.Context, string) (net.Conn, error), t Target, s Secrets, cb ssh.HostKeyCallback) (*ssh.Client, error) {
-	auth, closeAuth, err := authMethods(t, s)
+	auth, closeAuth, skippedKey, err := authMethods(t, s)
 	if err != nil {
 		return nil, err
 	}
@@ -129,6 +129,8 @@ func handshake(ctx context.Context, dial func(context.Context, string) (net.Conn
 			return nil, unknown
 		case errors.As(err, &changed):
 			return nil, changed
+		case strings.Contains(err.Error(), "unable to authenticate") && skippedKey:
+			return nil, ErrPassphraseNeeded
 		case strings.Contains(err.Error(), "unable to authenticate"):
 			return nil, fmt.Errorf("%w (%s@%s)", ErrAuthFailed, t.User, t.Addr())
 		}
@@ -143,15 +145,20 @@ func handshake(ctx context.Context, dial func(context.Context, string) (net.Conn
 
 // authMethods offers the key file, then the agent, then the password (also
 // answering keyboard-interactive password prompts).
-func authMethods(t Target, s Secrets) ([]ssh.AuthMethod, func(), error) {
-	var methods []ssh.AuthMethod
-	closeAll := func() {}
+func authMethods(t Target, s Secrets) (methods []ssh.AuthMethod, closeAll func(), skipped bool, err error) {
+	closeAll = func() {}
 	if t.KeyPath != "" {
 		signer, err := loadKey(t.KeyPath, s.KeyPassphrase)
-		if err != nil {
-			return nil, closeAll, err
+		switch {
+		case errors.Is(err, ErrPassphraseNeeded) && t.AgentSocket != "":
+			// Like ssh: an encrypted key with no passphrase saved is left
+			// to the agent, which usually holds it unlocked.
+			skipped = true
+		case err != nil:
+			return nil, closeAll, false, err
+		default:
+			methods = append(methods, ssh.PublicKeys(signer))
 		}
-		methods = append(methods, ssh.PublicKeys(signer))
 	}
 	if t.AgentSocket != "" {
 		if m, closeAgent, err := agentAuth(t.AgentSocket); err == nil {
@@ -173,9 +180,12 @@ func authMethods(t Target, s Secrets) ([]ssh.AuthMethod, func(), error) {
 		)
 	}
 	if len(methods) == 0 {
-		return nil, closeAll, ErrNoAuth
+		if skipped {
+			return nil, closeAll, false, ErrPassphraseNeeded
+		}
+		return nil, closeAll, false, ErrNoAuth
 	}
-	return methods, closeAll, nil
+	return methods, closeAll, skipped, nil
 }
 
 func loadKey(path, passphrase string) (ssh.Signer, error) {

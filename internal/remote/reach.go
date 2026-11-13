@@ -113,3 +113,16 @@ func unixPath(addr string) (string, bool) {
 	}
 	return "", false
 }
+
+// AddrOf is the bridge/forwarding address for a discovered transport.
+func AddrOf(t supervisor.Transport) (string, error) {
+	switch v := t.(type) {
+	case supervisor.UnixTransport:
+		return "unix:" + v.Path, nil
+	case supervisor.TCPTransport:
+		return "tcp:" + v.Addr, nil
+	case nil:
+		return "", errors.New("the config defines no socket or port")
+	}
+	return "", fmt.Errorf("unsupported transport %T", t)
+}

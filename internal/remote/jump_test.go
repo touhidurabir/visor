@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/pem"
 	"errors"
 	"net"
 	"os"
@@ -94,6 +95,25 @@ func TestDialWithAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = c.Close()
+
+	// An encrypted key file with no passphrase saved is left to the agent.
+	block, err := ssh.MarshalPrivateKeyWithPassphrase(priv, "", []byte("x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tg.KeyPath = dir + "/id_enc"
+	if err := os.WriteFile(tg.KeyPath, pem.EncodeToMemory(block), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err = remote.Dial(context.Background(), tg, remote.Secrets{}, hk)
+	if err != nil {
+		t.Fatalf("encrypted key + agent: %v", err)
+	}
+	_ = c.Close()
+	tg.AgentSocket = ""
+	if _, err := remote.Dial(context.Background(), tg, remote.Secrets{}, hk); !errors.Is(err, remote.ErrPassphraseNeeded) {
+		t.Fatalf("no agent: %v", err)
+	}
 }
 
 func TestKeepaliveClosesAFrozenConnection(t *testing.T) {
