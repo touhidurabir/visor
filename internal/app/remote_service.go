@@ -165,8 +165,7 @@ func (s *RemoteService) Save(in ServerInput) (settings.Server, error) {
 		}
 	}
 	if i := slices.IndexFunc(list, func(x settings.Server) bool { return x.ID == sv.ID }); i >= 0 {
-		sv.Mutes = list[i].Mutes // kept by SetMutes, not the form
-		list[i] = sv
+		list[i] = sv // the form carries the mutes too (its Notifications fold)
 	} else {
 		list = append(list, sv)
 	}

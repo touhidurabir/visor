@@ -66,6 +66,7 @@ const SERVER_ROUTE: Record<string, string> = {
   config: 'server-config',
   issues: 'server-issues',
   'issues-log': 'server-issues-log',
+  activity: 'server-activity',
   doctor: 'server-report',
   new: 'server-dashboard',
   'new-form': 'server-dashboard',

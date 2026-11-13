@@ -19,7 +19,7 @@ async function fillForm(page: Page) {
   await form.getByLabel('Port', { exact: true }).fill('8767')
   await form.getByLabel('User', { exact: true }).fill('e2e')
   await form.getByLabel('Password', { exact: true }).fill('e2e')
-  await form.getByText('Advanced: config path, jump host').click()
+  await form.getByText('Advanced: config path, jump host, notifications').click()
   await form.getByLabel('Config path').fill('/tmp/visor-e2e/supervisord.conf')
   return form
 }

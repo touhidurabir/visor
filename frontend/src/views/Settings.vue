@@ -10,6 +10,7 @@ import { ServerService } from '../lib/api'
 import type { ConnectionInput, SettingsView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { Settings } from '../../bindings/github.com/touhidurabir/visor/internal/settings'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import MuteChoices from '../components/MuteChoices.vue'
 import ServersCard from '../components/ServersCard.vue'
 import ThemeSwitch from '../components/ThemeSwitch.vue'
 import { loginHint, loginLocked, useLaunchAtLogin } from '../lib/login-item'
@@ -401,6 +402,11 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
     <!-- Card order (flow change 3): Servers (M7) across the top, then General,
          Connection, Notifications, Checking and history. -->
     <ServersCard v-if="view && s" :max-servers="s.maxServers || 3" @limit="(n) => save((next) => (next.maxServers = n))" />
+    <section v-if="view && s" class="card outside" aria-labelledby="outside-title">
+      <h2 id="outside-title" class="card-title">Changes made outside Visor ({{ platform().local }})</h2>
+      <p class="meta">All on by default. Each server has its own, in Settings → Servers → Edit → Notifications.</p>
+      <div class="row-pad"><MuteChoices :mutes="s.mutes" @change="(k, m) => save((next) => (next.mutes = { ...next.mutes, [k]: m }))" /></div>
+    </section>
     <div v-if="view && s" class="cards">
       <!-- General -->
       <div class="card c-gen" role="group" aria-labelledby="general-title">
@@ -655,6 +661,9 @@ header { display: flex; flex-direction: column; gap: 6px; }
 .title { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 h1 { margin: 0; font-family: var(--display); font-optical-sizing: auto; font-size: 30px; font-weight: 650; line-height: 1.1; letter-spacing: -0.015em; }
 .intro { margin: 0; color: var(--ink2); }
+.outside { margin-bottom: 16px; max-width: 860px; }
+.outside > .meta { margin: 0; padding: 0 18px; }
+.row-pad { padding: 10px 18px 16px; }
 .cards { display: flex; flex-direction: column; gap: 16px; max-width: 860px; }
 @container (min-width: 1000px) {
   .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; max-width: none; }

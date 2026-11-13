@@ -14,6 +14,7 @@ import type { ConfigView, ProcessView } from '../../bindings/github.com/touhidur
 import ApplyReport from '../components/ApplyReport.vue'
 import ChangedBanner from '../components/ChangedBanner.vue'
 import ConnectionBanner from '../components/ConnectionBanner.vue'
+import ActivityStrip from '../components/ActivityStrip.vue'
 import ConfigTable from '../components/ConfigTable.vue'
 import ActionMenu from '../components/ActionMenu.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
@@ -337,6 +338,7 @@ function sendSignal(sig: string) {
         <p>Check that supervisord is running, or open Doctor to find out why.</p>
       </div>
 
+      <ActivityStrip />
       <ReadOnlyBanner />
       <ChangedBanner v-if="!host.remote" :configs="configs" :busy="flow.running.value" @apply="flow.applyAll" @load="(c) => onConfig(c, 'load')" />
       <ApplyReport v-if="flow.report.value" :report="flow.report.value" :busy="flow.running.value" @undo="flow.undo" @dismiss="flow.dismiss" />

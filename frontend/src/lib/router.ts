@@ -3,6 +3,7 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 import AddForm from '../views/AddForm.vue'
 import AddImport from '../views/AddImport.vue'
+import Activity from '../views/Activity.vue'
 import AddRaw from '../views/AddRaw.vue'
 import ConfigDetail from '../views/ConfigDetail.vue'
 import Dashboard from '../views/Dashboard.vue'
@@ -18,6 +19,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/config/:path(.*)', name: 'config', component: ConfigDetail, meta: { title: 'Config' } },
   { path: '/issues', name: 'issues', component: Issues, meta: { title: 'Issues' } },
   { path: '/issues/log', name: 'issues-log', component: Issues, meta: { title: 'Issues' } },
+  { path: '/activity', name: 'activity', component: Activity, meta: { title: 'Activity' } },
   { path: '/new', name: 'new', component: AddRaw, meta: { title: 'Add new' } },
   { path: '/new/form', name: 'new-form', component: AddForm, meta: { title: 'Add new' } },
   { path: '/new/import', name: 'new-import', component: AddImport, meta: { title: 'Add new' } },
@@ -29,6 +31,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/s/:server/config/:path(.*)', name: 'server-config', component: ConfigDetail, meta: { title: 'Config' } },
   { path: '/s/:server/issues', name: 'server-issues', component: Issues, meta: { title: 'Issues' } },
   { path: '/s/:server/issues/log', name: 'server-issues-log', component: Issues, meta: { title: 'Issues' } },
+  { path: '/s/:server/activity', name: 'server-activity', component: Activity, meta: { title: 'Activity' } },
   { path: '/s/:server/report', name: 'server-report', component: ServerReport, meta: { title: 'Server report' } },
   { path: '/:rest(.*)*', redirect: '/' },
 ]

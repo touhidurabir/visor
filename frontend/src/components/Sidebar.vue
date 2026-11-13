@@ -32,6 +32,7 @@ const route = useRoute()
 const sections: Record<string, string[]> = {
   dashboard: ['dashboard', 'config'],
   issues: ['issues', 'issues-log'],
+  activity: ['activity'],
   new: ['new', 'new-form', 'new-import'],
   doctor: ['doctor', 'report'],
   settings: ['settings'],
@@ -77,6 +78,12 @@ const dot = computed(() => {
           <span v-if="openIssues > 0" class="count b-bad"
             >{{ openIssues }}<span class="sr-only"> open {{ openIssues === 1 ? 'issue' : 'issues' }}</span></span
           >
+        </RouterLink>
+        <RouterLink :to="tabHref('/activity')" :class="['nav', on('activity'), { dim: blocked }]">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 8v4l3 2" /><circle cx="12" cy="12" r="9" />
+          </svg>
+          Activity
         </RouterLink>
         <RouterLink v-if="!remote" to="/new" :class="['nav', on('new')]" :aria-keyshortcuts="KEYS.newConfig.aria">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">

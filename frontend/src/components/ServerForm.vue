@@ -14,6 +14,7 @@ import { secretStore } from '../lib/platform'
 import { COLORS, hostKeyPrompt, openServer, TAGS, updateTab } from '../lib/servers'
 import { showToast } from '../lib/toast'
 import DialogShell from './DialogShell.vue'
+import MuteChoices from './MuteChoices.vue'
 
 const props = defineProps<{ editing: SavedServerView | null }>()
 const emit = defineEmits<{ close: []; saved: [server: Server] }>()
@@ -239,7 +240,7 @@ const dot = (s: string) => ({ ok: 'd-ok', error: 'd-bad', warning: 'd-warn' })[s
         </label>
       </div>
       <details class="adv">
-        <summary class="meta">Advanced: config path, jump host</summary>
+        <summary class="meta">Advanced: config path, jump host, notifications</summary>
         <div class="row">
           <label class="lab" for="sf-conf">Config path</label>
           <input id="sf-conf" v-model="form.configPath" class="input mono" spellcheck="false" placeholder="Found on its own (/etc/supervisor/supervisord.conf, …)" />
@@ -247,6 +248,10 @@ const dot = (s: string) => ({ ok: 'd-ok', error: 'd-bad', warning: 'd-warn' })[s
         <div class="row">
           <label class="lab" for="sf-jump">Jump host</label>
           <input id="sf-jump" v-model="form.jump" class="input mono" spellcheck="false" placeholder="user@bastion:22 (when not set in ~/.ssh/config)" />
+        </div>
+        <div class="row top">
+          <span class="lab">Notifications</span>
+          <MuteChoices :mutes="form.mutes" @change="(k, m) => (form.mutes = { ...form.mutes, [k]: m })" />
         </div>
       </details>
     </form>
