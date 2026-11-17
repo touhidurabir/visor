@@ -1,13 +1,16 @@
 <script setup lang="ts">
-// Settings → Servers: the saved servers (name, tag, who Visor connects as,
-// options, open or not) with Connect/Show, Edit and Delete, Add a server,
-// and how many may be connected at once (this computer doesn't count).
-import { onMounted, ref, watch } from 'vue'
+// The Remote servers page's list: the saved servers, and any connected
+// without saving (name, tag, who Visor connects as, options, connection)
+// with Connect/Show, Edit and Delete, Add a server, and how many may be
+// connected at once (this computer doesn't count).
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { Events } from '@wailsio/runtime'
+import { VisorOverview } from '../../bindings/events'
 import { useRouter } from 'vue-router'
 import { RemoteService, type SavedServerView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { errorMessage } from '../lib/overview'
 import { platform, secretStore } from '../lib/platform'
-import { closeServer, openServer, serverForm, switchTab, tagOf } from '../lib/servers'
+import { closeServer, openSaved, serverForm, switchTab, tagOf } from '../lib/servers'
 import { serverTabs } from '../lib/tabs'
 import { showToast } from '../lib/toast'
 import ConfirmDialog from './ConfirmDialog.vue'
@@ -25,6 +28,7 @@ watch(() => props.maxServers, (n) => (limit.value = String(n)))
 async function load() {
   try {
     list.value = (await RemoteService.List()) ?? []
+    conn.value = Object.fromEntries(list.value.map((s) => [s.Server.id, s.Conn]))
     failed.value = ''
   } catch (e) {
     failed.value = errorMessage(e)
@@ -34,10 +38,18 @@ onMounted(load)
 // The form saves elsewhere; reload when it closes, and when tabs open or close.
 watch(serverForm, (f) => (f ? undefined : void load()))
 watch(() => serverTabs.value.length, () => void load())
+// A tab's connection changes on its own (drops, reconnects): its overview
+// events say so, without reading the list (and the Keychain) again.
+const conn = ref<Record<string, string>>({})
+const off = Events.On(VisorOverview, (ev) => {
+  const h = ev.data?.Host
+  if (h?.Remote && conn.value[h.ID] !== h.Conn) conn.value = { ...conn.value, [h.ID]: h.Conn }
+})
+onBeforeUnmount(off)
 
 function open(s: SavedServerView) {
   if (serverTabs.value.some((t) => t.id === s.Server.id)) return switchTab(router, s.Server.id)
-  void openServer(router, s.Server)
+  void openSaved(router, s)
 }
 
 async function remove() {
@@ -68,12 +80,18 @@ function setLimit() {
 const addr = (s: SavedServerView) => `${s.Server.user ? s.Server.user + '@' : ''}${s.Server.host}${s.Server.port !== 22 ? ':' + s.Server.port : ''}`
 const options = (s: SavedServerView) => [s.Server.useSudo ? 'Use sudo' : '', s.Server.readOnly ? 'Read only' : '', s.Server.keyPath ? 'Key' : ''].filter(Boolean)
 const isOpen = (s: SavedServerView) => serverTabs.value.some((t) => t.id === s.Server.id)
+const STATUS: Record<string, [string, string]> = {
+  connected: ['Connected', 't-ok'],
+  reconnecting: ['Reconnecting…', 't-warn'],
+  failed: ['Can’t connect', 't-bad'],
+}
+const status = (s: SavedServerView): [string, string] => (isOpen(s) ? (STATUS[conn.value[s.Server.id]] ?? ['Connecting…', 't-idle']) : ['Not open', 't-idle'])
 </script>
 
 <template>
   <section class="card servers" aria-labelledby="servers-title">
     <div class="head">
-      <h2 id="servers-title" class="card-title">Servers</h2>
+      <h2 id="servers-title" class="card-title">Saved servers</h2>
       <label class="limit muted">
         Connected at once, at most
         <input v-model="limit" class="input num" inputmode="numeric" aria-label="Servers connected at once" @change="setLimit" @keydown.enter="setLimit" />
@@ -90,14 +108,16 @@ const isOpen = (s: SavedServerView) => serverTabs.value.some((t) => t.id === s.S
           <span class="dot" :style="{ background: s.Server.color || 'var(--idle-dot)' }" aria-hidden="true" />
           <strong>{{ s.Server.name }}</strong>
           <span :class="['chip', tagOf(s.Server.tag).cls]">{{ tagOf(s.Server.tag).chip }}</span>
+          <span v-if="s.Unsaved" class="badge b-idle" title="Connected without saving: it is forgotten when its tab closes">Not saved</span>
         </span>
         <span class="mono addr">{{ addr(s) }}</span>
         <span class="opts"><span v-for="o in options(s)" :key="o" class="badge b-idle">{{ o }}</span></span>
         <span class="act">
-          <span :class="isOpen(s) ? 't-ok' : 't-idle'">{{ isOpen(s) ? 'Open' : 'Not open' }}</span>
+          <span :class="status(s)[1]" data-testid="server-status">{{ status(s)[0] }}</span>
           <button class="btn sm" type="button" @click="open(s)">{{ isOpen(s) ? 'Show' : 'Connect' }}</button>
-          <button class="btn sm" type="button" :aria-label="`Edit ${s.Server.name}`" @click="serverForm = { server: s }">Edit</button>
-          <button class="btn sm quiet danger" type="button" :aria-label="`Delete ${s.Server.name}`" @click="deleting = s">Delete</button>
+          <button class="btn sm" type="button" :aria-label="`${s.Unsaved ? 'Save' : 'Edit'} ${s.Server.name}`" @click="serverForm = { server: s }">{{ s.Unsaved ? 'Save…' : 'Edit' }}</button>
+          <button v-if="s.Unsaved" class="btn sm quiet" type="button" :aria-label="`Close ${s.Server.name}`" @click="closeServer(router, s.Server.id)">Close</button>
+          <button v-else class="btn sm quiet danger" type="button" :aria-label="`Delete ${s.Server.name}`" @click="deleting = s">Delete</button>
         </span>
       </div>
     </template>

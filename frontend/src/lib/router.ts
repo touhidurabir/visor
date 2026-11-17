@@ -9,6 +9,7 @@ import ConfigDetail from '../views/ConfigDetail.vue'
 import Dashboard from '../views/Dashboard.vue'
 import Doctor from '../views/Doctor.vue'
 import Issues from '../views/Issues.vue'
+import RemoteServers from '../views/RemoteServers.vue'
 import ServerReport from '../views/ServerReport.vue'
 import Settings from '../views/Settings.vue'
 import Tray from '../views/Tray.vue'
@@ -25,6 +26,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/new/import', name: 'new-import', component: AddImport, meta: { title: 'Add new' } },
   { path: '/settings', name: 'settings', component: Settings, meta: { title: 'Settings' } },
   { path: '/doctor', name: 'doctor', component: Doctor, meta: { title: 'Doctor' } },
+  { path: '/servers', name: 'servers', component: RemoteServers, meta: { title: 'Remote servers' } },
   { path: '/tray', name: 'tray', component: Tray, meta: { bare: true } },
   // A server's tab: the same pages under /s/<server id> (lib/tabs.ts).
   { path: '/s/:server', name: 'server-dashboard', component: Dashboard },

@@ -11,8 +11,8 @@ const flaky = (page: Page) => rowsOf(page).filter({ hasText: 'flaky' })
 
 async function show(page: Page, status: 'Open' | 'Resolved' | 'All', search = 'flaky') {
   await page.goto('/#/issues')
-  await page.getByRole('button', { name: new RegExp(`^${status}\\b`) }).click()
-  await expect(page.getByRole('button', { name: new RegExp(`^${status}\\b`) })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: new RegExp(`^${status}( \\(\\d+\\))?$`) }).click()
+  await expect(page.getByRole('button', { name: new RegExp(`^${status}( \\(\\d+\\))?$`) })).toHaveAttribute('aria-pressed', 'true')
   await page.getByRole('searchbox', { name: 'Search issues' }).fill(search)
   // The search applies after a short debounce, then the list reloads.
   if (search) await expect(page.getByText(/^\d+ matching issues?$/)).toBeVisible()

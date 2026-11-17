@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // The lens mark, the wordmark and the notification bell; the tab's server
 // (this computer, or a server with its colour) with its health and failing
-// count, Dashboard, Issues and, on this computer, Add new; and Doctor (on a
-// server, its report) / Settings at the bottom. Servers open as tabs above
+// count, Dashboard, Issues and, on this computer, Add new; and Remote
+// servers, Doctor (on a server, its report) and Settings at the bottom. Servers open as tabs above
 // (TabBar). Appearance lives in Settings.
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
@@ -34,6 +34,7 @@ const sections: Record<string, string[]> = {
   issues: ['issues', 'issues-log'],
   activity: ['activity'],
   new: ['new', 'new-form', 'new-import'],
+  servers: ['servers'],
   doctor: ['doctor', 'report'],
   settings: ['settings'],
 }
@@ -96,6 +97,12 @@ const dot = computed(() => {
     </div>
 
     <div class="section bottom">
+      <RouterLink to="/servers" :class="['nav', on('servers')]">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="7" rx="1.5" /><rect x="3" y="13" width="18" height="7" rx="1.5" /><path d="M7 7.5h.01M7 16.5h.01" />
+        </svg>
+        Remote servers
+      </RouterLink>
       <RouterLink :to="remote ? tabHref('/report') : '/doctor'" :class="['nav', on('doctor')]">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M3 12h4l3-8 4 16 3-8h4" />

@@ -47,7 +47,7 @@ function open(e: { Config: string; Process: string }) {
       <h1 id="act-h">Activity</h1>
       <p class="muted">
         What changed on {{ name }}, by Visor or by anyone else (supervisorctl, a deploy script, another person). Changes made outside Visor notify you; mute a kind in
-        {{ remote ? `Settings → Servers → ${name} → Edit` : 'Settings → Changes made outside Visor' }}.
+        {{ remote ? `Remote servers → ${name} → Edit` : 'Settings → Changes made outside Visor' }}.
       </p>
     </header>
     <div class="filters">

@@ -11,7 +11,6 @@ import type { ConnectionInput, SettingsView } from '../../bindings/github.com/to
 import type { Settings } from '../../bindings/github.com/touhidurabir/visor/internal/settings'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import MuteChoices from '../components/MuteChoices.vue'
-import ServersCard from '../components/ServersCard.vue'
 import ThemeSwitch from '../components/ThemeSwitch.vue'
 import { loginHint, loginLocked, useLaunchAtLogin } from '../lib/login-item'
 import { describeError } from '../lib/faults'
@@ -401,10 +400,9 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
 
     <!-- Card order (flow change 3): Servers (M7) across the top, then General,
          Connection, Notifications, Checking and history. -->
-    <ServersCard v-if="view && s" :max-servers="s.maxServers || 3" @limit="(n) => save((next) => (next.maxServers = n))" />
     <section v-if="view && s" class="card outside" aria-labelledby="outside-title">
       <h2 id="outside-title" class="card-title">Changes made outside Visor ({{ platform().local }})</h2>
-      <p class="meta">All on by default. Each server has its own, in Settings → Servers → Edit → Notifications.</p>
+      <p class="meta">All on by default. Each server has its own, in Remote servers → Edit → Notifications.</p>
       <div class="row-pad"><MuteChoices :mutes="s.mutes" @change="(k, m) => save((next) => (next.mutes = { ...next.mutes, [k]: m }))" /></div>
     </section>
     <div v-if="view && s" class="cards">

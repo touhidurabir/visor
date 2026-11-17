@@ -49,7 +49,7 @@ test.describe('navigation', () => {
     // Servers open as tabs: this computer's tab is first and selected, with + beside it.
     const tabs = page.getByRole('tablist', { name: 'Servers' })
     await expect(tabs.getByRole('tab', { name: /This computer/ })).toHaveAttribute('aria-selected', 'true')
-    await expect(page.getByRole('button', { name: 'Add or open a server' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Open a server' })).toBeVisible()
     expect(errors).toEqual([])
   })
 

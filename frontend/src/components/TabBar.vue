@@ -1,14 +1,15 @@
 <script setup lang="ts">
 // The tabs across the top of the main window, like a browser's: this
 // computer first (it can't be closed), then the servers opened this launch,
-// then + to open a saved server or add one. Ctrl+Tab and Ctrl+Shift+Tab move
+// then + to open a saved server that isn't open (servers are added on the
+// Remote servers page). Ctrl+Tab and Ctrl+Shift+Tab move
 // between tabs; ⌘W / Ctrl+W closes a server's tab (AppShell).
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { RemoteService, type LimitsView, type SavedServerView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { errorMessage } from '../lib/overview'
 import { isMac, platform } from '../lib/platform'
-import { closeServer, openServer, serverForm, switchTab } from '../lib/servers'
+import { closeServer, openSaved, switchTab } from '../lib/servers'
 import { currentTab, LOCAL, serverTabs } from '../lib/tabs'
 import TabItem from './TabItem.vue'
 
@@ -37,7 +38,7 @@ async function toggleMenu() {
     loadError.value = errorMessage(e)
   }
   await nextTick()
-  menu.value?.querySelector<HTMLElement>('button:not(:disabled)')?.focus()
+  menu.value?.querySelector<HTMLElement>('button:not(:disabled), a')?.focus()
   document.addEventListener('mousedown', onOutside)
 }
 
@@ -54,16 +55,11 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onOutside))
 
 function pick(s: SavedServerView) {
   closeMenu()
-  void openServer(router, s.Server)
-}
-
-function addServer() {
-  closeMenu()
-  serverForm.value = { server: null }
+  void openSaved(router, s)
 }
 
 function onMenuKey(e: KeyboardEvent) {
-  const items = Array.from(menu.value?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? [])
+  const items = Array.from(menu.value?.querySelectorAll<HTMLElement>('button:not(:disabled), a') ?? [])
   const i = items.indexOf(document.activeElement as HTMLElement)
   if (e.key === 'Escape') {
     e.preventDefault()
@@ -120,8 +116,8 @@ function describe(s: SavedServerView): string {
         ref="plus"
         class="btn quiet icon plus"
         type="button"
-        aria-label="Add or open a server"
-        title="Open a saved server or add one"
+        aria-label="Open a server"
+        title="Open a saved server"
         :aria-expanded="menuOpen"
         aria-haspopup="menu"
         @click="toggleMenu"
@@ -132,7 +128,7 @@ function describe(s: SavedServerView): string {
         <p v-if="loadError" class="meta err">{{ loadError }}</p>
         <p v-else-if="full" class="meta note">
           {{ limits!.MaxServers }} servers are open, the most at once. Close one, or raise the limit in
-          <RouterLink to="/settings" @click="closeMenu">Settings</RouterLink>.
+          <RouterLink to="/servers" @click="closeMenu">Remote servers</RouterLink>.
         </p>
         <template v-if="closed.length">
           <span class="th">Saved servers</span>
@@ -140,12 +136,11 @@ function describe(s: SavedServerView): string {
             <span class="dot" :style="{ background: s.Server.color || 'var(--idle-dot)' }" aria-hidden="true" />
             <span class="what"><span class="name">{{ s.Server.name }}</span><span class="meta">{{ describe(s) }}</span></span>
           </button>
-          <div class="sep" role="separator" />
         </template>
-        <button class="item" type="button" role="menuitem" @click="addServer">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
-          Add a server…
-        </button>
+        <p v-else-if="!loadError" class="meta note">
+          {{ saved.length ? 'Every saved server is open.' : 'No saved servers yet.' }} Add one in
+          <RouterLink to="/servers" @click="closeMenu">Remote servers</RouterLink>.
+        </p>
       </div>
     </div>
   </div>
@@ -206,7 +201,6 @@ function describe(s: SavedServerView): string {
 .what { display: flex; flex-direction: column; min-width: 0; }
 .name { font-weight: 600; }
 .what .meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sep { height: 1px; margin: 4px 2px; background: var(--line); }
 .note, .err { margin: 4px 8px 6px; }
 .err { color: var(--bad); }
 </style>
