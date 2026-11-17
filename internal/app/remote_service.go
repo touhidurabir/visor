@@ -45,9 +45,26 @@ type unsavedServer struct {
 
 // NewRemoteService returns the service over hub.
 func NewRemoteService(hub *Hub, stateDir string, k settings.Keychain, hk remote.HostKeys, prefs func() settings.Settings) *RemoteService {
+	pruneServerState(stateDir)
 	return &RemoteService{
 		hub: hub, stateDir: stateDir, keychain: k, hk: hk, prefs: prefs, probe: probeServer,
 		pending: map[string]pendingKey{}, reports: map[string]ReportView{}, unsaved: map[string]unsavedServer{},
+	}
+}
+
+// pruneServerState removes the history of servers that aren't saved: one
+// connected without saving whose tab was still open when Visor quit.
+func pruneServerState(stateDir string) {
+	list, err := settings.LoadServers(stateDir)
+	if err != nil {
+		return // unreadable servers.json: never delete what it may name
+	}
+	entries, _ := os.ReadDir(filepath.Join(stateDir, "servers"))
+	for _, e := range entries {
+		id := e.Name()
+		if e.IsDir() && settings.ValidServerID(id) && !slices.ContainsFunc(list, func(x settings.Server) bool { return x.ID == id }) {
+			_ = settings.RemoveServerState(stateDir, id)
+		}
 	}
 }
 
@@ -103,6 +120,9 @@ func (s *RemoteService) List() ([]SavedServerView, error) {
 	for _, sv := range list {
 		v := SavedServerView{Server: sv, Open: slices.Contains(open, sv.ID)}
 		k, unsaved := s.keychainFor(sv.ID)
+		if unsaved && !v.Open {
+			continue // still connecting, or failing: not a server yet
+		}
 		v.Unsaved = unsaved
 		v.HasPassword = has(k, sv.ID, settings.SecretPassword)
 		v.HasKeyPassphrase = has(k, sv.ID, settings.SecretKeyPassphrase)
@@ -413,8 +433,10 @@ func (s *RemoteService) ConnectOnce(in ServerInput) (OpenView, error) {
 func (s *RemoteService) forget(id string) {
 	s.mu.Lock()
 	_, ok := s.unsaved[id]
-	delete(s.unsaved, id)
-	delete(s.reports, id)
+	if ok {
+		delete(s.unsaved, id)
+		delete(s.reports, id)
+	}
 	s.mu.Unlock()
 	if ok {
 		_ = settings.RemoveServerState(s.stateDir, id)
@@ -431,18 +453,17 @@ func (s *RemoteService) open(sv settings.Server, k settings.Keychain) (OpenView,
 		return OpenView{}, &TooManyServersError{Max: l.MaxServers}
 	}
 	ov, err := s.hub.OpenServerWith(sv, k)
-	if err != nil {
-		return OpenView{}, err
-	}
-	t, terr := s.hub.Tab(id)
-	if terr != nil || t.RT.ConnErr() == nil {
+	var failed *ConnectError
+	if !errors.As(err, &failed) {
+		if err != nil {
+			return OpenView{}, err
+		}
 		return OpenView{Overview: &ov}, nil
 	}
-	// It didn't connect: close the tab and find out why, step by step.
-	// Only then is the connection made a second time (sudo is asked once
-	// per connection).
-	cerr := t.RT.ConnErr()
-	_ = s.hub.CloseServer(id)
+	// It didn't connect (no tab opened): find out why, step by step. Only
+	// then is the connection made a second time (sudo is asked once per
+	// connection).
+	cerr := failed.Err
 	if hkv, key := hostKeyView(cerr); hkv != nil {
 		rep := ReportView{HostKey: hkv, Blocked: true, AtMs: time.Now().UnixMilli()}
 		if hkv.Status == "changed" {

@@ -296,3 +296,25 @@ func TestSaveAnUnsavedServer(t *testing.T) {
 		t.Fatal("closing a saved server's tab forgot it")
 	}
 }
+
+// History left by a server connected without saving (Visor quit with its
+// tab open) is removed at the next start; saved servers' is kept.
+func TestStartPrunesUnsavedServersHistory(t *testing.T) {
+	state := t.TempDir()
+	kept, gone := settings.NewServerID(), settings.NewServerID()
+	if err := settings.SaveServers(state, []settings.Server{{ID: kept, Name: "kept", Host: "h", Port: 22, Tag: settings.TagDevelopment}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{kept, gone} {
+		if err := os.MkdirAll(settings.ServerStateDir(state, id), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pruneServerState(state)
+	if _, err := os.Stat(settings.ServerStateDir(state, kept)); err != nil {
+		t.Fatalf("saved server's history: %v", err)
+	}
+	if _, err := os.Stat(settings.ServerStateDir(state, gone)); !os.IsNotExist(err) {
+		t.Fatalf("unsaved server's history stayed: %v", err)
+	}
+}

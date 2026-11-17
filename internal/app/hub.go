@@ -102,6 +102,13 @@ func NewHub(local *Runtime, o HubOptions) *Hub {
 	}
 }
 
+// ConnectError is why a server's first connection failed (OpenServer opens
+// no tab then).
+type ConnectError struct{ Err error }
+
+func (e *ConnectError) Error() string { return e.Err.Error() }
+func (e *ConnectError) Unwrap() error { return e.Err }
+
 // HubService binds the Hub's life to the app's (and exposes nothing else).
 type HubService struct{ hub *Hub }
 
@@ -220,6 +227,12 @@ func (h *Hub) OpenServerWith(s settings.Server, k settings.Keychain) (OverviewVi
 		h.mu.Unlock()
 		rt.Stop()
 		return OverviewView{}, err
+	}
+	if cerr := rt.ConnErr(); cerr != nil {
+		// No tab for a server Visor can't reach: the caller says why.
+		h.mu.Unlock()
+		rt.Stop()
+		return OverviewView{}, &ConnectError{Err: cerr}
 	}
 	t := newTab(rt, h.o.LogEmit, s.ID+"-")
 	h.tabs[s.ID] = t

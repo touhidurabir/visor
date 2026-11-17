@@ -93,12 +93,12 @@ func main() {
 	wails := application.New(application.Options{
 		Name:        "Visor",
 		Description: "A menu-bar and tray app for managing supervisord",
-		// A panic in a call from the window: Wails catches it and exits, so
-		// write it where keepCrashes writes the others.
+		// A panic Wails recovers (a call from the window rejects, Visor
+		// goes on): keep its trace where keepCrashes writes the others.
 		PanicHandler: func(p *application.PanicDetails) {
 			msg := fmt.Sprintf("%s panic: %v\n%s\n", time.Now().Format(time.RFC3339), p.Error, p.StackTrace)
 			_ = appendCrash(stateDir, msg)
-			log.Fatal(msg)
+			log.Print(msg)
 		},
 		Services: []application.Service{
 			// Before ServerService, so notifications are ready by the first poll.
