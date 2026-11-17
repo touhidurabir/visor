@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Status, Step } from '../../bindings/github.com/touhidurabir/visor/internal/doctor'
-import { chownCommand, installCommandsFor, lensText, mkdirCommand, rootFixes, situationCopy, stepLook } from './doctor'
+import { chownCommand, installCommandsFor, lensText, mkdirCommand, reportLens, reportLook, rootFixes, situationCopy, stepLook } from './doctor'
 
 const step = (s: string): Step => ({ ID: '', Title: '', Detail: '', Status: s as Status })
 
@@ -66,5 +66,15 @@ describe('Doctor on Linux', () => {
     expect(installCommandsFor(null)).toEqual(['brew install supervisor', 'brew services start supervisor'])
     expect(installCommandsFor(linux('sudo apt install supervisor', 'supervisor'))).toEqual(['sudo apt install supervisor', 'sudo systemctl enable --now supervisor'])
     expect(installCommandsFor(linux('pip install supervisor (or your package manager’s supervisor package)', 'supervisord'))).toHaveLength(1)
+  })
+})
+
+describe('reportLook and reportLens', () => {
+  it('words every row status, and only errors count as things to fix', () => {
+    expect(reportLook('error')).toMatchObject({ word: 'Needs attention', segment: 'bad' })
+    expect(reportLook('warning')).toMatchObject({ word: 'Worth a look', segment: 'wait' })
+    expect(reportLook('skipped').word).toBe('Skipped')
+    expect(reportLens([{ Status: 'ok' }, { Status: 'info' }])).toEqual({ big: '✓', small: '1 check passed' })
+    expect(reportLens([{ Status: 'error' }, { Status: 'skipped' }]).small).toBe('1 thing to fix')
   })
 })
