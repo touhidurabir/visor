@@ -2,9 +2,14 @@ package main
 
 import (
 	"embed"
+	"errors"
+	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"runtime"
+	"runtime/debug"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -28,6 +33,7 @@ func main() {
 		log.Fatal(err)
 	}
 	guardWebKitSandbox(stateDir)
+	keepCrashes(stateDir)
 	// A settings file that cannot be read leaves the defaults in use; the
 	// Settings page says so.
 	prefs, loadErr := settings.Load(stateDir)
@@ -87,6 +93,13 @@ func main() {
 	wails := application.New(application.Options{
 		Name:        "Visor",
 		Description: "A menu-bar and tray app for managing supervisord",
+		// A panic in a call from the window: Wails catches it and exits, so
+		// write it where keepCrashes writes the others.
+		PanicHandler: func(p *application.PanicDetails) {
+			msg := fmt.Sprintf("%s panic: %v\n%s\n", time.Now().Format(time.RFC3339), p.Error, p.StackTrace)
+			_ = appendCrash(stateDir, msg)
+			log.Fatal(msg)
+		},
 		Services: []application.Service{
 			// Before ServerService, so notifications are ready by the first poll.
 			application.NewService(notifier),
@@ -169,4 +182,31 @@ func main() {
 	if err := wails.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// keepCrashes writes a crash's Go trace to crash.log in the state folder: an
+// app opened from Finder or the dock has no terminal to print it to.
+func keepCrashes(stateDir string) {
+	f, err := openCrashLog(stateDir)
+	if err != nil {
+		return
+	}
+	_ = debug.SetCrashOutput(f, debug.CrashOptions{}) // keeps its own copy of f
+	_ = f.Close()
+}
+
+func appendCrash(stateDir, msg string) error {
+	f, err := openCrashLog(stateDir)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(msg)
+	return errors.Join(err, f.Close())
+}
+
+func openCrashLog(stateDir string) (*os.File, error) {
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return nil, err
+	}
+	return os.OpenFile(filepath.Join(stateDir, "crash.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 }
