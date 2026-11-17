@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"io/fs"
 	"slices"
 	"strconv"
 	"strings"
@@ -371,8 +372,13 @@ func (t *Tracker) apply(u monitor.Update) (opened, closed []Issue) {
 				opened = append(opened, t.openIssue(KindHostDown, "", "Can't reach the server over SSH.", now)...)
 			} else {
 				msg := "supervisord is not responding"
-				if u.Snapshot.Err != nil {
-					msg += ": " + u.Snapshot.Err.Error()
+				switch err := u.Snapshot.Err; {
+				case errors.Is(err, fs.ErrPermission):
+					// The socket belongs to root (Linux packages): say so
+					// in words, not as Go's dial error.
+					msg += ": this user isn't allowed to open its socket (permission denied)"
+				case err != nil:
+					msg += ": " + err.Error()
 				}
 				opened = append(opened, t.openIssue(KindUnreachable, "", msg, now)...)
 			}
