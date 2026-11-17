@@ -116,6 +116,54 @@ func TestDialWithAgent(t *testing.T) {
 	}
 }
 
+// A locked key left to an agent that can't use it, and a refused password:
+// the password is what failed, not the missing passphrase.
+func TestRefusedPasswordWinsOverALockedKey(t *testing.T) {
+	_, hk := isolate(t)
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, err := os.MkdirTemp("/tmp", "visor-agent-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	ln, err := net.Listen("unix", dir+"/a.sock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() { _ = agent.ServeAgent(agent.NewKeyring(), c) }()
+		}
+	}()
+	block, err := ssh.MarshalPrivateKeyWithPassphrase(priv, "", []byte("x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := remotetest.Start(t, remotetest.Options{Password: "pw"})
+	if err := hk.Trust(s.Host, s.Port, s.HostKey); err != nil {
+		t.Fatal(err)
+	}
+	tg := target(s)
+	tg.AgentSocket, tg.KeyPath = dir+"/a.sock", dir+"/id_enc"
+	if err := os.WriteFile(tg.KeyPath, pem.EncodeToMemory(block), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := remote.Dial(context.Background(), tg, remote.Secrets{Password: "bad"}, hk); !errors.Is(err, remote.ErrAuthFailed) {
+		t.Fatalf("wrong password: %v", err)
+	}
+	if _, err := remote.Dial(context.Background(), tg, remote.Secrets{}, hk); !errors.Is(err, remote.ErrPassphraseNeeded) {
+		t.Fatalf("no password: %v", err)
+	}
+}
+
 func TestKeepaliveClosesAFrozenConnection(t *testing.T) {
 	oldI, oldM := remote.KeepaliveInterval, remote.KeepaliveMax
 	remote.KeepaliveInterval, remote.KeepaliveMax = 50*time.Millisecond, 3

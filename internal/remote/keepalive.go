@@ -16,8 +16,9 @@ var (
 // ErrKeepalive means the server stopped answering keepalives.
 var ErrKeepalive = errors.New("the server stopped answering")
 
-func (c *Conn) keepalive() {
-	interval, most := KeepaliveInterval, KeepaliveMax
+// keepalive takes the settings as arguments, read when the connection is
+// made, so changing them later never races with a running connection.
+func (c *Conn) keepalive(interval time.Duration, most int) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	var pending chan error

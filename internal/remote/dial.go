@@ -105,6 +105,9 @@ func Dial(ctx context.Context, t Target, s Secrets, hk HostKeys) (*Conn, error) 
 
 func handshake(ctx context.Context, dial func(context.Context, string) (net.Conn, error), t Target, s Secrets, cb ssh.HostKeyCallback, algos func(string) []string) (*ssh.Client, error) {
 	auth, closeAuth, skippedKey, err := authMethods(t, s)
+	// A locked key explains a refused login only when no password was
+	// offered: a refused password is what the person needs to hear.
+	skippedKey = skippedKey && s.Password == ""
 	if err != nil {
 		return nil, err
 	}

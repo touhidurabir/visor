@@ -119,8 +119,9 @@ func TestSudoSilentAfterPasswordIsKept(t *testing.T) {
 	}
 	c, _ := connectOpts(t, remotetest.Options{Env: []string{"PATH=" + dir + ":" + os.Getenv("PATH")}})
 	tr := &remote.BridgeTransport{Conn: c, Addr: "unix:/x", Options: remote.BridgeOptions{Sudo: true, SudoPassword: "pw"}}
-	// The caller gives up quickly; the outcome is still waited for.
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	// The caller gives up after the prompt (250 ms: 50 sometimes came before
+	// it), before sudo answers; the outcome is still waited for.
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer cancel()
 	if _, err := tr.Bridge(ctx); !errors.Is(err, remote.ErrSudoUnconfirmed) {
 		t.Fatalf("got %v", err)
