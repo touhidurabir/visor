@@ -1,10 +1,12 @@
 package app
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/touhidurabir/visor/internal/supervisor"
@@ -135,5 +137,28 @@ func TestConfigDetailExplainsLiveFailure(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// statFS answers Stat for the files it holds, as a server's would.
+type statFS map[string]bool
+
+func (f statFS) ReadFile(string) ([]byte, error) { return nil, fs.ErrNotExist }
+func (f statFS) Glob(string) ([]string, error)   { return nil, nil }
+func (f statFS) Stat(name string) (fs.FileInfo, error) {
+	if f[name] {
+		return fstest.MapFS{"f": {}}.Stat("f")
+	}
+	return nil, fs.ErrNotExist
+}
+
+func TestLookOnServerSearchesTheServersPath(t *testing.T) {
+	r := &Runtime{opts: RuntimeOptions{Remote: &RemoteSource{}}}
+	r.d.FS = statFS{"/usr/bin/php": true}
+	if p, err := r.lookOnServer("php"); err != nil || p != "/usr/bin/php" {
+		t.Fatalf("php: %q %v", p, err)
+	}
+	if _, err := r.lookOnServer("node"); err == nil {
+		t.Fatal("node found on a server that hasn't it")
 	}
 }

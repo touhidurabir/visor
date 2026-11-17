@@ -30,6 +30,7 @@ import ExplainPanel from './ExplainPanel.vue'
 import IniEditor from './IniEditor.vue'
 import RestoreDialog from './RestoreDialog.vue'
 import SaveBar from './SaveBar.vue'
+import { currentTab, LOCAL } from '../lib/tabs'
 
 // line (from ?line=N) is the line to show when the editor opens. processes
 // are the file's processes from the live overview, for each card's state.
@@ -60,13 +61,14 @@ const editor = ref<InstanceType<typeof IniEditor>>()
 
 const dirty = computed(() => !!file.value && text.value !== file.value.Content)
 const writable = computed(() => !!file.value?.Writable)
+const remote = computed(() => currentTab.value !== LOCAL)
 const errorCount = computed(() => explained.value?.SaveErrors ?? 0)
 const marks = computed(() => explainMarks(explained.value))
 const saveDiff = computed(() => diffLines(file.value?.Content ?? '', text.value))
 const saveStats = computed(() => diffStats(saveDiff.value))
 const cantSave = computed(() => {
   if (busy.value) return 'Wait for the current action to finish.'
-  if (!writable.value) return 'Visor can’t write this file.'
+  if (!writable.value) return remote.value ? 'Configs on servers are read only for now.' : 'Visor can’t write this file.'
   if (diskNewer.value) return 'The file changed on disk. Choose what to do with your edits first.'
   if (!dirty.value) return 'There is nothing to save yet.'
   if (checkedText.value === text.value && errorCount.value) return saveReason(explained.value) || fixToSave(errorCount.value)
@@ -76,7 +78,7 @@ const bar = computed<{ tone: 'ok' | 'bad' | 'warn' | 'idle'; status: string }>((
   if (busy.value === 'save') return { tone: 'idle', status: 'Saving…' }
   if (busy.value === 'restore') return { tone: 'idle', status: 'Restoring…' }
   if (busy.value === 'apply') return { tone: 'idle', status: 'Applying…' }
-  if (!writable.value) return { tone: 'warn', status: 'Read-only: Visor can’t write this file.' }
+  if (!writable.value) return { tone: 'warn', status: remote.value ? 'Read only: configs on servers can’t be changed yet.' : 'Read-only: Visor can’t write this file.' }
   if (diskNewer.value) return { tone: 'warn', status: 'Edited elsewhere: choose what to do with your edits first.' }
   if (dirty.value && checkedText.value === text.value && errorCount.value) return { tone: 'bad', status: `${cantSave.value}.` }
   if (dirty.value) return { tone: 'warn', status: 'Unsaved changes' }
@@ -375,7 +377,11 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
     <p v-else-if="!file" class="muted">Loading…</p>
     <div v-else class="grid">
       <div class="col">
-        <div v-if="!writable" class="banner warn" role="status">
+        <div v-if="!writable && remote" class="banner warn" role="status">
+          <strong>Configs on servers are read only for now.</strong>
+          <span>This version of Visor shows them and runs their processes, but can’t save, add, remove or restore them, with Use sudo too. Editing configs on servers comes in the next version.</span>
+        </div>
+        <div v-else-if="!writable" class="banner warn" role="status">
           <strong>Visor can’t write this file.</strong>
           <span>
             The file or its folder is read-only for you, so the editor is read-only too. Open Doctor to see how to fix the permissions, or edit the file with

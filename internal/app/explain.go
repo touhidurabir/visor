@@ -1,7 +1,7 @@
 package app
 
 import (
-	"errors"
+	"io/fs"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -295,8 +295,8 @@ func (r *Runtime) linePaths(l describe.Line, prog config.Program, here string, p
 		}
 		if !strings.Contains(bin, "/") {
 			look := lookPath
-			if r.Remote() { // not on the server's PATH from here
-				look = func(string) (string, error) { return "", errors.New("not looked up on servers") }
+			if r.Remote() {
+				look = r.lookOnServer
 			}
 			found, err := look(bin)
 			if err != nil {
@@ -351,6 +351,22 @@ func (r *Runtime) linePaths(l describe.Line, prog config.Program, here string, p
 		}
 	}
 	return out
+}
+
+// serverPath is the PATH systemd gives supervisord on Debian, Ubuntu and
+// Fedora, which its programs inherit.
+// shortcut: an environment=PATH=… in the config isn't followed; read it when someone needs it.
+var serverPath = []string{"/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"}
+
+// lookOnServer finds a bare command name on the server, as lookPath does here.
+func (r *Runtime) lookOnServer(name string) (string, error) {
+	for _, dir := range serverPath {
+		p := dir + "/" + name
+		if fi, err := r.files().Stat(p); err == nil && !fi.IsDir() {
+			return p, nil
+		}
+	}
+	return "", fs.ErrNotExist
 }
 
 // logProcess is the process whose stream s writes path, else first.
