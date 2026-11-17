@@ -2,10 +2,10 @@
 // key prompt when Visor hasn't seen the server), closing one, and the shared
 // state of the server form and the host-key dialog, which AppShell shows.
 import { ref } from 'vue'
-import { RemoteService, type HostKeyView, type ReportView, type SavedServerView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { RemoteService, type HostKeyView, type OpenView, type ReportView, type SavedServerView, type ServerInput } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { Server } from '../../bindings/github.com/touhidurabir/visor/internal/settings/models'
 import { errorMessage } from './overview'
-import { forgetTab, homeOf, LOCAL, pathFor, serverTabs, setCurrentTab, currentTab, tabsLoaded, type TabInfo } from './tabs'
+import { forgetTab, LOCAL, pathFor, serverTabs, setCurrentTab, currentTab, tabsLoaded, type TabInfo } from './tabs'
 import { showToast } from './toast'
 
 type Router = { push: (to: string) => unknown }
@@ -38,8 +38,12 @@ export function tabInfo(s: Server): TabInfo {
 /** The host key waiting for the user, and what to do once it is trusted. */
 export const hostKeyPrompt = ref<{ view: HostKeyView; server: string; then: () => void } | null>(null)
 
-/** The server form: null when closed; server is the one being edited. */
-export const serverForm = ref<{ server: SavedServerView | null } | null>(null)
+/**
+ * The server form: null when closed; server is the one being edited, and
+ * report why it couldn't connect (a server opened from the + menu or the
+ * Remote servers page opens no tab then, but its form with the report).
+ */
+export const serverForm = ref<{ server: SavedServerView | null; report?: ReportView } | null>(null)
 
 /** The latest report per server, for the report page (from Open or a Test). */
 export const reports = ref<Record<string, ReportView>>({})
@@ -61,26 +65,49 @@ export function switchTab(router: Router, id: string) {
   void router.push(pathFor(id))
 }
 
+/** What opening a server came to: its tab, or why there is none. */
+export type OpenResult = { ok: true } | { ok: false; report?: ReportView; error?: string }
+
 /**
  * openServer opens (or shows) a saved server's tab. An unknown host key asks
- * first; a refused one says why. A connection with a gap opens on its report.
+ * first, then runs retry; a server Visor can't reach opens no tab and comes
+ * back with its report.
  */
-export async function openServer(router: Router, s: Server): Promise<void> {
-  let res
+export async function openServer(router: Router, s: Server, retry: () => void = () => void openServer(router, s)): Promise<OpenResult> {
+  return shown(router, () => RemoteService.Open(s.id), s.name, retry)
+}
+
+/** connectOnce connects to the form's server without saving it (RemoteService.ConnectOnce). */
+export function connectOnce(router: Router, input: ServerInput, retry: () => void): Promise<OpenResult> {
+  return shown(router, () => RemoteService.ConnectOnce(input), input.Server.name || input.Server.host, retry)
+}
+
+/** openSaved opens a saved server; one that can't connect opens its form with the report. */
+export async function openSaved(router: Router, v: SavedServerView): Promise<void> {
+  const r = await openServer(router, v.Server, () => void openSaved(router, v))
+  if (!r.ok && r.report) serverForm.value = { server: v, report: r.report }
+  else if (!r.ok && r.error) showToast(r.error, 'error')
+}
+
+async function shown(router: Router, open: () => Promise<OpenView>, name: string, retry: () => void): Promise<OpenResult> {
+  let res: OpenView
   try {
-    res = await RemoteService.Open(s.id)
+    res = await open()
   } catch (e) {
-    showToast(errorMessage(e), 'error')
-    return
+    return { ok: false, error: errorMessage(e) }
   }
-  if (res.HostKey) {
-    hostKeyPrompt.value = { view: res.HostKey, server: s.name, then: () => void openServer(router, s) }
-    return
+  if (res.HostKey?.Status === 'unknown') {
+    hostKeyPrompt.value = { view: res.HostKey, server: name, then: retry }
+    return { ok: false }
   }
-  if (!serverTabs.value.some((t) => t.id === s.id)) serverTabs.value = [...serverTabs.value, tabInfo(s)]
-  if (res.Report) reports.value = { ...reports.value, [s.id]: res.Report }
-  setCurrentTab(s.id)
-  void router.push(res.Report?.Blocked ? `${homeOf(s.id)}/report` : pathFor(s.id))
+  const host = res.Overview?.Host
+  if (!host) return { ok: false, report: res.Report ?? undefined }
+  if (!serverTabs.value.some((t) => t.id === host.ID)) {
+    serverTabs.value = [...serverTabs.value, { id: host.ID, name: host.Name, tag: host.Tag, color: host.Color || COLORS[0].hex, readOnly: host.ReadOnly }]
+  }
+  setCurrentTab(host.ID)
+  void router.push(pathFor(host.ID))
+  return { ok: true }
 }
 
 /** closeServer closes a server's tab (it stays saved) and shows the one before it. */

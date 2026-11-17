@@ -867,6 +867,17 @@ export interface SavedServerView {
     "HasKeyPassphrase": boolean;
     "HasSudoPassword": boolean;
     "Open": boolean;
+
+    /**
+     * Conn is an open tab's connection: ConnConnected, ConnReconnecting or
+     * ConnFailed ("" when not open).
+     */
+    "Conn": string;
+
+    /**
+     * Unsaved: connected without saving; it is gone when its tab closes.
+     */
+    "Unsaved": boolean;
 }
 
 /**

@@ -1,22 +1,26 @@
 <script setup lang="ts">
-// Add or edit a server (the + menu's "Add a server…", Settings → Servers):
-// name, tag, colour, host, port, user, password, SSH key, Use sudo with its
-// own password, Read only, and under Advanced the config path and a jump
-// host. Test connects with the form as it is (nothing saved) and shows the
-// capability report; Save stores it; Connect saves and opens its tab.
+// Add or edit a server (Remote servers): name, tag, colour, host, port,
+// user, password, SSH key, Use sudo with its own password, Read only, and
+// under Advanced the config path and a jump host. Test connects with the
+// form as it is (nothing saved) and shows the capability report; Save stores
+// it; Connect saves it and opens its tab (Reconnect, when it is open);
+// Connect without saving opens a tab and keeps nothing. A server that can't
+// connect opens no tab: the form stays, with the report saying why.
 // Secrets go to the Keychain or keyring: an empty field keeps what is saved.
-import { computed, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { RemoteService, type ReportView, type SavedServerView, type SecretInput } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { Server } from '../../bindings/github.com/touhidurabir/visor/internal/settings/models'
 import { errorMessage } from '../lib/overview'
 import { secretStore } from '../lib/platform'
-import { COLORS, hostKeyPrompt, openServer, TAGS, updateTab } from '../lib/servers'
+import { closeServer, COLORS, connectOnce, hostKeyPrompt, openServer, TAGS, updateTab, type OpenResult } from '../lib/servers'
+import { serverTabs } from '../lib/tabs'
 import { showToast } from '../lib/toast'
 import DialogShell from './DialogShell.vue'
 import MuteChoices from './MuteChoices.vue'
+import ReportRows from './ReportRows.vue'
 
-const props = defineProps<{ editing: SavedServerView | null }>()
+const props = defineProps<{ editing: SavedServerView | null; report?: ReportView }>()
 const emit = defineEmits<{ close: []; saved: [server: Server] }>()
 const router = useRouter()
 
@@ -42,14 +46,29 @@ const secrets = reactive({ password: '', keyPassphrase: '', sudo: '' })
 const touched = reactive({ password: false, keyPassphrase: false, sudo: false })
 const saved = { password: !!e?.HasPassword, keyPassphrase: !!e?.HasKeyPassphrase, sudo: !!e?.HasSudoPassword }
 
-const report = ref<ReportView | null>(null)
+const report = ref<ReportView | null>(props.report ?? null)
+// Where the report came from: a Test, or a Connect that failed.
+const reportFrom = ref<'test' | 'connect'>(props.report ? 'connect' : 'test')
 const testing = ref(false)
 const saving = ref(false)
 const error = ref('')
 const testedIn = ref(0)
+const result = ref<HTMLElement>()
 
-const title = computed(() => (e ? `Edit ${e.Server.name}` : 'Add a server'))
+const title = computed(() => (!e ? 'Add a server' : e.Unsaved ? `Save ${e.Server.name}` : `Edit ${e.Server.name}`))
 const passed = computed(() => !!report.value && !report.value.Blocked)
+const isOpen = computed(() => !!form.id && serverTabs.value.some((t) => t.id === form.id))
+const heading = computed(() => {
+  if (!report.value) return ''
+  if (report.value.HostKey) return 'Waiting for you to trust the host key'
+  if (reportFrom.value === 'connect') return 'Visor couldn’t connect'
+  return passed.value ? 'Test passed' : 'Test found a problem'
+})
+
+async function showResult() {
+  await nextTick()
+  result.value?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+}
 
 function secret(kind: keyof typeof secrets): SecretInput {
   if (!touched[kind] && saved[kind]) return { Keep: true, Value: '' }
@@ -75,6 +94,8 @@ async function test() {
       hostKeyPrompt.value = { view: r.HostKey, server: form.name || form.host, then: () => void test() }
     }
     report.value = r
+    reportFrom.value = 'test'
+    void showResult()
   } catch (err) {
     error.value = errorMessage(err)
   } finally {
@@ -82,6 +103,11 @@ async function test() {
   }
 }
 
+/**
+ * save stores the server. With connect (Connect, Reconnect), or when its
+ * open tab can't connect, it then (re)opens the tab; one that can't connect
+ * keeps the form open with the report. Saved either way.
+ */
 async function save(connect: boolean) {
   saving.value = true
   error.value = ''
@@ -90,9 +116,9 @@ async function save(connect: boolean) {
     form.id = s.id
     updateTab(s)
     emit('saved', s)
-    if (connect) {
-      emit('close')
-      await openServer(router, s)
+    if (connect || (isOpen.value && e?.Conn && e.Conn !== 'connected')) {
+      if (isOpen.value) await closeServer(router, s.id)
+      done(await openServer(router, s, () => void save(true)))
     } else {
       showToast(`${s.name} saved`)
       emit('close')
@@ -101,6 +127,27 @@ async function save(connect: boolean) {
     error.value = errorMessage(err)
   } finally {
     saving.value = false
+  }
+}
+
+/** connectWithoutSaving opens a tab for the form's server and keeps nothing. */
+async function connectWithoutSaving() {
+  saving.value = true
+  error.value = ''
+  try {
+    done(await connectOnce(router, input(), () => void connectWithoutSaving()))
+  } finally {
+    saving.value = false
+  }
+}
+
+function done(r: OpenResult) {
+  if (r.ok) return emit('close')
+  if (r.error) error.value = r.error
+  if (r.report) {
+    report.value = r.report
+    reportFrom.value = 'connect'
+    void showResult()
   }
 }
 
@@ -113,7 +160,6 @@ async function chooseKey() {
   }
 }
 
-const dot = (s: string) => ({ ok: 'd-ok', error: 'd-bad', warning: 'd-warn' })[s] ?? 'd-idle'
 </script>
 
 <template>
@@ -122,7 +168,7 @@ const dot = (s: string) => ({ ok: 'd-ok', error: 'd-bad', warning: 'd-warn' })[s
     <form class="form" aria-label="Server" @submit.prevent="save(true)">
       <div class="row">
         <label class="lab" for="sf-name">Name</label>
-        <input id="sf-name" v-model="form.name" class="input" autocomplete="off" data-autofocus placeholder="cpcsl dev" />
+        <input id="sf-name" v-model="form.name" class="input" autocomplete="off" data-autofocus placeholder="My server" />
       </div>
       <div class="row">
         <label class="lab" for="sf-tag">Tag</label>
@@ -163,7 +209,7 @@ const dot = (s: string) => ({ ok: 'd-ok', error: 'd-bad', warning: 'd-warn' })[s
       <div class="row"><span /><span class="help">An IP, a host name, or a Host alias from <span class="mono">~/.ssh/config</span> (its user, port, key and ProxyJump are used).</span></div>
       <div class="row">
         <label class="lab" for="sf-user">User</label>
-        <input id="sf-user" v-model="form.user" class="input" autocomplete="off" spellcheck="false" placeholder="deploy" />
+        <input id="sf-user" v-model="form.user" class="input" autocomplete="off" spellcheck="false" placeholder="username" />
       </div>
       <div class="row">
         <label class="lab" for="sf-pass">Password</label>
@@ -256,16 +302,13 @@ const dot = (s: string) => ({ ok: 'd-ok', error: 'd-bad', warning: 'd-warn' })[s
       </details>
     </form>
 
-    <section v-if="report" class="test" aria-labelledby="sf-test" :data-passed="passed">
+    <section v-if="report" ref="result" class="test" aria-labelledby="sf-test" :data-passed="passed" role="status">
       <div class="test-head">
         <span :class="['dot', passed ? 'd-ok' : 'd-bad']" aria-hidden="true" />
-        <h3 id="sf-test">{{ passed ? 'Test passed' : report.HostKey ? 'Waiting for you to trust the host key' : 'Test found a problem' }}</h3>
-        <span class="meta">just now · {{ testedIn.toFixed(1) }} s</span>
+        <h3 id="sf-test">{{ heading }}</h3>
+        <span v-if="reportFrom === 'test'" class="meta">just now · {{ testedIn.toFixed(1) }} s</span>
       </div>
-      <div v-for="r in report.Rows ?? []" :key="r.ID" class="chk" :data-row="r.ID" :data-status="r.Status">
-        <span :class="['dot', dot(r.Status)]" aria-hidden="true" />
-        <span class="what"><span class="t">{{ r.Title }}</span><span class="meta wrap">{{ r.Detail }}</span></span>
-      </div>
+      <ReportRows :rows="report.Rows ?? []" />
     </section>
     <p v-if="error" class="err" role="alert">{{ error }}</p>
 
@@ -274,7 +317,8 @@ const dot = (s: string) => ({ ok: 'd-ok', error: 'd-bad', warning: 'd-warn' })[s
       <span class="spacer" />
       <button class="btn" type="button" :disabled="saving" @click="save(false)">Save</button>
       <button class="btn" type="button" :disabled="testing" @click="test">{{ testing ? 'Testing…' : 'Test' }}</button>
-      <button class="btn primary" type="button" :disabled="saving" @click="save(true)">Connect</button>
+      <button v-if="!e" class="btn" type="button" :disabled="saving" title="Open a tab for this server, and keep nothing once it closes" @click="connectWithoutSaving">Connect without saving</button>
+      <button class="btn primary" type="button" :disabled="saving" @click="save(true)">{{ saving ? 'Connecting…' : isOpen ? 'Reconnect' : 'Connect' }}</button>
     </template>
   </DialogShell>
 </template>
@@ -301,15 +345,10 @@ const dot = (s: string) => ({ ok: 'd-ok', error: 'd-bad', warning: 'd-warn' })[s
 .sudo { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; }
 .adv { margin-top: 8px; }
 .adv summary { cursor: pointer; padding: 4px 0; }
-.test { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
-.test-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.test { margin-top: 14px; padding: 12px 0 0; border: 1px solid var(--line); border-radius: 10px; scroll-margin: 12px; }
+.test-head { display: flex; align-items: center; gap: 8px; margin: 0 16px 6px; }
 .test-head h3 { margin: 0; font-size: 14px; }
 .test-head .meta { margin-left: auto; }
-.chk { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); }
-.chk .dot { margin-top: 6px; }
-.what { display: flex; flex-direction: column; min-width: 0; }
-.t { font-weight: 600; }
-.wrap { overflow-wrap: anywhere; user-select: text; }
 .err { color: var(--bad); margin: 10px 0 0; user-select: text; }
 .spacer { flex: 1; }
 </style>

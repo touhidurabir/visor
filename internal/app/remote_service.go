@@ -20,7 +20,7 @@ import (
 )
 
 // RemoteService manages saved servers and their tabs: the form's Test, Save
-// and Connect, Settings → Servers, and the tab bar's open and close.
+// and Connect, the Remote servers page, and the tab bar's open and close.
 type RemoteService struct {
 	hub      *Hub
 	stateDir string
@@ -33,13 +33,21 @@ type RemoteService struct {
 	mu      sync.Mutex // serialises servers.json changes
 	pending map[string]pendingKey
 	reports map[string]ReportView // the latest report per server id
+	// unsaved are servers connected without saving: their tab and secrets
+	// (in memory) last until the tab closes or Visor quits.
+	unsaved map[string]unsavedServer
+}
+
+type unsavedServer struct {
+	server settings.Server
+	k      *settings.MemoryKeychain
 }
 
 // NewRemoteService returns the service over hub.
 func NewRemoteService(hub *Hub, stateDir string, k settings.Keychain, hk remote.HostKeys, prefs func() settings.Settings) *RemoteService {
 	return &RemoteService{
 		hub: hub, stateDir: stateDir, keychain: k, hk: hk, prefs: prefs, probe: probeServer,
-		pending: map[string]pendingKey{}, reports: map[string]ReportView{},
+		pending: map[string]pendingKey{}, reports: map[string]ReportView{}, unsaved: map[string]unsavedServer{},
 	}
 }
 
@@ -51,6 +59,11 @@ type SavedServerView struct {
 	HasKeyPassphrase bool
 	HasSudoPassword  bool
 	Open             bool
+	// Conn is an open tab's connection: ConnConnected, ConnReconnecting or
+	// ConnFailed ("" when not open).
+	Conn string
+	// Unsaved: connected without saving; it is gone when its tab closes.
+	Unsaved bool
 }
 
 // SecretInput changes one secret: Keep leaves the saved one as it is,
@@ -74,19 +87,29 @@ type LimitsView struct {
 	Open       int
 }
 
-// List returns the saved servers, by name.
+// List returns the saved servers, and those connected without saving, by name.
 func (s *RemoteService) List() ([]SavedServerView, error) {
 	list, err := settings.LoadServers(s.stateDir)
 	if err != nil {
 		return nil, err
 	}
+	s.mu.Lock()
+	for _, u := range s.unsaved {
+		list = append(list, u.server)
+	}
+	s.mu.Unlock()
 	open := s.hub.Open()
 	out := make([]SavedServerView, 0, len(list))
 	for _, sv := range list {
 		v := SavedServerView{Server: sv, Open: slices.Contains(open, sv.ID)}
-		v.HasPassword = s.has(sv.ID, settings.SecretPassword)
-		v.HasKeyPassphrase = s.has(sv.ID, settings.SecretKeyPassphrase)
-		v.HasSudoPassword = s.has(sv.ID, settings.SecretSudo)
+		k, unsaved := s.keychainFor(sv.ID)
+		v.Unsaved = unsaved
+		v.HasPassword = has(k, sv.ID, settings.SecretPassword)
+		v.HasKeyPassphrase = has(k, sv.ID, settings.SecretKeyPassphrase)
+		v.HasSudoPassword = has(k, sv.ID, settings.SecretSudo)
+		if t, err := s.hub.Tab(sv.ID); err == nil && v.Open {
+			v.Conn = t.RT.hostView().Conn
+		}
 		out = append(out, v)
 	}
 	slices.SortFunc(out, func(a, b SavedServerView) int {
@@ -101,9 +124,37 @@ func (s *RemoteService) List() ([]SavedServerView, error) {
 	return out, nil
 }
 
-func (s *RemoteService) has(id, kind string) bool {
-	v, err := settings.ServerSecret(s.keychain, id, kind)
+func has(k settings.Keychain, id, kind string) bool {
+	v, err := settings.ServerSecret(k, id, kind)
 	return err == nil && v != ""
+}
+
+// keychainFor is where a server's secrets are: in memory for one connected
+// without saving (unsaved true), else the Keychain or keyring.
+func (s *RemoteService) keychainFor(id string) (settings.Keychain, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if u, ok := s.unsaved[id]; ok {
+		return u.k, true
+	}
+	return s.keychain, false
+}
+
+// find returns a saved server, or one connected without saving.
+func (s *RemoteService) find(id string) (settings.Server, error) {
+	list, err := settings.LoadServers(s.stateDir)
+	if err != nil {
+		return settings.Server{}, err
+	}
+	if i := slices.IndexFunc(list, func(x settings.Server) bool { return x.ID == id }); i >= 0 {
+		return list[i], nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if u, ok := s.unsaved[id]; ok {
+		return u.server, nil
+	}
+	return settings.Server{}, errors.New("that server isn't saved any more")
 }
 
 // Limits reports how many servers may be open and how many are.
@@ -118,9 +169,13 @@ func (s *RemoteService) Tabs() ([]settings.Server, error) {
 		return nil, err
 	}
 	var out []settings.Server
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, id := range s.hub.Open() {
 		if i := slices.IndexFunc(list, func(x settings.Server) bool { return x.ID == id }); i >= 0 {
 			out = append(out, list[i])
+		} else if u, ok := s.unsaved[id]; ok {
+			out = append(out, u.server)
 		}
 	}
 	return out, nil
@@ -149,11 +204,16 @@ func (s *RemoteService) Save(in ServerInput) (settings.Server, error) {
 			return settings.Server{}, &settings.FieldError{Field: "keyPath", Msg: "Visor can't read that key file: " + err.Error()}
 		}
 	}
+	u, wasUnsaved := s.unsaved[sv.ID]
 	var noKeyring error
 	for kind, si := range map[string]SecretInput{
 		settings.SecretPassword: in.Password, settings.SecretKeyPassphrase: in.KeyPassphrase, settings.SecretSudo: in.SudoPassword,
 	} {
-		if si.Keep {
+		if si.Keep && wasUnsaved {
+			// Saving a server connected without saving: its secrets move
+			// from memory to the Keychain or keyring.
+			si.Value, _ = settings.ServerSecret(u.k, sv.ID, kind)
+		} else if si.Keep {
 			continue
 		}
 		err := settings.SetServerSecret(s.keychain, sv.ID, kind, si.Value)
@@ -172,6 +232,7 @@ func (s *RemoteService) Save(in ServerInput) (settings.Server, error) {
 	if err := settings.SaveServers(s.stateDir, list); err != nil {
 		return settings.Server{}, err
 	}
+	delete(s.unsaved, sv.ID)
 	// An open tab takes the new name, tag and Read only at once.
 	if t, err := s.hub.Tab(sv.ID); err == nil && t.RT.Remote() {
 		t.RT.SetServer(sv)
@@ -190,6 +251,7 @@ func (s *RemoteService) Delete(id string) error {
 		return fmt.Errorf("bad server id %q", id)
 	}
 	_ = s.hub.CloseServer(id)
+	s.forget(id)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	list, err := settings.LoadServers(s.stateDir)
@@ -214,7 +276,8 @@ func (s *RemoteService) secretsFor(in ServerInput) (remote.Secrets, string, erro
 	var sudo string
 	if settings.ValidServerID(sv.ID) {
 		var err error
-		if sec, sudo, err = ServerSecrets(s.keychain, saved); err != nil {
+		k, _ := s.keychainFor(sv.ID)
+		if sec, sudo, err = ServerSecrets(k, saved); err != nil {
 			return sec, "", err
 		}
 	}
@@ -296,17 +359,70 @@ type OpenView struct {
 }
 
 // Open opens a saved server's tab. A host key that needs the user, or a
-// connection that fails, comes back as a report instead of a tab.
+// connection that fails, comes back as a report instead of a tab: no tab
+// stays open on a server Visor can't reach.
 func (s *RemoteService) Open(id string) (OpenView, error) {
+	sv, err := s.find(id)
+	if err != nil {
+		return OpenView{}, err
+	}
+	k, _ := s.keychainFor(id)
+	return s.open(sv, k)
+}
+
+// ConnectOnce connects to the form's server without saving it: its secrets
+// stay in memory, and the server is forgotten when its tab closes. One that
+// can't connect leaves nothing behind.
+func (s *RemoteService) ConnectOnce(in ServerInput) (OpenView, error) {
 	list, err := settings.LoadServers(s.stateDir)
 	if err != nil {
 		return OpenView{}, err
 	}
-	i := slices.IndexFunc(list, func(x settings.Server) bool { return x.ID == id })
-	if i < 0 {
-		return OpenView{}, errors.New("that server isn't saved any more")
+	sv := in.Server.Normalize()
+	sv.ID = settings.NewServerID()
+	if sv.Name == "" {
+		sv.Name = sv.Host
 	}
-	sv := list[i]
+	if err := sv.Validate(list); err != nil {
+		return OpenView{}, err
+	}
+	if sv.KeyPath != "" {
+		if _, err := remote.ParseKeyFile(sv.KeyPath); err != nil {
+			return OpenView{}, &settings.FieldError{Field: "keyPath", Msg: "Visor can't read that key file: " + err.Error()}
+		}
+	}
+	k := &settings.MemoryKeychain{}
+	for kind, si := range map[string]SecretInput{
+		settings.SecretPassword: in.Password, settings.SecretKeyPassphrase: in.KeyPassphrase, settings.SecretSudo: in.SudoPassword,
+	} {
+		if err := settings.SetServerSecret(k, sv.ID, kind, si.Value); err != nil {
+			return OpenView{}, err
+		}
+	}
+	s.mu.Lock()
+	s.unsaved[sv.ID] = unsavedServer{server: sv, k: k}
+	s.mu.Unlock()
+	res, err := s.open(sv, k)
+	if err != nil || res.Overview == nil {
+		s.forget(sv.ID)
+	}
+	return res, err
+}
+
+// forget drops a server connected without saving, and its history.
+func (s *RemoteService) forget(id string) {
+	s.mu.Lock()
+	_, ok := s.unsaved[id]
+	delete(s.unsaved, id)
+	delete(s.reports, id)
+	s.mu.Unlock()
+	if ok {
+		_ = settings.RemoveServerState(s.stateDir, id)
+	}
+}
+
+func (s *RemoteService) open(sv settings.Server, k settings.Keychain) (OpenView, error) {
+	id := sv.ID
 	if t, err := s.hub.Tab(id); err == nil && slices.Contains(s.hub.Open(), id) {
 		ov := t.RT.Overview()
 		return OpenView{Overview: &ov}, nil
@@ -314,7 +430,7 @@ func (s *RemoteService) Open(id string) (OpenView, error) {
 	if l := s.Limits(); l.Open >= l.MaxServers {
 		return OpenView{}, &TooManyServersError{Max: l.MaxServers}
 	}
-	ov, err := s.hub.OpenServer(sv)
+	ov, err := s.hub.OpenServerWith(sv, k)
 	if err != nil {
 		return OpenView{}, err
 	}
@@ -322,11 +438,12 @@ func (s *RemoteService) Open(id string) (OpenView, error) {
 	if terr != nil || t.RT.ConnErr() == nil {
 		return OpenView{Overview: &ov}, nil
 	}
-	// It didn't connect: find out why, step by step. Only then is the
-	// connection made a second time (sudo is asked once per connection).
+	// It didn't connect: close the tab and find out why, step by step.
+	// Only then is the connection made a second time (sudo is asked once
+	// per connection).
 	cerr := t.RT.ConnErr()
+	_ = s.hub.CloseServer(id)
 	if hkv, key := hostKeyView(cerr); hkv != nil {
-		_ = s.hub.CloseServer(id)
 		rep := ReportView{HostKey: hkv, Blocked: true, AtMs: time.Now().UnixMilli()}
 		if hkv.Status == "changed" {
 			rep.Rows = doctor.RemoteReport(doctor.RemoteFacts{Server: sv.Name, HostKeyChanged: true, KnownHostsFix: hkv.Fix})
@@ -334,28 +451,36 @@ func (s *RemoteService) Open(id string) (OpenView, error) {
 		s.remember(rep, key)
 		return OpenView{HostKey: hkv, Report: &rep}, nil
 	}
+	var rep ReportView
 	if remote.IsCredentialError(cerr) {
-		// A refused password: say so without trying it again.
-		rep := credentialReport(sv, cerr)
-		s.mu.Lock()
-		s.reports[id] = rep
-		s.mu.Unlock()
-		return OpenView{Overview: &ov, Report: &rep}, nil
+		rep = credentialReport(sv, cerr) // a refused password: said without trying it again
+	} else {
+		sec, sudo, err := ServerSecrets(k, sv)
+		if err != nil {
+			return OpenView{}, err
+		}
+		var key ssh.PublicKey
+		rep, key = s.probe(context.Background(), sv, sec, sudo, s.hk)
+		s.remember(rep, key)
+		if !rep.Blocked {
+			// The checks pass now (it was a blip): say why it failed.
+			rep.Blocked = true
+			rep.Rows = append(rep.Rows, doctor.ReportRow{ID: "connect", Title: "Connecting", Status: doctor.RowError, Detail: cerr.Error()})
+		}
 	}
-	sec, sudo, err := ServerSecrets(s.keychain, sv)
-	if err != nil {
-		return OpenView{Overview: &ov}, nil
-	}
-	rep, key := s.probe(context.Background(), sv, sec, sudo, s.hk)
-	s.remember(rep, key)
 	s.mu.Lock()
 	s.reports[id] = rep
 	s.mu.Unlock()
-	return OpenView{Overview: &ov, Report: &rep}, nil
+	return OpenView{Report: &rep}, nil
 }
 
-// Close closes a server's tab (the server stays saved).
-func (s *RemoteService) Close(id string) error { return s.hub.CloseServer(id) }
+// Close closes a server's tab (the server stays saved; one connected
+// without saving is forgotten).
+func (s *RemoteService) Close(id string) error {
+	err := s.hub.CloseServer(id)
+	s.forget(id)
+	return err
+}
 
 // Report returns the latest capability report for a server (from Test,
 // Open or Recheck); ok is false when there is none yet.
@@ -366,17 +491,13 @@ func (s *RemoteService) Report(id string) (ReportView, bool) {
 	return r, ok
 }
 
-// Recheck runs the report again for a saved server.
+// Recheck runs the report again for a server.
 func (s *RemoteService) Recheck(id string) (ReportView, error) {
-	list, err := settings.LoadServers(s.stateDir)
+	sv, err := s.find(id)
 	if err != nil {
 		return ReportView{}, err
 	}
-	i := slices.IndexFunc(list, func(x settings.Server) bool { return x.ID == id })
-	if i < 0 {
-		return ReportView{}, errors.New("that server isn't saved any more")
-	}
-	return s.Test(ServerInput{Server: list[i], Password: SecretInput{Keep: true}, KeyPassphrase: SecretInput{Keep: true}, SudoPassword: SecretInput{Keep: true}})
+	return s.Test(ServerInput{Server: sv, Password: SecretInput{Keep: true}, KeyPassphrase: SecretInput{Keep: true}, SudoPassword: SecretInput{Keep: true}})
 }
 
 // SetMutes saves which activity kinds don't notify for a server.
@@ -388,6 +509,14 @@ func (s *RemoteService) SetMutes(id string, m settings.ActivityMutes) error {
 		return err
 	}
 	i := slices.IndexFunc(list, func(x settings.Server) bool { return x.ID == id })
+	if u, ok := s.unsaved[id]; ok && i < 0 {
+		u.server.Mutes = m
+		s.unsaved[id] = u
+		if t, err := s.hub.Tab(id); err == nil {
+			t.RT.SetServer(u.server)
+		}
+		return nil
+	}
 	if i < 0 {
 		return errors.New("that server isn't saved any more")
 	}

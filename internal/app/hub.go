@@ -20,11 +20,11 @@ var (
 	ErrTooManyServers = errors.New("too many servers are open")
 )
 
-// TooManyServersError says how many may be open (Settings → Servers).
+// TooManyServersError says how many may be open (Remote servers).
 type TooManyServersError struct{ Max int }
 
 func (e *TooManyServersError) Error() string {
-	return fmt.Sprintf("at most %d servers can be open at once: close one, or raise the limit in Settings → Servers", e.Max)
+	return fmt.Sprintf("at most %d servers can be open at once: close one, or raise the limit in Remote servers", e.Max)
 }
 
 func (e *TooManyServersError) Is(target error) bool { return target == ErrTooManyServers }
@@ -169,7 +169,14 @@ func (h *Hub) Open() []string {
 // OpenServer connects to s in a new tab (or returns the open one). The
 // first connection attempt runs before it returns: its overview says
 // whether supervisord answered, or why not.
-func (h *Hub) OpenServer(s settings.Server) (OverviewView, error) {
+func (h *Hub) OpenServer(s settings.Server) (OverviewView, error) { return h.OpenServerWith(s, nil) }
+
+// OpenServerWith is OpenServer with the secrets in k (a server connected
+// without saving keeps them in memory); nil uses the Keychain or keyring.
+func (h *Hub) OpenServerWith(s settings.Server, k settings.Keychain) (OverviewView, error) {
+	if k == nil {
+		k = h.o.Keychain
+	}
 	if !settings.ValidServerID(s.ID) {
 		return OverviewView{}, fmt.Errorf("bad server id %q", s.ID)
 	}
@@ -194,10 +201,10 @@ func (h *Hub) OpenServer(s settings.Server) (OverviewView, error) {
 	rt := NewRuntime(RuntimeOptions{
 		StateDir: settings.ServerStateDir(h.o.StateDir, s.ID),
 		Settings: prefs,
-		Keychain: h.o.Keychain,
+		Keychain: k,
 		Emit:     h.o.Emit,
 		Notifier: h.o.Notifier,
-		Remote:   &RemoteSource{Server: s, Connect: h.o.Connect(h.o.Keychain, h.o.HostKeys)},
+		Remote:   &RemoteSource{Server: s, Connect: h.o.Connect(k, h.o.HostKeys)},
 	})
 	err := rt.Start(ctx)
 

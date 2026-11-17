@@ -3,7 +3,7 @@
 
 /**
  * RemoteService manages saved servers and their tabs: the form's Test, Save
- * and Connect, Settings → Servers, and the tab bar's open and close.
+ * and Connect, the Remote servers page, and the tab bar's open and close.
  * @module
  */
 
@@ -28,10 +28,20 @@ export function ChooseKey(): $CancellablePromise<string> {
 }
 
 /**
- * Close closes a server's tab (the server stays saved).
+ * Close closes a server's tab (the server stays saved; one connected
+ * without saving is forgotten).
  */
 export function Close(id: string): $CancellablePromise<void> {
     return $Call.ByID(3843908201, id);
+}
+
+/**
+ * ConnectOnce connects to the form's server without saving it: its secrets
+ * stay in memory, and the server is forgotten when its tab closes. One that
+ * can't connect leaves nothing behind.
+ */
+export function ConnectOnce($in: $models.ServerInput): $CancellablePromise<$models.OpenView> {
+    return $Call.ByID(2428183618, $in);
 }
 
 /**
@@ -50,7 +60,7 @@ export function Limits(): $CancellablePromise<$models.LimitsView> {
 }
 
 /**
- * List returns the saved servers, by name.
+ * List returns the saved servers, and those connected without saving, by name.
  */
 export function List(): $CancellablePromise<$models.SavedServerView[] | null> {
     return $Call.ByID(262442651);
@@ -58,14 +68,15 @@ export function List(): $CancellablePromise<$models.SavedServerView[] | null> {
 
 /**
  * Open opens a saved server's tab. A host key that needs the user, or a
- * connection that fails, comes back as a report instead of a tab.
+ * connection that fails, comes back as a report instead of a tab: no tab
+ * stays open on a server Visor can't reach.
  */
 export function Open(id: string): $CancellablePromise<$models.OpenView> {
     return $Call.ByID(1160822335, id);
 }
 
 /**
- * Recheck runs the report again for a saved server.
+ * Recheck runs the report again for a server.
  */
 export function Recheck(id: string): $CancellablePromise<$models.ReportView> {
     return $Call.ByID(741088354, id);

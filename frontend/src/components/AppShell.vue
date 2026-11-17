@@ -94,7 +94,7 @@ const connection = computed(() => connectionBadge(connectionProblem(overview.val
       <Sidebar :name="name" :health="health" :failing="failing" :open-issues="openIssues" :connection="connection" :remote="remote" :color="color" :blocked="blocked" />
       <main class="content"><slot /></main>
     </div>
-    <ServerForm v-if="serverForm" :editing="serverForm.server" @close="serverForm = null" />
+    <ServerForm v-if="serverForm" :key="`${serverForm.server?.Server.id}-${serverForm.report?.AtMs ?? 0}`" :editing="serverForm.server" :report="serverForm.report" @close="serverForm = null" />
     <ProductionPrompt />
     <HostKeyDialog v-if="hostKeyPrompt" :view="hostKeyPrompt.view" :server="hostKeyPrompt.server" @trusted="hostKeyPrompt?.then()" @close="hostKeyPrompt = null" />
     <ToastHost />

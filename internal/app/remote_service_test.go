@@ -209,4 +209,90 @@ func TestOpenDoesNotRetryARefusedSudoPassword(t *testing.T) {
 	if n := strings.Count(string(b), "run"); n != 1 {
 		t.Fatalf("sudo ran %d times, want 1", n)
 	}
+	if ov.Overview != nil || len(hub.Open()) != 0 {
+		t.Fatal("a tab stayed open on a server Visor can't reach")
+	}
+}
+
+// Connect without saving: the server works in a tab, isn't in
+// servers.json, and is forgotten (secrets and history) when the tab closes.
+// One that can't connect leaves nothing behind.
+func TestConnectOnceSavesNothing(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	f := newRemoteSvc(t)
+	if err := f.svc.hk.Trust(f.ssh.Host, f.ssh.Port, f.ssh.HostKey); err != nil {
+		t.Fatal(err)
+	}
+	in := ServerInput{
+		Server:   settings.Server{Name: "once", Host: f.ssh.Host, Port: f.ssh.Port, User: "visor", ConfigPath: inst.ConfigPath()},
+		Password: SecretInput{Value: "bad"},
+	}
+	ov, err := f.svc.ConnectOnce(in)
+	if err != nil || ov.Overview != nil || ov.Report == nil || len(f.hub.Open()) != 0 {
+		t.Fatalf("bad password: %+v %v", ov, err)
+	}
+	if list, _ := f.svc.List(); len(list) != 0 {
+		t.Fatalf("a failed connect left %+v", list)
+	}
+
+	in.Password.Value = "pw"
+	ov, err = f.svc.ConnectOnce(in)
+	if err != nil || ov.Overview == nil {
+		t.Fatalf("connect: %+v %v", ov, err)
+	}
+	id := ov.Overview.Host.ID
+	list, _ := f.svc.List()
+	if len(list) != 1 || !list[0].Unsaved || list[0].Conn != ConnConnected || !list[0].HasPassword {
+		t.Fatalf("list: %+v", list)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(f.state, "servers.json")); strings.Contains(string(raw), id) {
+		t.Fatalf("servers.json has it: %s", raw)
+	}
+	if v, _ := settings.ServerSecret(f.k, id, settings.SecretPassword); v != "" {
+		t.Fatal("the password went to the Keychain")
+	}
+	if tabs, _ := f.svc.Tabs(); len(tabs) != 1 || tabs[0].ID != id {
+		t.Fatalf("tabs: %+v", tabs)
+	}
+	if err := f.svc.Close(id); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := f.svc.List(); len(list) != 0 {
+		t.Fatalf("after close: %+v", list)
+	}
+	if _, err := os.Stat(settings.ServerStateDir(f.state, id)); !os.IsNotExist(err) {
+		t.Fatalf("its history stayed: %v", err)
+	}
+}
+
+// Saving a server connected without saving moves its secrets from memory
+// to the Keychain, and it stays open.
+func TestSaveAnUnsavedServer(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	f := newRemoteSvc(t)
+	if err := f.svc.hk.Trust(f.ssh.Host, f.ssh.Port, f.ssh.HostKey); err != nil {
+		t.Fatal(err)
+	}
+	ov, err := f.svc.ConnectOnce(ServerInput{
+		Server:   settings.Server{Name: "once", Host: f.ssh.Host, Port: f.ssh.Port, User: "visor", ConfigPath: inst.ConfigPath()},
+		Password: SecretInput{Value: "pw"},
+	})
+	if err != nil || ov.Overview == nil {
+		t.Fatalf("connect: %+v %v", ov, err)
+	}
+	list, _ := f.svc.List()
+	sv, err := f.svc.Save(ServerInput{Server: list[0].Server, Password: SecretInput{Keep: true}, KeyPassphrase: SecretInput{Keep: true}, SudoPassword: SecretInput{Keep: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := settings.ServerSecret(f.k, sv.ID, settings.SecretPassword); v != "pw" {
+		t.Fatalf("Keychain password %q", v)
+	}
+	if list, _ := f.svc.List(); len(list) != 1 || list[0].Unsaved || !list[0].Open {
+		t.Fatalf("after save: %+v", list)
+	}
+	_ = f.svc.Close(sv.ID)
+	if list, _ := f.svc.List(); len(list) != 1 {
+		t.Fatal("closing a saved server's tab forgot it")
+	}
 }
