@@ -143,16 +143,21 @@ On a Mac and on Linux, against the Ubuntu VM (state-changing steps), and read
 only against a real server:
 
 - [ ] Add a server with a password, Test: the host-key prompt shows the fingerprint; Trust; the report is all green; Connect opens its tab.
+- [ ] Remote servers (sidebar, above Doctor): the list shows each server's status (Connected, Reconnecting…, Can't connect, Not open) and the at-once limit. The + beside the tabs lists only saved servers that aren't open; with none it points to Remote servers.
+- [ ] A wrong password, a key without its passphrase, a host that doesn't answer: Test and Connect both say why in the form, and Connect opens no tab (the server is saved). Fix the field, Connect again: the tab opens. A saved server that can't connect, opened from + or Remote servers, opens its form with the report.
+- [ ] Connect without saving: the tab works; Remote servers shows it as Not saved; closing the tab forgets it (nothing in `servers.json` or the Keychain). Save… on it keeps it.
+- [ ] Editing an open server and clicking Reconnect (or Save on one that can't connect) reconnects its tab with the new details.
+- [ ] A crash (if one happens) leaves `crash.log` in the state folder.
 - [ ] A server with a key with a passphrase, and one with the key only in the agent (`ssh-add --apple-use-keychain` on a Mac).
 - [ ] A Host alias from `~/.ssh/config` with ProxyJump.
 - [ ] sudo with a password: the VM's `/var/log/auth.log` has one `sudo` line per connection, not per poll. A wrong sudo password: the report says so, and auth.log shows one try only.
 - [ ] Socket owned by root without Use sudo: the report shows the owner and mode and the group fix.
 - [ ] Tabs: switching keeps each tab's page; Ctrl+Tab; ⌘W closes a server's tab and not this computer's; Visor restarts with only this computer's tab.
 - [ ] Production: Restart asks, naming the server; Read only: no actions anywhere (dashboard, config page, popover).
-- [ ] The popover's server section; a notification from a server names it and opens its tab.
+- [ ] The popover with a server open: the header says "This Mac and 1 server", this computer and the server are folding rows, all folded; a notification from a server names it and opens its tab.
 - [ ] Turn the VM's network off: the tab says Reconnecting…, an issue says it can't reach the server, and it all clears when the network is back.
 - [ ] Activity: `sudo supervisorctl restart x`, a config edit and `sudo systemctl restart supervisor` on the VM each show and notify; muting a kind on one server stops it there only.
-- [ ] The real server (read only): connect, processes, logs, the configs read only, Download a copy.
+- [ ] The real server (read only): connect, processes, logs, the configs read only (the banner says editing on servers comes in the next version, with no Doctor link), Download a copy; a program like `php` in the explanation reads as found.
 
 ## Manual Linux checklist
 
