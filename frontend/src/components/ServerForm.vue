@@ -7,7 +7,9 @@
 // Connect without saving opens a tab and keeps nothing. A server that can't
 // connect opens no tab: the form stays, with the report saying why.
 // Secrets go to the Keychain or keyring: an empty field keeps what is saved.
-import { computed, nextTick, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref } from 'vue'
+import { Events } from '@wailsio/runtime'
+import { VisorOverview } from '../../bindings/events'
 import { useRouter } from 'vue-router'
 import { RemoteService, type ReportView, type SavedServerView, type SecretInput } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { Server } from '../../bindings/github.com/touhidurabir/visor/internal/settings/models'
@@ -55,15 +57,22 @@ const error = ref('')
 const testedIn = ref(0)
 const result = ref<HTMLElement>()
 
-const title = computed(() => (!e ? 'Add a server' : e.Unsaved ? `Save ${e.Server.name}` : `Edit ${e.Server.name}`))
+// A new server is saved by a Connect that fails: the form edits it from then on.
+const title = computed(() => (e?.Unsaved ? `Save ${e.Server.name}` : e || form.id ? `Edit ${form.name}` : 'Add a server'))
 const passed = computed(() => !!report.value && !report.value.Blocked)
 const isOpen = computed(() => !!form.id && serverTabs.value.some((t) => t.id === form.id))
 const heading = computed(() => {
   if (!report.value) return ''
-  if (report.value.HostKey) return 'Waiting for you to trust the host key'
+  if (report.value.HostKey?.Status === 'unknown') return 'Waiting for you to trust the host key'
   if (reportFrom.value === 'connect') return 'Visor couldn’t connect'
   return passed.value ? 'Test passed' : 'Test found a problem'
 })
+
+// The open tab's connection now (it can drop while the form is open).
+const conn = ref(e?.Conn ?? '')
+onBeforeUnmount(Events.On(VisorOverview, (ev) => {
+  if (ev.data?.Host?.ID === form.id) conn.value = ev.data.Host.Conn
+}))
 
 async function showResult() {
   await nextTick()
@@ -116,7 +125,7 @@ async function save(connect: boolean) {
     form.id = s.id
     updateTab(s)
     emit('saved', s)
-    if (connect || (isOpen.value && e?.Conn && e.Conn !== 'connected')) {
+    if (connect || (isOpen.value && conn.value && conn.value !== 'connected')) {
       if (isOpen.value) await closeServer(router, s.id)
       done(await openServer(router, s, () => void save(true)))
     } else {
@@ -317,7 +326,7 @@ async function chooseKey() {
       <span class="spacer" />
       <button class="btn" type="button" :disabled="saving" @click="save(false)">Save</button>
       <button class="btn" type="button" :disabled="testing" @click="test">{{ testing ? 'Testing…' : 'Test' }}</button>
-      <button v-if="!e" class="btn" type="button" :disabled="saving" title="Open a tab for this server, and keep nothing once it closes" @click="connectWithoutSaving">Connect without saving</button>
+      <button v-if="!e && !form.id" class="btn" type="button" :disabled="saving" title="Open a tab for this server, and keep nothing once it closes" @click="connectWithoutSaving">Connect without saving</button>
       <button class="btn primary" type="button" :disabled="saving" @click="save(true)">{{ saving ? 'Connecting…' : isOpen ? 'Reconnect' : 'Connect' }}</button>
     </template>
   </DialogShell>

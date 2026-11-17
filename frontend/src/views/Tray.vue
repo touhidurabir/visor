@@ -226,8 +226,8 @@ function closePopover() {
         </span>
         <svg :class="['chev', { open: localOpen }]" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
       </button>
-      <template v-if="!showLocal" />
-      <div v-else-if="loadError && !overview" class="card" role="alert">
+      <template v-if="showLocal">
+      <div v-if="loadError && !overview" class="card" role="alert">
         <strong class="card-title">Couldn't load your processes</strong>
         <span class="raw">{{ loadError }}</span>
         <div class="acts"><button type="button" class="btn sm" @click="reload">Try again</button></div>
@@ -246,7 +246,7 @@ function closePopover() {
         </details>
       </div>
       <p v-else-if="groups.length === 0" class="meta pad">No processes yet.</p>
-      <section v-for="g in problem || !showLocal ? [] : groups" :key="g.key" :aria-label="g.name" class="group">
+      <section v-for="g in problem ? [] : groups" :key="g.key" :aria-label="g.name" class="group">
         <div class="group-head">
           <h2 :class="['eyebrow', { 't-bad': !g.config }]">{{ g.name }}</h2>
           <button
@@ -329,6 +329,7 @@ function closePopover() {
           </div>
         </div>
       </section>
+      </template>
       <!-- Open servers, under this computer (in the scrolling list). -->
       <TrayServer v-for="t in serverTabs" :key="t.id" :tab="t" />
     </div>

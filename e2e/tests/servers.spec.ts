@@ -99,11 +99,13 @@ test.describe('server tabs', () => {
     await form.getByLabel('Name', { exact: true }).fill('wrong pw')
     await form.getByLabel('Password', { exact: true }).fill('nope')
     await form.getByRole('button', { name: 'Connect', exact: true }).click()
-    await expect(form.getByRole('heading', { name: 'Visor couldn’t connect' })).toBeVisible({ timeout: 20_000 })
-    await expect(form.locator('[data-row="ssh"]')).toHaveAttribute('data-status', 'error')
+    // Saved anyway, so the form now edits it, without Connect without saving.
+    const edit = page.getByRole('dialog', { name: 'Edit wrong pw' })
+    await expect(edit.getByRole('heading', { name: 'Visor couldn’t connect' })).toBeVisible({ timeout: 20_000 })
+    await expect(edit.locator('[data-row="ssh"]')).toHaveAttribute('data-status', 'error')
+    await expect(edit.getByRole('button', { name: 'Connect without saving' })).toHaveCount(0)
     await expect(tabs(page).getByRole('tab', { name: /wrong pw/ })).toHaveCount(0)
-    // It was saved anyway: fix the password and Reconnect… here, delete it.
-    await form.getByRole('button', { name: 'Cancel' }).click()
+    await edit.getByRole('button', { name: 'Cancel' }).click()
     const row = page.getByRole('region', { name: 'Saved servers' }).locator('[data-server="wrong pw"]')
     await expect(row.getByTestId('server-status')).toHaveText('Not open')
     await row.getByRole('button', { name: 'Delete wrong pw' }).click()

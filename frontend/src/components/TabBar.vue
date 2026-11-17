@@ -138,7 +138,7 @@ function describe(s: SavedServerView): string {
           </button>
         </template>
         <p v-else-if="!loadError" class="meta note">
-          {{ saved.length ? 'Every saved server is open.' : 'No saved servers yet.' }} Add one in
+          {{ saved.some((s) => !s.Unsaved) ? 'Every saved server is open.' : 'No saved servers yet.' }} Add one in
           <RouterLink to="/servers" @click="closeMenu">Remote servers</RouterLink>.
         </p>
       </div>
