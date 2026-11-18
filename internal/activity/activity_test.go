@@ -57,6 +57,17 @@ func TestRunningToStartingIsARestartUnlessACrash(t *testing.T) {
 	}
 }
 
+// A slow stop (Laravel Horizon waits for its jobs) is seen as STOPPING; the
+// next poll already finds it starting again: that is a restart too.
+func TestStoppingToStartingIsARestart(t *testing.T) {
+	d := started()
+	d.Next(upd(0, change("h:h", supervisor.StateRunning, supervisor.StateStopping)))
+	out := d.Next(upd(6*time.Second, change("h:h", supervisor.StateStopping, supervisor.StateStarting)))
+	if len(out) != 1 || out[0].Kind != ProcessRestarted {
+		t.Fatalf("%v", kinds(out))
+	}
+}
+
 func TestStopThenStartIsARestart(t *testing.T) {
 	d := started()
 	if out := d.Next(upd(0, change("w:w", supervisor.StateRunning, supervisor.StateStopped))); len(out) != 0 {

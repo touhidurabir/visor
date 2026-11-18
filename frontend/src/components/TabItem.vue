@@ -20,7 +20,7 @@ const state = computed(() => {
   if (ov.Host?.Conn === 'reconnecting') return { text: 'Reconnecting…', cls: 't-warn' }
   if (ov.Host?.Conn === 'failed') return { text: 'No access', cls: 't-warn' }
   const bad = connectionBadge(connectionProblem(ov.Server))
-  if (bad) return { text: remote.value ? 'No access' : bad, cls: 't-warn' }
+  if (bad) return { text: bad, cls: 't-warn' }
   if (ov.Stats.Failing > 0) return { text: `${ov.Stats.Failing} failing`, cls: 't-bad' }
   return null
 })

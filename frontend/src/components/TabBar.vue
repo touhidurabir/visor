@@ -9,7 +9,7 @@ import { useRouter } from 'vue-router'
 import { RemoteService, type LimitsView, type SavedServerView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { errorMessage } from '../lib/overview'
 import { isMac, platform } from '../lib/platform'
-import { closeServer, openSaved, switchTab } from '../lib/servers'
+import { closeServer, openSaved, opening, switchTab } from '../lib/servers'
 import { currentTab, LOCAL, serverTabs } from '../lib/tabs'
 import TabItem from './TabItem.vue'
 
@@ -132,7 +132,7 @@ function describe(s: SavedServerView): string {
         </p>
         <template v-if="closed.length">
           <span class="th">Saved servers</span>
-          <button v-for="s in closed" :key="s.Server.id" class="item" type="button" role="menuitem" :disabled="full" @click="pick(s)">
+          <button v-for="s in closed" :key="s.Server.id" class="item" type="button" role="menuitem" :disabled="full || opening.includes(s.Server.id)" @click="pick(s)">
             <span class="dot" :style="{ background: s.Server.color || 'var(--idle-dot)' }" aria-hidden="true" />
             <span class="what"><span class="name">{{ s.Server.name }}</span><span class="meta">{{ describe(s) }}</span></span>
           </button>

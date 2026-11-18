@@ -82,11 +82,21 @@ export function connectOnce(router: Router, input: ServerInput, retry: () => voi
   return shown(router, () => RemoteService.ConnectOnce(input), input.Server.name || input.Server.host, retry)
 }
 
+/** The saved servers being opened right now, so a second click waits for the first. */
+export const opening = ref<string[]>([])
+
 /** openSaved opens a saved server; one that can't connect opens its form with the report. */
 export async function openSaved(router: Router, v: SavedServerView): Promise<void> {
-  const r = await openServer(router, v.Server, () => void openSaved(router, v))
-  if (!r.ok && r.report) serverForm.value = { server: v, report: r.report }
-  else if (!r.ok && r.error) showToast(r.error, 'error')
+  const id = v.Server.id
+  if (opening.value.includes(id)) return
+  opening.value = [...opening.value, id]
+  try {
+    const r = await openServer(router, v.Server, () => void openSaved(router, v))
+    if (!r.ok && r.report) serverForm.value = { server: v, report: r.report }
+    else if (!r.ok && r.error) showToast(r.error, 'error')
+  } finally {
+    opening.value = opening.value.filter((o) => o !== id)
+  }
 }
 
 async function shown(router: Router, open: () => Promise<OpenView>, name: string, retry: () => void): Promise<OpenResult> {

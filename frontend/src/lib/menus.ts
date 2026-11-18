@@ -129,11 +129,12 @@ export interface BulkConfirm { title: string; message: string; confirmLabel: str
 
 /**
  * What to ask before Stop all / Restart all, for every process or (with file)
- * the processes of one config; null when no confirmation is needed.
+ * the processes of one config, naming the server on a server tab; null when
+ * no confirmation is needed.
  */
-export function bulkConfirm(what: 'start' | 'stop' | 'restart', processes: number, file?: string): BulkConfirm | null {
+export function bulkConfirm(what: 'start' | 'stop' | 'restart', processes: number, file?: string, server?: string): BulkConfirm | null {
   const n = `${processes} ${processes === 1 ? 'process' : 'processes'}`
-  const scope = file ? ` in ${file}` : ''
+  const scope = (file ? ` in ${file}` : '') + (server ? ` on ${server}` : '')
   const whose = file ? `all ${n} in ${file}` : `all ${n} supervisord runs`
   switch (what) {
     case 'stop':

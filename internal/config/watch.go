@@ -71,6 +71,7 @@ func (w *Watcher) Check() (ChangeSet, error) {
 	var cs ChangeSet
 	present := map[string]bool{}
 	dirty := false
+	pm, pidOK := w.mtime(w.d.PidFile)
 	for _, p := range paths {
 		present[p] = true
 		data, rerr := w.d.Files().ReadFile(p)
@@ -79,11 +80,18 @@ func (w *Watcher) Check() (ChangeSet, error) {
 		}
 		if snap, ok := w.loaded[p]; ok {
 			if snap.Content == string(data) {
+				// supervisord restarted since the snapshot and runs this
+				// content still: restamp it with the restart (the pidfile's
+				// clock), or a later edit would look Uncertain.
+				if pidOK && pm.After(snap.At) {
+					w.loaded[p] = snapshot{Content: snap.Content, At: pm}
+					dirty = true
+				}
 				continue
 			}
 			// supervisord restarted since the snapshot: it re-read the
 			// files then, so a file untouched since the restart is loaded.
-			if pm, ok := w.mtime(w.d.PidFile); ok && pm.After(snap.At) {
+			if pidOK && pm.After(snap.At) {
 				if fm, ok := w.mtime(p); ok && !fm.After(pm) {
 					w.loaded[p] = snapshot{Content: string(data), At: time.Now()}
 					dirty = true
@@ -107,7 +115,6 @@ func (w *Watcher) Check() (ChangeSet, error) {
 		}
 		cs.Uncertain = append(cs.Uncertain, p)
 	}
-	pm, pidOK := w.mtime(w.d.PidFile)
 	for p, snap := range w.loaded {
 		if present[p] {
 			continue

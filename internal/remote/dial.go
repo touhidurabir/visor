@@ -169,8 +169,9 @@ func authMethods(t Target, s Secrets) (methods []ssh.AuthMethod, closeAll func()
 		switch {
 		case errors.Is(err, ErrPassphraseNeeded) && t.AgentSocket != "":
 			// Like ssh: an encrypted key with no passphrase saved is left
-			// to the agent, which usually holds it unlocked.
-			skipped = true
+			// to the agent, which usually holds it unlocked. When it does,
+			// a refusal is the server's, not the lock's (a wrong user).
+			skipped = !agentHolds(t.AgentSocket, t.KeyPath+".pub")
 		case err != nil:
 			return nil, closeAll, false, err
 		default:

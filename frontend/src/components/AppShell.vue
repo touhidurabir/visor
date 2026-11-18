@@ -5,7 +5,7 @@
 import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { connectionBadge, connectionProblem } from '../lib/connection'
-import { useOverview } from '../lib/overview'
+import { placeName, useOverview } from '../lib/overview'
 import { Application, Window } from '@wailsio/runtime'
 import { followMenu, onMenu, runMenu } from '../lib/menu'
 import { followDrops } from '../lib/import-files'
@@ -75,7 +75,7 @@ onMenu('close', closeTabOrWindow)
 
 onMounted(() => window.addEventListener('keydown', onKey))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
-const name = computed(() => (overview.value?.Host?.Remote ? overview.value.Host.Name : overview.value?.Server.Name) ?? 'Local')
+const name = computed(() => placeName(overview.value))
 const remote = computed(() => currentTab.value !== LOCAL)
 const color = computed(() => overview.value?.Host?.Color ?? '')
 const blocked = computed(() => remote.value && !!overview.value && !overview.value.Server.Reachable && overview.value.Server.Health !== 'unknown')

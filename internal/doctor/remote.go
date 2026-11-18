@@ -164,7 +164,7 @@ func RemoteReport(f RemoteFacts) []ReportRow {
 		sock.Fix = append([]FixStep{{Text: "Turn on Use sudo in this server's settings, or let " + loginUser(f.Login) + " in through a group:"}},
 			GroupFix(SocketFacts{
 				User: loginUser(f.Login), Owner: f.SocketOwner, Service: f.Service, Chown: f.Chown,
-				Member: slices.Contains(f.Groups, ChownGroup(f.Chown)), Active: slices.Contains(f.Groups, ChownGroup(f.Chown)),
+				Member: slices.Contains(f.Groups, ChownGroup(f.Chown)), Active: slices.Contains(f.Groups, ChownGroup(f.Chown)), Remote: true,
 			}).Steps...)
 	case f.SocketError != "":
 		sock.Status, sock.Detail = RowError, f.SocketError

@@ -25,7 +25,7 @@ import { loadFile } from '../lib/load-file'
 import { chipSince } from '../lib/format'
 import { stateLook } from '../lib/state'
 import type { Stream } from '../lib/logview'
-import { useOverview } from '../lib/overview'
+import { placeName, useOverview } from '../lib/overview'
 import { configRoute } from '../lib/links'
 import { showToast } from '../lib/toast'
 import { revealLabel } from '../lib/platform'
@@ -208,7 +208,7 @@ const fileCalls = {
 const pendingBulk = ref<{ what: keyof typeof fileCalls; ask: BulkConfirm } | null>(null)
 
 function bulk(what: keyof typeof fileCalls) {
-  const ask = bulkConfirm(what, procs.value.length, config.value?.FileName)
+  const ask = bulkConfirm(what, procs.value.length, config.value?.FileName, overview.value?.Host?.Remote ? overview.value.Host.Name : undefined)
   if (ask) pendingBulk.value = { what, ask }
   else void run(fileCalls[what])
 }
@@ -238,7 +238,7 @@ function download() {
 <template>
   <div :class="['page', { fill: tab === 'logs' && !!config }]">
     <nav class="crumbs" aria-label="Breadcrumb">
-      <RouterLink to="/">{{ overview?.Server.Name ?? 'Local' }}</RouterLink> / {{ config?.FileName ?? path.split('/').pop() }}
+      <RouterLink to="/">{{ placeName(overview) }}</RouterLink> / {{ config?.FileName ?? path.split('/').pop() }}
     </nav>
 
     <div v-if="loadError" class="alert" role="alert">

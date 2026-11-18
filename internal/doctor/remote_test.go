@@ -55,6 +55,14 @@ func TestRemoteReportSocketDeniedFix(t *testing.T) {
 	if !strings.Contains(status(rows, "socket").Fix[1].Command, "chown=deploy:supervisor") {
 		t.Fatalf("%+v", status(rows, "socket").Fix)
 	}
+	// The group is there but the user isn't in it: add them, then check
+	// again (a new SSH login has the group; no logging out on a server).
+	rows = RemoteReport(RemoteFacts{Login: "abir@h:22", ConfigPath: "/etc/supervisor/supervisord.conf", Service: "supervisor",
+		Socket: "unix:/var/run/supervisor.sock", SocketDenied: true, SocketOwner: "root", SocketGroup: "supervisor", SocketMode: "0770", Chown: "root:supervisor"})
+	fix := status(rows, "socket").Fix
+	if len(fix) != 3 || fix[1].Text != "On the server, add abir to that group." || !strings.HasPrefix(fix[2].Text, "Then check again") {
+		t.Fatalf("%+v", fix)
+	}
 }
 
 func TestRemoteReportStopsEarly(t *testing.T) {

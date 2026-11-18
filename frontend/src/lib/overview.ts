@@ -72,6 +72,11 @@ export function useOverview(tab?: () => string): {
  * With one card per program, "Only problems" leaves out the cards with no
  * problem line, but never a failing one (buildCards in explain-cards).
  */
+/** placeName names the tab's place: a server's own name, else this computer's profile ("Local"). */
+export function placeName(o: OverviewView | null | undefined): string {
+  return (o?.Host?.Remote ? o.Host.Name : o?.Server.Name) || 'Local'
+}
+
 export function opensOnProblems(view: ExplainView | null): boolean {
   if (!view || view.ParseError) return false
   if (view.Errors + view.Suggestions > 0 || (view.FileProblems?.length ?? 0) > 0) return true

@@ -24,7 +24,7 @@ vi.mock('../../bindings/github.com/touhidurabir/visor/internal/app', () => ({
   ServerAPI: { Overview: () => overviewCall() },
 }))
 
-const { opensOnProblems, useOverview } = await import('./overview')
+const { opensOnProblems, placeName, useOverview } = await import('./overview')
 
 function view(health: string, running: number): OverviewView {
   return {
@@ -119,5 +119,13 @@ describe('opensOnProblems', () => {
   it('opens on "All lines" before the explanation loads, or when the file cannot be read', () => {
     expect(opensOnProblems(null)).toBe(false)
     expect(opensOnProblems(explain({ Errors: 1, ParseError: { Level: 'error', Live: false, Line: 3, Message: 'bad', Fix: '', Edit: null } }))).toBe(false)
+  })
+})
+
+describe('placeName', () => {
+  it("names a server tab after the server, and this computer's after its profile", () => {
+    expect(placeName({ Host: { Remote: true, Name: 'touhidurabir.dev' }, Server: { Name: 'Local' } } as never)).toBe('touhidurabir.dev')
+    expect(placeName({ Host: { Remote: false, Name: 'This Mac' }, Server: { Name: 'Local' } } as never)).toBe('Local')
+    expect(placeName(null)).toBe('Local')
   })
 })

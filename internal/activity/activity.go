@@ -235,8 +235,10 @@ func (d *Deriver) Next(in Input) []Event {
 				case ev.To == supervisor.StateStopped && (running(ev.From) || ev.From == supervisor.StateStopping):
 					// Held: a start soon after makes it a restart.
 					d.held[ev.Process] = mk(ProcessStopped, ev.Process, conf, at)
-				case ev.From == supervisor.StateRunning && ev.To == supervisor.StateStarting && !crashed(ev.Process):
-					// Stopped and started again between two polls.
+				case (ev.From == supervisor.StateRunning && ev.To == supervisor.StateStarting ||
+					ev.From == supervisor.StateStopping && running(ev.To)) && !crashed(ev.Process):
+					// Stopped and started again between two polls (a slow
+					// stop is seen as STOPPING first, then up again).
 					out = append(out, mk(ProcessRestarted, ev.Process, conf, at))
 				case (ev.From == supervisor.StateStopped || ev.From == supervisor.StateFatal) && running(ev.To):
 					if stop, ok := d.held[ev.Process]; ok && at.Sub(stop.At) <= d.RestartWindow {

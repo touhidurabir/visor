@@ -110,6 +110,25 @@ func TestDialWithAgent(t *testing.T) {
 		t.Fatalf("encrypted key + agent: %v", err)
 	}
 	_ = c.Close()
+	// A wrong user: the agent offered the locked key's twin (its .pub says
+	// so), so the server refused the login; the lock isn't to blame.
+	if err := os.WriteFile(tg.KeyPath+".pub", ssh.MarshalAuthorizedKey(signer.PublicKey()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wrong := tg
+	wrong.User = "nobody"
+	if _, err := remote.Dial(context.Background(), wrong, remote.Secrets{}, hk); !errors.Is(err, remote.ErrAuthFailed) {
+		t.Fatalf("wrong user, key in the agent: %v", err)
+	}
+	// The agent holds other keys only: the locked key is what's missing.
+	other, _, _ := ed25519.GenerateKey(rand.Reader)
+	otherPub, _ := ssh.NewPublicKey(other)
+	if err := os.WriteFile(tg.KeyPath+".pub", ssh.MarshalAuthorizedKey(otherPub), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := remote.Dial(context.Background(), wrong, remote.Secrets{}, hk); !errors.Is(err, remote.ErrPassphraseNeeded) {
+		t.Fatalf("wrong user, key not in the agent: %v", err)
+	}
 	tg.AgentSocket = ""
 	if _, err := remote.Dial(context.Background(), tg, remote.Secrets{}, hk); !errors.Is(err, remote.ErrPassphraseNeeded) {
 		t.Fatalf("no agent: %v", err)

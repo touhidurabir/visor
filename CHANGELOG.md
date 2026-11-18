@@ -7,9 +7,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Remote servers
 Visor manages supervisord on your Linux servers over SSH, each in a tab beside this computer's, like a browser. Nothing is installed on the server.
-- **Remote servers** has its own page, in the sidebar above Doctor and Settings: every server with its connection (Connected, Reconnecting…, Can't connect, Not open), Add a server, and how many may be connected at once. The + beside the tabs opens a saved server that isn't open; with none, it points to that page.
+- **Remote servers** has its own page, in the sidebar above Doctor and Settings: every server with its connection (Connected, Reconnecting…, Can't connect, Not open), Add a server, and how many may be connected at once. The + beside the tabs opens a saved server that isn't open; with none, it points to that page. While a server is connecting, its button reads Connecting… and can't be pressed again (nor its entry under +).
 - **Add a server** on the Remote servers page: name, tag, colour, host and port (or a Host alias from `~/.ssh/config`, whose user, port, key and ProxyJump are used), user, password and/or SSH key (empty uses `~/.ssh/config` and your SSH agent), **Use sudo** with its own password (or the SSH one, or none for NOPASSWD), **Read only**, and under Advanced the config path, a jump host and which outside changes notify you. Passwords stay in your Keychain or keyring; `servers.json` holds none.
 - **Test** connects with the form as it is and shows what this user can do there: the SSH login and host key, sudo, supervisord.conf, the socket (forwarded over SSH, through sudo, or why not, with its owner and mode), how many configs it can read, and supervisord's version. Each gap comes with its fix (turn on Use sudo, or let the user in through a group, with the commands to copy). A server that can't connect opens no tab: **Connect** saves the server and, when it can't connect, keeps the form open with the report saying why (a wrong password, a key that needs its passphrase, a host that doesn't answer). **Connect without saving** opens a tab that keeps nothing (secrets in memory only) and is forgotten when it closes. Editing a server whose tab is open reconnects it (Reconnect).
+- A login refused for the user you typed says so ("The server refused the login for …"), even when the key file is locked: the passphrase is only blamed when your SSH agent doesn't hold that key.
 - **Host keys**: a server Visor hasn't seen shows its key's fingerprint to check before you trust it, in Visor's own list; `~/.ssh/known_hosts` is read, never changed. A changed key is refused, with the command that removes the old one.
 - **sudo is asked once per connection**, not on every check: Visor runs a small Python helper for the length of the connection (Python comes with supervisord). A refused password is never tried again on its own, so it can't lock the account.
 - **Tabs**: this computer's tab is first and always open; servers open in the order you open them (3 at once by default, set on the Remote servers page). Each tab keeps its page. Ctrl+Tab and Ctrl+Shift+Tab move between tabs; ⌘W (Ctrl+W) closes a server's tab. Visor starts with only this computer's tab.
@@ -19,11 +20,16 @@ Visor manages supervisord on your Linux servers over SSH, each in a tab beside t
 - A server's report (Server report in its sidebar) is laid out as Doctor is: the lens with a segment per check, each check's status in words, and the fix under it.
 - When a server's SSH connection drops, its tab says **Reconnecting…** and comes back on its own (2 s, then longer, up to a minute). While it can't, an issue says "Can't reach the server over SSH", apart from "supervisord isn't responding".
 - When supervisord's socket is closed to your user (a Linux package's, owned by root), the issue and notification say "this user isn't allowed to open its socket (permission denied)" instead of Go's dial error.
+- On a server, the group fix says to add that user to the group and check again: each connection is a new SSH login, so nobody needs to log out. A tab that can't reach supervisord says why, as this computer's does (Not answering, Not running, Not connected); **No access** is kept for a refused login or host key.
+- On a server's tab, the breadcrumb names the server instead of "Local", and Stop all / Restart all ask "… on <server>?".
+- A live log opens at the start of a line, not partway through one.
 - A crash leaves its trace in `crash.log` in the state folder (an app opened from Finder or the dock has no terminal to print it to).
 
 ### Activity
 - A new **Activity** page on every tab: processes started, stopped or restarted, programs added or removed, config files changed on disk, supervisord restarted or down, each marked **By Visor** or **Outside Visor** (supervisorctl, a deploy script, another person), by day, with filters. The dashboard shows the latest change made outside Visor in a strip.
 - Changes made outside Visor **notify you**, grouped ("3 processes restarted outside Visor on cpcsl dev"); mute each kind in Settings (this computer) or a server's Notifications.
+- A process that is slow to stop (Laravel Horizon waits for its jobs) and is already starting again at the next check counts as restarted.
+- A config file edited after supervisord restarted shows as changed on disk (in Activity and the changes banner), instead of "Visor can't tell if it changed".
 - When supervisord is down, Issues → supervisord log shows the end of its log file (on a server, read through the connection), which often says why; the down banner links to it.
 
 ### A new look

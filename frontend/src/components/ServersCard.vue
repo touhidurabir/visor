@@ -10,7 +10,7 @@ import { useRouter } from 'vue-router'
 import { RemoteService, type SavedServerView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { errorMessage } from '../lib/overview'
 import { platform, secretStore } from '../lib/platform'
-import { closeServer, openSaved, serverForm, switchTab, tagOf } from '../lib/servers'
+import { closeServer, openSaved, opening, serverForm, switchTab, tagOf } from '../lib/servers'
 import { serverTabs } from '../lib/tabs'
 import { showToast } from '../lib/toast'
 import ConfirmDialog from './ConfirmDialog.vue'
@@ -114,7 +114,7 @@ const status = (s: SavedServerView): [string, string] => (isOpen(s) ? (STATUS[co
         <span class="opts"><span v-for="o in options(s)" :key="o" class="badge b-idle">{{ o }}</span></span>
         <span class="act">
           <span :class="status(s)[1]" data-testid="server-status">{{ status(s)[0] }}</span>
-          <button class="btn sm" type="button" @click="open(s)">{{ isOpen(s) ? 'Show' : 'Connect' }}</button>
+          <button class="btn sm" type="button" :disabled="opening.includes(s.Server.id)" @click="open(s)">{{ opening.includes(s.Server.id) ? 'Connecting…' : isOpen(s) ? 'Show' : 'Connect' }}</button>
           <button class="btn sm" type="button" :aria-label="`${s.Unsaved ? 'Save' : 'Edit'} ${s.Server.name}`" @click="serverForm = { server: s }">{{ s.Unsaved ? 'Save…' : 'Edit' }}</button>
           <button v-if="s.Unsaved" class="btn sm quiet" type="button" :aria-label="`Close ${s.Server.name}`" @click="closeServer(router, s.Server.id)">Close</button>
           <button v-else class="btn sm quiet danger" type="button" :aria-label="`Delete ${s.Server.name}`" @click="deleting = s">Delete</button>

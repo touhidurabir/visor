@@ -29,7 +29,7 @@ import { disconnectedHealth, firstFailing, health, NO_COUNT, openIssuesLabel } f
 import { sortFailingFirst } from '../lib/sort'
 import { formatDuration } from '../lib/format'
 import { configGroups, bulkConfirm, serverMenu, withoutSupervisord, type BulkConfirm, forHost } from '../lib/menus'
-import { useOverview } from '../lib/overview'
+import { placeName, useOverview } from '../lib/overview'
 import { copyText } from '../lib/clipboard'
 import { configRoute } from '../lib/links'
 import { showToast } from '../lib/toast'
@@ -193,6 +193,9 @@ const bulkCalls = { start: ServerService.StartAll, stop: ServerService.StopAll, 
 // A bulk action waiting for confirmation: every process, or one config's.
 const pendingBulk = ref<{ call: () => Promise<unknown>; ask: BulkConfirm } | null>(null)
 
+/** The server's name on a server tab, for the confirmations. */
+const serverName = () => (overview.value?.Host?.Remote ? overview.value.Host.Name : undefined)
+
 /** askFirst runs call, after confirming when ask says to. */
 function askFirst(ask: BulkConfirm | null, call: () => Promise<unknown>) {
   if (ask) pendingBulk.value = { call, ask }
@@ -200,7 +203,7 @@ function askFirst(ask: BulkConfirm | null, call: () => Promise<unknown>) {
 }
 
 function bulk(what: keyof typeof bulkCalls) {
-  askFirst(bulkConfirm(what, overview.value?.Stats.Processes ?? 0), bulkCalls[what])
+  askFirst(bulkConfirm(what, overview.value?.Stats.Processes ?? 0, undefined, serverName()), bulkCalls[what])
 }
 
 function confirmBulk() {
@@ -245,9 +248,9 @@ function onConfig(c: ConfigView, id: string) {
       return void run(c.Path ? () => ServerService.StartFile(c.Path) : each(ServerService.StartGroup))
     // Like the config page's buttons, these ask first.
     case 'stop-all':
-      return askFirst(bulkConfirm('stop', c.Processes?.length ?? 0, c.FileName), c.Path ? () => ServerService.StopFile(c.Path) : each(ServerService.StopGroup))
+      return askFirst(bulkConfirm('stop', c.Processes?.length ?? 0, c.FileName, serverName()), c.Path ? () => ServerService.StopFile(c.Path) : each(ServerService.StopGroup))
     case 'restart-all':
-      return askFirst(bulkConfirm('restart', c.Processes?.length ?? 0, c.FileName), c.Path ? () => ServerService.RestartFile(c.Path) : each(ServerService.RestartGroup))
+      return askFirst(bulkConfirm('restart', c.Processes?.length ?? 0, c.FileName, serverName()), c.Path ? () => ServerService.RestartFile(c.Path) : each(ServerService.RestartGroup))
     case 'open-config':
       if (c.Path) void configLink(c, { tab: 'config' })
       return
@@ -308,7 +311,7 @@ function sendSignal(sig: string) {
     <template v-else>
       <header>
         <div class="titles">
-          <h1 class="title">{{ overview.Host?.Remote ? overview.Host.Name : overview.Server.Name }}</h1>
+          <h1 class="title">{{ placeName(overview) }}</h1>
           <p class="meta">
             {{ subtitle }}<template v-if="subtitle && overview.Server.ConfigPath"> · </template
             ><span class="mono">{{ overview.Server.ConfigPath }}</span>

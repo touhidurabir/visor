@@ -4,7 +4,7 @@
 // to its templates.
 import { ref } from 'vue'
 import { RouterLink } from 'vue-router'
-import { useOverview } from '../lib/overview'
+import { placeName, useOverview } from '../lib/overview'
 import CopyPicker from './CopyPicker.vue'
 
 defineProps<{ mode: 'raw' | 'form' | 'import' }>()
@@ -13,7 +13,7 @@ const picking = ref(false)
 </script>
 
 <template>
-  <nav class="crumbs" aria-label="Breadcrumb"><RouterLink to="/">{{ overview?.Server.Name ?? 'Local' }}</RouterLink> <span aria-hidden="true">/</span> Add new</nav>
+  <nav class="crumbs" aria-label="Breadcrumb"><RouterLink to="/">{{ placeName(overview) }}</RouterLink> <span aria-hidden="true">/</span> Add new</nav>
   <header>
     <h1>Add a new config</h1>
     <button v-if="mode === 'raw'" type="button" class="btn" @click="picking = true">

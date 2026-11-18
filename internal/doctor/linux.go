@@ -68,6 +68,9 @@ type SocketFacts struct {
 	// Member: the user is in Chown's group (in /etc/group). Active: this
 	// session has it (os.Getgroups), which needs a new login after joining.
 	Member, Active bool
+	// Remote: a server Visor reaches over SSH, where each connection is a
+	// new login, so no logging out is needed after joining the group.
+	Remote bool
 }
 
 // RootFix is the way out of a socket owned by root on Linux.
@@ -104,11 +107,17 @@ func GroupFix(s SocketFacts) RootFix {
 	restart := FixStep{Text: "Restart supervisord so the socket is made again with them.", Command: "sudo systemctl restart " + s.Service}
 	relogin := FixStep{Text: "Log out and back in (or restart), so your session has the new group. Then open Visor again."}
 	join := FixStep{Text: "Add yourself to that group.", Command: fmt.Sprintf("sudo usermod -aG %s %s", group, user)}
+	create := "Create the group and add yourself to it."
+	if s.Remote {
+		relogin.Text = "Then check again: each connection is a new SSH login, so it has the group."
+		join.Text = "On the server, add " + user + " to that group."
+		create = "Create the group and add " + user + " to it."
+	}
 	switch {
 	case group == "" || group == "root" || group == owner:
 		return RootFix{Variant: "setup", Group: supervisorGroup, Steps: []FixStep{
 			{Text: "In supervisord.conf, under [unix_http_server], let a group use the socket:", Command: "chmod=0770\nchown=" + owner + ":" + supervisorGroup},
-			{Text: "Create the group and add yourself to it.", Command: fmt.Sprintf("sudo groupadd -f %s && sudo usermod -aG %s %s", supervisorGroup, supervisorGroup, user)},
+			{Text: create, Command: fmt.Sprintf("sudo groupadd -f %s && sudo usermod -aG %s %s", supervisorGroup, supervisorGroup, user)},
 			restart,
 			relogin,
 		}}
