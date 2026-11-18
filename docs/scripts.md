@@ -6,6 +6,35 @@ without touching your real supervisord, its configs, or Visor's own state
 The most used come first. Automated tests and the manual checklist are in
 [testing.md](testing.md).
 
+## How the pieces fit
+
+| Layer | What it is | Used for |
+|---|---|---|
+| `wails3` | The Wails CLI. `wails3 build`, `wails3 package` and `wails3 dev` are shortcuts into the Taskfiles. | building, packaging, bindings |
+| `wails3 task <name>` | Runs a task from `Taskfile.yml`, which pulls in `build/Taskfile.yml`, `build/darwin/Taskfile.yml` and `build/linux/Taskfile.yml`. `wails3 task --list` shows them. | anything in the Taskfiles |
+| `npm --prefix frontend …`, `npm --prefix e2e …` | The Vue frontend and the Playwright suite | typecheck, unit tests, a frontend-only build |
+| `scripts/*.sh` | Our own scripts. They wrap the above with a sandbox, a separate state folder and signing. | testing a real build without touching your setup |
+
+The Task runner is built into `wails3`, so `wails3 task dev` works without
+installing anything. A bare `task dev` needs [Task](https://taskfile.dev)
+installed separately.
+
+**Safe vs. real.** A Visor started without `VISOR_CONFIG` and `VISOR_STATE_DIR`
+uses your **real** supervisord and your real state folder. These commands set
+both for you:
+
+- `wails3 task dev`
+- `scripts/sign-check.sh open`
+- `scripts/linux-check.sh open`
+- `wails3 task test:e2e`
+
+These don't, so they are **real** runs:
+
+- bare `wails3 dev`
+- `wails3 task run`
+- starting `bin/visor` or `bin/visor.app` yourself
+- installing a `.dmg`, `.deb` or `.rpm`
+
 ## Which one do I need?
 
 | I want to… | Run |
@@ -19,11 +48,13 @@ The most used come first. Automated tests and the manual checklist are in
 | Redraw the app icon | `go run ./scripts/appicon` |
 | Try the packaged app on Linux (the AppImage) | `scripts/linux-check.sh build`, then `scripts/linux-check.sh open` |
 | Build the Linux packages like the release does | `wails3 task linux:package` |
+| Just build the binary or `.app` | `wails3 build` or `wails3 package` ([section 9](#9-plain-builds)) |
+| Check a remote-server change against a real server | [Live checks](#10-live-checks-against-real-machines) |
 
 ## 1. `wails3 task dev`: everyday development
 
 ```sh
-wails3 task dev     # or: task dev
+wails3 task dev     # or: task dev, if Task is installed
 ```
 
 It starts the sandbox supervisord (step 2) and runs Visor with hot reload
@@ -155,9 +186,8 @@ go run ./scripts/genapi
 wails3 generate bindings -clean=true -ts -i
 ```
 
-A read-only check against your real supervisord (it only calls methods that
-read): `VISOR_LIVE=1 go test -run TestLive -v ./internal/supervisor/`
-(`VISOR_LIVE_SOCKET=<path>` picks another socket).
+Live checks against your real supervisord or a real server are in
+[section 10](#10-live-checks-against-real-machines).
 
 ## 6. `scripts/release-dmg.sh`: a `.dmg` like the release
 
@@ -206,6 +236,47 @@ its own profile the same way; Visor prints it for that path.
 
 Installing the `.deb` or `.rpm` (`sudo apt install ./bin/visor.deb`) is a
 **real install**: that copy uses your real supervisord and `~/.config/Visor`.
+
+## 9. Plain builds
+
+```sh
+wails3 build                           # bin/visor
+wails3 package                         # bin/visor.app, ad-hoc signed
+wails3 task darwin:package:universal   # bin/visor.app for arm64 and amd64, as the release builds it
+npm --prefix frontend run build        # frontend/dist only, without Go
+```
+
+`wails3 build` builds the frontend, generates the icons, then runs
+`go build -tags production` into `bin/visor`. `wails3 package` runs the same
+build and wraps the result in `bin/visor.app`. On Linux,
+`wails3 task linux:package` does the packaging ([section 8](#8-on-linux)).
+
+Both are **real** runs when you start them. Point them at the sandbox yourself:
+
+```sh
+VISOR_CONFIG=/tmp/visor-sandbox/supervisord.conf VISOR_STATE_DIR=/tmp/visor-sandbox/state bin/visor
+```
+
+For testing, `scripts/sign-check.sh` is usually what you want. It builds its
+own `.app` and opens it against the sandbox.
+
+**Don't use `wails3 task run`.** It builds `bin/visor.dev.app` and starts it
+without the sandbox variables, so it connects to your real supervisord.
+
+## 10. Live checks against real machines
+
+Each one is skipped unless you set its variable. The two below only read.
+
+```sh
+VISOR_LIVE=1 go test -run TestLive -v ./internal/supervisor/                  # this Mac's supervisord
+VISOR_SSH_TEST=visor-ubuntu go test -run TestLiveSSH -v ./internal/remote/    # a server, by its ~/.ssh/config alias
+```
+
+- `VISOR_LIVE_SOCKET=<path>` points the first test at another socket.
+- `VISOR_SSH_SUDO=1` adds the sudo path to the second.
+- `TestLiveServerTab` and `TestLiveActivity` in `./internal/app/` aren't read-only. They can restart processes, and `TestLiveActivity` also edits a config. Run them only on test machines.
+
+The details are in [testing.md](testing.md#remote-servers).
 
 ## Environment variables
 
