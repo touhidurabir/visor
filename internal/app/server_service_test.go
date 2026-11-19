@@ -481,7 +481,9 @@ func TestRestartDaemonMarksConfigsLoaded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.WriteString("; edited\n"); err != nil {
+	// A real setting: supervisord confirms a comment-only edit as loaded
+	// at once (confirmFlagged), so its badge may never be seen.
+	if _, err := f.WriteString("priority=998\n"); err != nil {
 		t.Fatal(err)
 	}
 	_ = f.Close()
@@ -492,7 +494,7 @@ func TestRestartDaemonMarksConfigsLoaded(t *testing.T) {
 	if err := svc.RestartDaemon(); err != nil {
 		t.Fatal(err)
 	}
-	if got, ok := rt.loadedSnapshot(ini); !ok || !strings.Contains(string(got), "; edited") {
+	if got, ok := rt.loadedSnapshot(ini); !ok || !strings.Contains(string(got), "priority=998") {
 		t.Fatalf("snapshot after RestartDaemon = %q, %v", got, ok)
 	}
 	waitOverview(t, svc, 15*time.Second, "back after restart", func(ov OverviewView) bool {
