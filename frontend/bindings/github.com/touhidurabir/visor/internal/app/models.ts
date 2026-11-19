@@ -583,6 +583,13 @@ export interface LoadedDiffView {
     "Known": boolean;
     "Loaded": string;
     "Disk": string;
+
+    /**
+     * Confirmed: supervisord was just asked and still runs something else.
+     * CheckError: asking it failed.
+     */
+    "Confirmed": boolean;
+    "CheckError": string;
 }
 
 /**

@@ -144,4 +144,11 @@ export interface Settings {
      * the file, which on a server means downloading it over SSH.
      */
     "searchWholeLog": boolean;
+
+    /**
+     * ConfigRecheck is how often, while a config file looks changed on disk,
+     * Visor asks supervisord whether it already runs it (applied outside
+     * Visor, by supervisorctl update or a deploy script).
+     */
+    "configRecheck": time$0.Duration;
 }

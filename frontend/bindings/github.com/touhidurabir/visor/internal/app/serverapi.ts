@@ -36,9 +36,9 @@ export function ApplyChanges(server: string, groups: string[] | null): $Cancella
  * and reports which groups were added, changed or removed. Nothing is
  * applied.
  * 
- * When supervisord sees no difference, it runs every file as it is on disk,
- * so their "changed" badges clear: a file added and applied outside Visor
- * (supervisorctl update) no longer reads as changed.
+ * Files supervisord already runs as they are on disk (applied outside
+ * Visor, by supervisorctl update or a deploy script) have their "changed"
+ * badges cleared; when nothing differs, every file's does.
  */
 export function CheckForChanges(server: string): $CancellablePromise<supervisor$0.ConfigDiff> {
     return $Call.ByID(2447498733, server);

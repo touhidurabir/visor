@@ -145,7 +145,9 @@ export function LoadFile(server: string, path: string): $CancellablePromise<$mod
 
 /**
  * LoadedDiff returns what supervisord loaded from path (Visor's snapshot)
- * and what is on disk now.
+ * and what is on disk now. When path is flagged as changed, supervisord is
+ * asked first whether it already runs it (not on a Read only server); if
+ * it does, path is recorded as loaded and no longer flagged.
  */
 export function LoadedDiff(server: string, path: string): $CancellablePromise<$models.LoadedDiffView> {
     return $Call.ByID(3309767304, server, path);

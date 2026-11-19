@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { collectErrors, configRow, openApp, removeConfig, restoreConfig, supervisorStates, waitForDashboard } from './helpers'
+import { collectErrors, configRow, openApp, removeConfig, restoreConfig, supervisorCall, supervisorStates, waitForDashboard } from './helpers'
 
 // Edits files in the sandbox's conf.d from outside the app (as an editor
 // would) and checks Visor notices, shows what applying does, applies, and
@@ -61,6 +61,31 @@ test.describe('apply changes', () => {
     await expect(page.getByRole('status').filter({ hasText: 'Applied: 1 restarted' })).toBeVisible()
     await expect(banner(page)).toBeHidden()
     expect(errors).toEqual([])
+  })
+
+  test('a change applied outside Visor stops showing as changed; one still waiting says supervisord confirmed it', async ({ page }) => {
+    await waitForDashboard(page)
+    writeFileSync(NOTES, original.replace('sleep 2', 'sleep 3'))
+    await expect(banner(page)).toBeVisible()
+
+    const configTab = `/config/${encodeURIComponent(NOTES)}?tab=config`
+    await openApp(page, configTab)
+    const card = page.getByRole('region', { name: 'Changed on disk since supervisord last loaded it' })
+    await expect(card.getByTestId('loaded-status')).toHaveText('Checked with supervisord: it hasn’t loaded these changes yet. Apply them to load them.')
+    await expect(card.getByRole('button', { name: 'Apply changes' })).toBeVisible()
+
+    // What supervisorctl update (or a deploy script) does, outside Visor.
+    await supervisorCall('supervisor.reloadConfig')
+    await supervisorCall('supervisor.stopProcessGroup', 'notes-indexer')
+    await supervisorCall('supervisor.removeProcessGroup', 'notes-indexer')
+    await supervisorCall('supervisor.addProcessGroup', 'notes-indexer')
+
+    await openApp(page, configTab) // opening the Config tab asks supervisord again
+    await expect(page.getByRole('tab', { name: 'Config', selected: true })).toBeVisible()
+    await expect(card).toHaveCount(0)
+    await openApp(page, '/')
+    await expect(banner(page)).toBeHidden()
+    await expect(configRow(page, 'notes.ini')).not.toContainText('changed')
   })
 
   test('the server menu applies everything that differs', async ({ page }) => {

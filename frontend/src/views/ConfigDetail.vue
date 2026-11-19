@@ -389,6 +389,7 @@ function download() {
           :file-name="config.FileName"
           :changed="config.Changed"
           :uncertain="config.Uncertain"
+          :server-read-only="!!overview?.Host?.ReadOnly"
           :line="editorLine"
           :processes="procs"
         />

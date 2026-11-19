@@ -178,6 +178,7 @@ func TestRoundTrip(t *testing.T) {
 		Appearance:    AppearanceDark,
 		MaxServers:    5,
 		Mutes:         ActivityMutes{Files: true},
+		ConfigRecheck: 2 * time.Minute,
 	}
 	if err := Save(dir, in); err != nil {
 		t.Fatal(err)
@@ -318,5 +319,18 @@ func TestSearchWholeLogIsOffUntilTurnedOn(t *testing.T) {
 	}
 	if got, _ := Load(dir); !got.SearchWholeLog {
 		t.Error("turning it on didn't stick")
+	}
+}
+
+func TestConfigRecheckDefaultsToAMinuteAndIsClamped(t *testing.T) {
+	if got := Defaults().ConfigRecheck; got != time.Minute {
+		t.Fatalf("default = %v, want 1m", got)
+	}
+	for in, want := range map[time.Duration]time.Duration{0: MinConfigRecheck, 30 * time.Second: 30 * time.Second, time.Hour: MaxConfigRecheck} {
+		s := Defaults()
+		s.ConfigRecheck = in
+		if got := s.Clamp().ConfigRecheck; got != want {
+			t.Errorf("Clamp(%v) = %v, want %v", in, got, want)
+		}
 	}
 }

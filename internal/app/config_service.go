@@ -62,6 +62,10 @@ type FileView struct {
 type LoadedDiffView struct {
 	Known        bool
 	Loaded, Disk string
+	// Confirmed: supervisord was just asked and still runs something else.
+	// CheckError: asking it failed.
+	Confirmed  bool
+	CheckError string
 }
 
 // RemovedView is a config file removed from supervisor that is not back:
@@ -114,16 +118,32 @@ func (s *ConfigService) Explain(fileName, content, selfPath string) ExplainView 
 }
 
 // LoadedDiff returns what supervisord loaded from path (Visor's snapshot)
-// and what is on disk now.
+// and what is on disk now. When path is flagged as changed, supervisord is
+// asked first whether it already runs it (not on a Read only server); if
+// it does, path is recorded as loaded and no longer flagged.
 func (s *ConfigService) LoadedDiff(path string) (LoadedDiffView, error) {
 	if _, err := s.rt.includeFile(path); err != nil {
 		return LoadedDiffView{}, err
+	}
+	var v LoadedDiffView
+	if s.rt.flagged(path) {
+		if ac, err := s.rt.conn(); err == nil {
+			asked, err := s.rt.confirmFlagged(ac.ctx, ac.client, s.rt.changeSet(), true)
+			if err != nil {
+				v.CheckError = err.Error()
+			} else {
+				v.Confirmed = asked && s.rt.flagged(path)
+			}
+			if asked {
+				s.rt.emitOverview()
+			}
+		}
 	}
 	disk, err := s.rt.files().ReadFile(path)
 	if err != nil {
 		return LoadedDiffView{}, fmt.Errorf("read %s: %w", path, err)
 	}
-	v := LoadedDiffView{Disk: string(disk)}
+	v.Disk = string(disk)
 	if w := s.rt.watcherOrNil(); w != nil {
 		if loaded, ok := w.Loaded(path); ok {
 			v.Known, v.Loaded = true, string(loaded)

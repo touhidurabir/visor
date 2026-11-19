@@ -25,6 +25,8 @@ const (
 	MaxCrashLoopRestart = 100
 	MinCrashLoopWindow  = time.Minute
 	MaxCrashLoopWindow  = 24 * time.Hour
+	MinConfigRecheck    = 15 * time.Second
+	MaxConfigRecheck    = 10 * time.Minute
 )
 
 // Settings are Visor's preferences. Durations are stored in JSON as
@@ -53,6 +55,10 @@ type Settings struct {
 	// the lines the Logs tab has loaded. Off by default: each search reads
 	// the file, which on a server means downloading it over SSH.
 	SearchWholeLog bool `json:"searchWholeLog"`
+	// ConfigRecheck is how often, while a config file looks changed on disk,
+	// Visor asks supervisord whether it already runs it (applied outside
+	// Visor, by supervisorctl update or a deploy script).
+	ConfigRecheck time.Duration `json:"configRecheck"`
 }
 
 // ActivityMutes turn off notifications for changes made outside Visor, per
@@ -97,6 +103,7 @@ func Defaults() Settings {
 		Appearance:    AppearanceSystem,
 		MenuBarCount:  true,
 		MaxServers:    DefaultMaxServers,
+		ConfigRecheck: time.Minute,
 	}
 }
 
@@ -115,6 +122,7 @@ func (s Settings) Clamp() Settings {
 	s.CrashLoop.Restarts = min(max(s.CrashLoop.Restarts, MinCrashLoopRestart), MaxCrashLoopRestart)
 	s.CrashLoop.Window = min(max(s.CrashLoop.Window, MinCrashLoopWindow), MaxCrashLoopWindow)
 	s.MaxServers = min(max(s.MaxServers, MinMaxServers), MaxMaxServers)
+	s.ConfigRecheck = min(max(s.ConfigRecheck, MinConfigRecheck), MaxConfigRecheck)
 	return s
 }
 

@@ -49,9 +49,9 @@ const connBusy = ref(false)
 const connError = ref('')
 
 // Number fields keep the typed text until saved; notes explain clamping.
-type FieldKey = 'poll' | 'restarts' | 'window' | 'retention'
-const fields = reactive<Record<FieldKey, string>>({ poll: '', restarts: '', window: '', retention: '' })
-const notes = reactive<Record<FieldKey, string>>({ poll: '', restarts: '', window: '', retention: '' })
+type FieldKey = 'poll' | 'recheck' | 'restarts' | 'window' | 'retention'
+const fields = reactive<Record<FieldKey, string>>({ poll: '', recheck: '', restarts: '', window: '', retention: '' })
+const notes = reactive<Record<FieldKey, string>>({ poll: '', recheck: '', restarts: '', window: '', retention: '' })
 // Fields typed in since their last change event: a save's response never
 // overwrites them.
 const editing = reactive(new Set<FieldKey>())
@@ -77,6 +77,7 @@ const connDirty = computed(() => {
 function showSaved(st: Settings) {
   const text: Record<FieldKey, string> = {
     poll: String(nsToSeconds(st.pollInterval)),
+    recheck: String(nsToSeconds(st.configRecheck)),
     restarts: String(st.crashLoop.restarts),
     window: String(nsToMinutes(st.crashLoop.window)),
     retention: String(st.retentionDays),
@@ -244,6 +245,7 @@ const queue = createSaveQueue<Settings, SettingsView>({
     const st = view.value!.Settings
     const kept: Record<FieldKey, [number, Limit, string]> = {
       poll: [nsToSeconds(st.pollInterval), LIMITS.pollSeconds, 'second'],
+      recheck: [nsToSeconds(st.configRecheck), LIMITS.recheckSeconds, 'second'],
       restarts: [st.crashLoop.restarts, LIMITS.restarts, 'restart'],
       window: [nsToMinutes(st.crashLoop.window), LIMITS.windowMinutes, 'minute'],
       retention: [st.retentionDays, LIMITS.retentionDays, 'day'],
@@ -273,6 +275,7 @@ function saveField(key: FieldKey, apply: (next: Settings, n: number) => void) {
 }
 
 const savePoll = () => saveField('poll', (next, n) => (next.pollInterval = secondsToNs(n)))
+const saveRecheck = () => saveField('recheck', (next, n) => (next.configRecheck = secondsToNs(Math.round(n))))
 const saveRestarts = () => saveField('restarts', (next, n) => (next.crashLoop.restarts = Math.round(n)))
 const saveWindow = () => saveField('window', (next, n) => (next.crashLoop.window = minutesToNs(n)))
 
@@ -611,6 +614,17 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
           </div>
           <div class="ctl">
             <input id="poll" v-model="fields.poll" class="input num" @input="editing.add('poll')" type="number" inputmode="decimal" :min="LIMITS.pollSeconds.min" :max="LIMITS.pollSeconds.max" step="1" @change="savePoll" />
+            <span class="unit">seconds</span>
+          </div>
+        </div>
+        <div class="row">
+          <div class="what">
+            <label class="name" for="recheck">Recheck changed configs every</label>
+            <span class="hint">While a config shows as changed on disk, Visor asks supervisord this often whether it was already applied, by a deploy script or supervisorctl update. It starts and stops nothing; Read only servers are never asked. 15 to 600 seconds.</span>
+            <span v-if="notes.recheck" class="note" role="status">{{ notes.recheck }}</span>
+          </div>
+          <div class="ctl">
+            <input id="recheck" v-model="fields.recheck" class="input num" @input="editing.add('recheck')" type="number" inputmode="numeric" :min="LIMITS.recheckSeconds.min" :max="LIMITS.recheckSeconds.max" step="1" @change="saveRecheck" />
             <span class="unit">seconds</span>
           </div>
         </div>

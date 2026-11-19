@@ -290,9 +290,9 @@ func (s *ServerService) ClearLogs(name string) error {
 // and reports which groups were added, changed or removed. Nothing is
 // applied.
 //
-// When supervisord sees no difference, it runs every file as it is on disk,
-// so their "changed" badges clear: a file added and applied outside Visor
-// (supervisorctl update) no longer reads as changed.
+// Files supervisord already runs as they are on disk (applied outside
+// Visor, by supervisorctl update or a deploy script) have their "changed"
+// badges cleared; when nothing differs, every file's does.
 func (s *ServerService) CheckForChanges() (supervisor.ConfigDiff, error) {
 	var diff supervisor.ConfigDiff
 	err := s.rt.act(expectation{}, func(ctx context.Context, c *supervisor.Client) error {
@@ -300,9 +300,16 @@ func (s *ServerService) CheckForChanges() (supervisor.ConfigDiff, error) {
 		diff, err = c.ReloadConfig(ctx)
 		return wrap("check for changes", err)
 	})
-	if err == nil && len(diff.Added)+len(diff.Changed)+len(diff.Removed) == 0 {
+	if err == nil {
+		// Files supervisord already runs (applied outside Visor) are
+		// recorded as loaded; with nothing differing, every file is.
 		s.rt.applyMu.Lock()
-		merr := s.rt.markAllLoaded()
+		var merr error
+		if len(diff.Added)+len(diff.Changed)+len(diff.Removed) == 0 {
+			merr = s.rt.markAllLoaded()
+		} else {
+			merr = s.rt.markInSync(s.rt.changeSet(), diff)
+		}
 		s.rt.applyMu.Unlock()
 		if merr == nil {
 			s.rt.emitOverview()

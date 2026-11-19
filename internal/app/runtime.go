@@ -192,6 +192,10 @@ type Runtime struct {
 	session *RemoteSession
 	link    *remoteLink
 	filesAt time.Time
+	// confirmKey is the flagged files (changed, added, removed, uncertain)
+	// supervisord was last asked about, at confirmedAt (confirmFlagged).
+	confirmKey  string
+	confirmedAt time.Time
 	// server is the saved server after an edit (SetServer); nil until then.
 	server *settings.Server
 	// Activity: the log, this connection's deriver, Visor's own actions and
@@ -565,7 +569,7 @@ func (r *Runtime) disconnect() {
 	r.cancel, r.client, r.mon, r.watcher = nil, nil, nil, nil // the tracker and store stay
 	r.d, r.connErr = config.Discovery{}, nil
 	r.inv, r.changes, r.last = config.Inventory{}, config.ChangeSet{}, monitor.Update{}
-	r.version, r.failedPolls = "", 0
+	r.version, r.failedPolls, r.confirmKey = "", 0, ""
 	r.mu.Unlock()
 }
 
@@ -635,6 +639,14 @@ func (r *Runtime) handle(u monitor.Update) {
 	}
 	r.recordActivity(u, d, changes, checkFiles && changesErr == nil, res)
 	r.emitOverview()
+	// Then ask supervisord about flagged files. The page saw the change
+	// first (an open editor reloads the file), then sees what it said. A
+	// failed ask is retried at the next recheck.
+	if checkFiles && changesErr == nil && u.Snapshot.Reachable {
+		if asked, _ := r.confirmFlagged(base, client, changes, false); asked {
+			r.emitOverview()
+		}
+	}
 	for _, is := range res.Opened {
 		iv := toIssueView(is)
 		iv.Server = r.ID()
