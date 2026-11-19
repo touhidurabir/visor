@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyChunk, countMatches, emptyLog, highlight, noLogMessage, shownLines } from './logview'
+import { applyChunk, countMatches, emptyLog, highlight, markedLines, noLogMessage, shownLines } from './logview'
 
 const chunk = (Text: string, extra: Partial<{ Truncated: boolean; Skipped: boolean }> = {}) => ({
   ID: 'log-1',
@@ -105,5 +105,21 @@ describe('noLogMessage', () => {
   })
   it('is null for other errors', () => {
     expect(noLogMessage(new Error('supervisord: unreachable'))).toBeNull()
+  })
+})
+
+describe('markedLines', () => {
+  const s = applyChunk(emptyLog(), { Text: 'aa\nb\na\nAAA\n', Truncated: false, Skipped: false })
+  const ids = (q: string, max?: number) => [...markedLines(s.lines, q, max)].map((id) => s.lines.find((l) => l.id === id)!.text)
+
+  it('highlights the newest lines whose matches stay within the cap', () => {
+    expect(ids('a')).toEqual(['AAA', 'a', 'aa'])
+    expect(ids('a', 4)).toEqual(['AAA', 'a']) // "aa" would make 6
+    expect(ids('a', 2)).toEqual([]) // the newest line alone is over the cap
+    expect(ids('')).toEqual([])
+  })
+
+  it('counts overlapping text once per match', () => {
+    expect(countMatches(s.lines, 'aa')).toBe(2) // "aa" and the first two of "AAA"
   })
 })

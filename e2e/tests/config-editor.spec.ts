@@ -32,6 +32,22 @@ async function setText(page: Page, text: string) {
 }
 
 test.describe('config editor', () => {
+  test('Copy puts the config on the clipboard', async ({ page }) => {
+    // Record what the page writes: WebKit gives tests no clipboard to read.
+    await page.addInitScript(() => {
+      const w = window as unknown as { copied: string[] }
+      w.copied = []
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: async (t: string) => void w.copied.push(t) },
+      })
+    })
+    await openEditor(page)
+    await page.getByRole('button', { name: 'Copy', exact: true }).click()
+    await expect(page.getByRole('status').filter({ hasText: 'Copied notes.ini.' })).toBeVisible()
+    expect(await page.evaluate(() => (window as unknown as { copied: string[] }).copied)).toEqual([original])
+  })
+
   test('saves with a diff preview, applies only this file, and restores the backup', async ({ page }) => {
     const errors = collectErrors(page)
     await openEditor(page)

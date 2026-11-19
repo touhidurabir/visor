@@ -13,7 +13,7 @@ import { withConsent } from '../lib/production'
 import { VisorLog } from '../../bindings/events'
 import { describeError } from '../lib/faults'
 import { onMenu } from '../lib/menu'
-import { applyChunk, countMatches, emptyLog, highlight, noLogMessage, shownLines, type Stream } from '../lib/logview'
+import { applyChunk, countMatches, emptyLog, highlight, markedLines, MAX_MARKS, noLogMessage, shownLines, type Stream } from '../lib/logview'
 import { showToast } from '../lib/toast'
 import ConfirmDialog from './ConfirmDialog.vue'
 
@@ -29,6 +29,8 @@ const props = defineProps<{ process: string; stdoutLog: string; stderrLog: strin
 const stream = ref<Stream>(props.initialStream)
 const paused = ref(false)
 const query = ref('')
+/** query as searched: set once typing pauses, so each key doesn't redraw the log. */
+const q = ref('')
 const live = shallowRef(emptyLog())
 const frozen = shallowRef(emptyLog())
 const loading = ref(true)
@@ -48,7 +50,8 @@ let stick = true // keep the view scrolled to the newest line
 
 const shown = computed(() => shownLines(paused.value ? frozen.value : live.value))
 const waiting = computed(() => (paused.value ? live.value.next - frozen.value.next : 0))
-const matches = computed(() => countMatches(shown.value, query.value))
+const matches = computed(() => countMatches(shown.value, q.value))
+const marked = computed(() => markedLines(shown.value, q.value))
 const editorPath = computed(() => (stream.value === 'stdout' ? props.stdoutLog : props.stderrLog))
 
 const off = Events.On(VisorLog, (ev) => {
@@ -169,6 +172,13 @@ function focusSearch() {
 }
 let offFind: () => void = () => {}
 
+let typing: ReturnType<typeof setTimeout> | undefined
+watch(query, (v) => {
+  clearTimeout(typing)
+  if (v === '') q.value = ''
+  else typing = setTimeout(() => (q.value = v), 200)
+})
+
 // The parent keys this view by process, so only the stream changes here.
 watch(stream, () => void follow())
 onMounted(() => {
@@ -177,6 +187,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   gen++
+  clearTimeout(typing)
   off()
   offFind()
   void unfollow()
@@ -207,7 +218,7 @@ onBeforeUnmount(() => {
         </button>
         <label for="logq" class="sr-only">Search log</label>
         <input id="logq" ref="search" v-model="query" class="input search" type="search" placeholder="Search log" autocomplete="off" />
-        <span v-if="query" class="meta" aria-live="polite">{{ matches === 0 ? 'No matches' : matches === 1 ? '1 match' : `${matches} matches` }}</span>
+        <span v-if="q" class="meta" aria-live="polite">{{ matches === 0 ? 'No matches' : matches === 1 ? '1 match' : `${matches.toLocaleString()} matches` }}{{ matches > MAX_MARKS ? ` · the newest ${MAX_MARKS.toLocaleString()} highlighted` : '' }}</span>
         <span class="meta follow" role="status" data-testid="follow-state">
           <template v-if="paused">
             <span class="dot d-warn" aria-hidden="true" /><span title="New lines are buffered and appear when you resume.">Paused{{ waiting > 0 ? ` · ${waiting} new ${waiting === 1 ? 'line' : 'lines'} waiting` : '' }}</span>
@@ -268,7 +279,7 @@ onBeforeUnmount(() => {
       :aria-label="`${stream} log of ${process}`"
       :aria-busy="loading"
       @scroll="onScroll"
-    ><span v-if="loading" class="note">Loading…</span><span v-else-if="!shown.length" class="note">No output yet. New lines appear here as they are written.</span><template v-else><template v-for="l in shown" :key="l.id"><span v-if="l.note" class="line"><span class="ln" aria-hidden="true" /><span class="note">— {{ l.text }} —</span></span><span v-else class="line"><span class="ln" aria-hidden="true">{{ l.n }}</span><span class="tx"><template v-for="(s, j) in highlight(l.text, query)" :key="j"><mark v-if="s.match">{{ s.text }}</mark><template v-else>{{ s.text }}</template></template></span></span></template></template></pre>
+    ><span v-if="loading" class="note">Loading…</span><span v-else-if="!shown.length" class="note">No output yet. New lines appear here as they are written.</span><template v-else><span v-for="l in shown" :key="l.id" v-memo="[l.n, l.text, q, marked.has(l.id)]" class="line"><span class="ln" aria-hidden="true">{{ l.note ? '' : l.n }}</span><span v-if="l.note" class="note">— {{ l.text }} —</span><span v-else class="tx"><template v-for="(s, j) in highlight(l.text, marked.has(l.id) ? q : '')" :key="j"><mark v-if="s.match">{{ s.text }}</mark><template v-else>{{ s.text }}</template></template></span></span></template></pre>
 
     <ConfirmDialog
       v-if="confirmClear"

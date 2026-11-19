@@ -84,12 +84,41 @@ export function highlight(text: string, query: string): Segment[] {
   return out
 }
 
+/** How many matches a log view highlights, newest first: a <mark> each, so tens of thousands froze the view. */
+export const MAX_MARKS = 1000
+
+function countIn(text: string, needle: string): number {
+  const hay = text.toLowerCase()
+  let n = 0
+  for (let i = hay.indexOf(needle); i !== -1; i = hay.indexOf(needle, i + needle.length)) n++
+  return n
+}
+
 /** countMatches counts matches of query in the log lines (not notes). */
 export function countMatches(lines: LogLine[], query: string): number {
   if (!query) return 0
+  const needle = query.toLowerCase()
   let n = 0
-  for (const l of lines) if (!l.note) n += highlight(l.text, query).filter((s) => s.match).length
+  for (const l of lines) if (!l.note) n += countIn(l.text, needle)
   return n
+}
+
+/** markedLines returns the ids of the newest lines to highlight, whose matches together stay within max. */
+export function markedLines(lines: LogLine[], query: string, max = MAX_MARKS): Set<number> {
+  const ids = new Set<number>()
+  if (!query) return ids
+  const needle = query.toLowerCase()
+  let n = 0
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i]
+    if (l.note) continue
+    const c = countIn(l.text, needle)
+    if (c === 0) continue
+    if (n + c > max) break
+    n += c
+    ids.add(l.id)
+  }
+  return ids
 }
 
 /**

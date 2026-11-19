@@ -324,10 +324,10 @@ async function applyDisk() {
 
 const diskDiff = computed(() => diffLines(diskNewer.value?.Content ?? '', text.value))
 
-async function copyEdits() {
+async function copyEdits(done = 'Copied your edits.') {
   try {
     await copyText(text.value)
-    showToast('Copied your edits.')
+    showToast(done)
   } catch (e) {
     showToast(describeError(e), 'error')
   }
@@ -395,13 +395,13 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
           <span>Your edits are still here and nothing was saved over the other change.</span>
           <span class="actions">
             <button type="button" class="btn" @click="compare = true">Review the differences</button>
-            <button type="button" class="btn" @click="copyEdits">Copy my edits</button>
+            <button type="button" class="btn" @click="copyEdits()">Copy my edits</button>
           </span>
         </div>
 
         <div v-if="failure" class="banner bad" role="alert">
           <span>{{ failure }}</span>
-          <button v-if="!diskNewer" type="button" class="btn" @click="copyEdits">Copy my edits</button>
+          <button v-if="!diskNewer" type="button" class="btn" @click="copyEdits()">Copy my edits</button>
         </div>
 
         <p v-if="restoredDraft" class="note" role="status">Your unsaved edits from earlier are back in the editor.</p>
@@ -468,6 +468,7 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
     </div>
 
     <SaveBar v-if="file" :tone="bar.tone" :status="bar.status" note="A timestamped backup is saved before every write.">
+      <button type="button" class="btn" @click="copyEdits(dirty ? 'Copied your edits.' : `Copied ${fileName}.`)">Copy</button>
       <button type="button" class="btn" :disabled="!!busy" @click="openRestore">Restore a backup…</button>
       <button type="button" class="btn" :disabled="!!busy" @click="runChecks">Validate</button>
       <button type="button" class="btn primary" :disabled="!!cantSave" @click="startSave">
@@ -497,7 +498,7 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
       <DiffView :lines="diskDiff" label="File on disk compared with your edits" empty="Your edits match the file on disk." />
       <template #actions>
         <button type="button" class="btn" @click="compare = false">Close</button>
-        <button type="button" class="btn" @click="copyEdits">Copy my edits</button>
+        <button type="button" class="btn" @click="copyEdits()">Copy my edits</button>
         <button type="button" class="btn" @click="loadNewVersion">Load the new version</button>
         <button type="button" class="btn primary" @click="keepMyEdits">Keep my edits</button>
       </template>
