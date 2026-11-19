@@ -173,6 +173,7 @@ test.describe('server tabs', () => {
   test('configs on a server are read only: the page says so and offers Download', async ({ page }) => {
     await openApp(page, '/')
     const tab = tabs(page).getByRole('tab', { name: new RegExp(NAME) })
+    await tab.waitFor({ timeout: 5_000 }).catch(() => {}) // open from the last test, once the tabs load
     if (!(await tab.count())) {
       await page.getByRole('button', { name: 'Open a server' }).click()
       await page.getByRole('menuitem', { name: new RegExp(NAME) }).click()
@@ -184,6 +185,23 @@ test.describe('server tabs', () => {
     await expect(page.getByRole('link', { name: 'How to allow editing' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Download a copy' })).toBeVisible()
     await expect(page.getByRole('button', { name: words.reveal })).toHaveCount(0)
+
+    // Read only still selects like any text: a click focuses the file,
+    // select-all takes only the file, and typing changes nothing.
+    await page.getByRole('tab', { name: 'Config' }).click()
+    const editor = page.getByTestId('ini-editor')
+    const content = editor.locator('.cm-content')
+    const before = await content.textContent()
+    await content.click()
+    await expect(content).toBeFocused()
+    await page.keyboard.press('ControlOrMeta+a')
+    const inside = await editor.evaluate((el) => {
+      const s = getSelection()
+      return !!s && !s.isCollapsed && el.contains(s.anchorNode) && el.contains(s.focusNode)
+    })
+    expect(inside).toBe(true)
+    await page.keyboard.type('x')
+    expect(await content.textContent()).toBe(before)
 
     await tab.click() // back to its dashboard
     await page.getByRole('navigation', { name: NAME }).getByRole('link', { name: 'Dashboard' }).click()
