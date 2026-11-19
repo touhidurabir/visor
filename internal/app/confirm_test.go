@@ -2,11 +2,13 @@ package app
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/touhidurabir/visor/internal/apply"
 	"github.com/touhidurabir/visor/internal/settings"
+	"github.com/touhidurabir/visor/internal/supervisor"
 	"github.com/touhidurabir/visor/internal/supervisor/supervisortest"
 )
 
@@ -89,5 +91,59 @@ func TestReadOnlyServerIsNotAsked(t *testing.T) {
 	}
 	if !f.rt.flagged(path) {
 		t.Error("a Read only server was asked: the file is no longer flagged")
+	}
+}
+
+// An [eventlistener:] section is a group too (the inventory reads only
+// [program:] and [group:]): a new listener stays flagged while a file
+// applied elsewhere beside it clears, from Check for changes as well.
+func TestEventListenerStaysFlaggedBesideAnAppliedFile(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	rt, _ := startRuntime(t, confOf(inst), t.TempDir(), 100*time.Millisecond)
+	svc := NewServerService(rt)
+	waitRunning(t, svc, "sleeper:sleeper")
+
+	listener := confFile(inst, "listener")
+	if err := os.WriteFile(listener, []byte("[eventlistener:listen]\ncommand=sleep 3600\nevents=PROCESS_STATE\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inst.WriteProgram(t, supervisortest.Program{Name: "deployed", Command: "sleep 3600"})
+	waitOverview(t, svc, 5*time.Second, "both flagged", func(OverviewView) bool { return flagged(changesOf(rt)) == 2 })
+	applyElsewhere(t, inst, "deployed")
+
+	diff, err := svc.CheckForChanges()
+	if err != nil || len(diff.Added) != 1 || diff.Added[0] != "listen" {
+		t.Fatalf("CheckForChanges = %+v, %v", diff, err)
+	}
+	if rt.flagged(confFile(inst, "deployed")) {
+		t.Error("deployed.ini still flagged after supervisord said it runs it")
+	}
+	if !rt.flagged(listener) {
+		t.Error("listener.ini cleared, but supervisord hasn't added the listener")
+	}
+}
+
+// A differing group Visor can't place in any file might be in any flagged
+// file, so none is recorded as loaded.
+func TestUnplacedGroupMarksNothing(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	rt, _ := startRuntime(t, confOf(inst), t.TempDir(), 100*time.Millisecond)
+	rt.mu.Lock()
+	rt.prefs.ConfigRecheck = time.Hour // only the first ask, which happens before the outside apply
+	rt.mu.Unlock()
+	svc := NewServerService(rt)
+	waitRunning(t, svc, "sleeper:sleeper")
+
+	inst.WriteProgram(t, supervisortest.Program{Name: "deployed", Command: "sleep 3600"})
+	waitOverview(t, svc, 5*time.Second, "deployed flagged", func(OverviewView) bool { return flagged(changesOf(rt)) == 1 })
+	applyElsewhere(t, inst, "deployed")
+	rt.applyMu.Lock()
+	err := rt.markInSync(changesOf(rt), supervisor.ConfigDiff{Changed: []string{"ghost"}})
+	rt.applyMu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rt.flagged(confFile(inst, "deployed")) {
+		t.Error("deployed.ini recorded as loaded although supervisord reported a group Visor can't place")
 	}
 }

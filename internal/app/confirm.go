@@ -1,7 +1,10 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"io/fs"
 	"slices"
 	"strings"
 	"time"
@@ -21,19 +24,19 @@ func (r *Runtime) confirmFlagged(ctx context.Context, c *supervisor.Client, cs c
 	key := strings.Join(flaggedPaths(cs), "\n")
 	r.mu.Lock()
 	due := key != "" && c != nil && (now || key != r.confirmKey || time.Since(r.confirmedAt) >= r.prefs.ConfigRecheck)
-	if due {
-		r.confirmKey, r.confirmedAt = key, time.Now()
-	}
 	r.mu.Unlock()
 	if !due || r.CheckAction() != nil {
 		return false, nil
 	}
 	if now {
 		r.applyMu.Lock()
-	} else if !r.applyMu.TryLock() { // an apply is running; it records what it loads
+	} else if !r.applyMu.TryLock() { // an apply is running; the next poll asks
 		return false, nil
 	}
 	defer r.applyMu.Unlock()
+	r.mu.Lock()
+	r.confirmKey, r.confirmedAt = key, time.Now()
+	r.mu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, rpcTimeout)
 	diff, err := c.ReloadConfig(ctx)
 	cancel()
@@ -51,11 +54,33 @@ func (r *Runtime) confirmFlagged(ctx context.Context, c *supervisor.Client, cs c
 
 // markInSync records as loaded each file flagged in cs that defines none of
 // the groups in diff (what differs from what supervisord runs): supervisord
-// already runs it as it is on disk. The caller holds applyMu.
+// already runs it as it is on disk. A flagged file Visor can't read as
+// supervisord does is never marked, and when a differing group can't be
+// placed in any file (a section Visor can't read), none is: it might be in
+// any of them. The caller holds applyMu.
 func (r *Runtime) markInSync(cs config.ChangeSet, diff supervisor.ConfigDiff) error {
-	pending := map[string]bool{}
-	for _, f := range r.filesOfGroups(slices.Concat(diff.Added, diff.Changed, diff.Removed)) {
+	want := slices.Concat(diff.Added, diff.Changed, diff.Removed)
+	pending, placed := map[string]bool{}, map[string]bool{}
+	for _, f := range r.filesOfGroups(want) {
 		pending[f.path] = true
+		for _, g := range f.groups {
+			placed[g] = true
+		}
+	}
+	// filesOfGroups knows [program:] and [group:] sections only.
+	for _, p := range flaggedPaths(cs) {
+		gs, ok := r.sectionGroups(p)
+		if !ok || slices.ContainsFunc(gs, func(g string) bool { return slices.Contains(want, g) }) {
+			pending[p] = true
+		}
+		for _, g := range gs {
+			placed[g] = true
+		}
+	}
+	for _, g := range want {
+		if !placed[g] {
+			return nil
+		}
 	}
 	var done []string
 	for _, p := range flaggedPaths(cs) {
@@ -83,4 +108,31 @@ func (r *Runtime) changeSet() config.ChangeSet {
 // uncertain.
 func (r *Runtime) flagged(path string) bool {
 	return slices.Contains(flaggedPaths(r.changeSet()), path)
+}
+
+// sectionGroups lists the groups path defines as supervisord reads it: its
+// [group:], [program:], [eventlistener:] and [fcgi-program:] sections, from
+// disk or, for a file gone from disk, from Visor's snapshot. ok is false when
+// Visor can't read or parse it.
+func (r *Runtime) sectionGroups(path string) ([]string, bool) {
+	content, err := r.files().ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		var ok bool
+		if content, ok = r.loadedSnapshot(path); !ok {
+			return nil, true // nothing on disk and nothing loaded
+		}
+	} else if err != nil {
+		return nil, false
+	}
+	f, err := config.ParseINI(bytes.NewReader(content), path)
+	if err != nil {
+		return nil, false
+	}
+	var out []string
+	for _, prefix := range []string{"group:", "program:", "eventlistener:", "fcgi-program:"} {
+		for _, sec := range f.SectionsWithPrefix(prefix) {
+			out = append(out, strings.TrimPrefix(sec.Name, prefix))
+		}
+	}
+	return out, true
 }

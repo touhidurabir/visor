@@ -137,6 +137,8 @@ func (s *ConfigService) LoadedDiff(path string) (LoadedDiffView, error) {
 			if asked {
 				s.rt.emitOverview()
 			}
+		} else {
+			v.CheckError = err.Error()
 		}
 	}
 	disk, err := s.rt.files().ReadFile(path)

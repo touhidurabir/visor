@@ -639,20 +639,20 @@ func (r *Runtime) handle(u monitor.Update) {
 	}
 	r.recordActivity(u, d, changes, checkFiles && changesErr == nil, res)
 	r.emitOverview()
-	// Then ask supervisord about flagged files. The page saw the change
-	// first (an open editor reloads the file), then sees what it said. A
-	// failed ask is retried at the next recheck.
-	if checkFiles && changesErr == nil && u.Snapshot.Reachable {
-		if asked, _ := r.confirmFlagged(base, client, changes, false); asked {
-			r.emitOverview()
-		}
-	}
 	for _, is := range res.Opened {
 		iv := toIssueView(is)
 		iv.Server = r.ID()
 		r.opts.Emit(EventIssueOpened, iv)
 	}
 	r.notifyIssues(res, tracker)
+	// Then, after any alerts, ask supervisord about flagged files. The page
+	// saw the change first (an open editor reloads the file), then sees what
+	// it said. A failed ask is retried at the next recheck.
+	if checkFiles && changesErr == nil && u.Snapshot.Reachable {
+		if asked, _ := r.confirmFlagged(base, client, changes, false); asked {
+			r.emitOverview()
+		}
+	}
 }
 
 // notifyOpened is notifyIssues for issues that just opened.

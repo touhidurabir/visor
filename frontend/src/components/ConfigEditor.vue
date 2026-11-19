@@ -151,19 +151,24 @@ async function refreshFromDisk() {
   }
 }
 
+let loadedSeq = 0
 async function loadLoadedDiff() {
+  const seq = ++loadedSeq // only the latest answer is shown
   if (!props.changed && !props.uncertain) {
     loadedDiff.value = null
     return
   }
   checkingLoaded.value = true
   try {
-    loadedDiff.value = await ConfigService.LoadedDiff(props.path)
+    const v = await ConfigService.LoadedDiff(props.path)
+    if (gone || seq !== loadedSeq) return
+    loadedDiff.value = v
     loadedDiffError.value = null
   } catch (e) {
+    if (gone || seq !== loadedSeq) return
     loadedDiffError.value = describeError(e)
   } finally {
-    checkingLoaded.value = false
+    if (seq === loadedSeq) checkingLoaded.value = false
   }
 }
 void loadLoadedDiff()
@@ -171,6 +176,7 @@ void loadLoadedDiff()
 watch(
   () => [props.changed, props.uncertain],
   () => {
+    loadedDiff.value = null // flagged again: not the last answer
     void loadLoadedDiff()
     if (!busy.value) void refreshFromDisk()
   },
