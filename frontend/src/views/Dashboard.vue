@@ -36,6 +36,7 @@ import { showToast } from '../lib/toast'
 import { onMenu, takePendingMenu } from '../lib/menu'
 import { modKeyHint, shortcutHint } from '../lib/shortcuts'
 import ReadOnlyBanner from '../components/ReadOnlyBanner.vue'
+import { tabHref } from '../lib/tabs'
 
 const router = useRouter()
 const { overview, error: loadError, reload } = useOverview()
@@ -327,7 +328,7 @@ function sendSignal(sig: string) {
           <button v-if="!host.readOnly" type="button" class="btn" :disabled="checking || !!offline" :title="offline" @click="checkForChanges">
             {{ checking ? 'Checking…' : 'Check for changes' }}
           </button>
-          <RouterLink v-if="!host.remote" class="btn primary" to="/new">
+          <RouterLink v-if="!host.readOnly" class="btn primary" :to="tabHref('/new')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>Add new
           </RouterLink>
           <ActionMenu :items="menuItems" label="Server actions" heading="Whole server" @select="onServer" />
@@ -343,7 +344,7 @@ function sendSignal(sig: string) {
 
       <ActivityStrip />
       <ReadOnlyBanner />
-      <ChangedBanner v-if="!host.remote" :configs="configs" :busy="flow.running.value" @apply="flow.applyAll" @load="(c) => onConfig(c, 'load')" />
+      <ChangedBanner v-if="!host.readOnly" :configs="configs" :busy="flow.running.value" @apply="flow.applyAll" @load="(c) => onConfig(c, 'load')" />
       <ApplyReport v-if="flow.report.value" :report="flow.report.value" :busy="flow.running.value" @undo="flow.undo" @dismiss="flow.dismiss" />
 
       <section v-if="healthView" class="health" aria-label="Health">
@@ -389,7 +390,7 @@ function sendSignal(sig: string) {
         <p class="meta">Each ⋯ menu shows the matching <span class="mono">supervisorctl</span> command in grey. Copy it with the button beside it, or {{ modKeyHint('c') }}.</p>
       </section>
 
-      <RecentlyRemoved v-if="!host.remote" :stamp="removedStamp" @restored="reload" />
+      <RecentlyRemoved v-if="!host.readOnly" :stamp="removedStamp" @restored="reload" />
     </template>
 
     <SignalDialog v-if="signalFor" :process="signalFor.FullName" @send="sendSignal" @cancel="signalFor = null" />

@@ -17,7 +17,7 @@ import { baseName, tabHref } from '../lib/tabs'
 // remote/color: the tab is a server's (its colour leads its name).
 // blocked: a server Visor can't reach (its report says why): Dashboard and
 // Issues are greyed until it can.
-const props = defineProps<{ name: string; health: string; failing: number; openIssues: number; connection: string | null; remote?: boolean; color?: string; blocked?: boolean }>()
+const props = defineProps<{ name: string; health: string; failing: number; openIssues: number; connection: string | null; remote?: boolean; readOnly?: boolean; color?: string; blocked?: boolean }>()
 
 // Shortcut hints, as Visor's menu bar shows them on macOS (⌘N, ⌘,) and
 // AppShell carries them out on Linux (Ctrl+N, Ctrl+,).
@@ -86,7 +86,7 @@ const dot = computed(() => {
           </svg>
           Activity
         </RouterLink>
-        <RouterLink v-if="!remote" to="/new" :class="['nav', on('new')]" :aria-keyshortcuts="KEYS.newConfig.aria">
+        <RouterLink v-if="!readOnly" :to="remote ? tabHref('/new') : '/new'" :class="['nav', on('new')]" :aria-keyshortcuts="KEYS.newConfig.aria">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
             <path d="M12 5v14" /><path d="M5 12h14" />
           </svg>

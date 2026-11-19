@@ -1,6 +1,7 @@
 // Production servers ask first (spec decision "Tag"): Stop, Restart, Signal,
-// Clear log, Stop all, Restart all, and restarting or shutting down
-// supervisord, wherever they are started from. lib/api.ts runs every such
+// Clear log, Stop all, Restart all, restarting or shutting down supervisord,
+// and (M8) every config change that applies, which restarts the changed
+// programs: Save, Apply, Load, Add, Import, Remove and Restore. lib/api.ts runs every such
 // call through guard(); a dialog that already asked (a menu's or a bulk
 // confirm) calls withConsent() so the person isn't asked twice.
 import { ref } from 'vue'
@@ -59,6 +60,8 @@ export function withConsent<T>(fn: () => T, tab: string = currentTab.value): T {
 
 const base = (p: string) => p.split('/').pop() || p
 
+const APPLIES = 'supervisord restarts the programs that changed. Work in progress is interrupted.'
+
 /** What each guarded call asks: [title, message, button]. */
 const QUESTIONS: Record<string, (args: unknown[]) => [string, string, string]> = {
   Stop: ([n]) => [`Stop ${n}`, 'It stops and stays stopped until you start it again.', 'Stop'],
@@ -73,9 +76,26 @@ const QUESTIONS: Record<string, (args: unknown[]) => [string, string, string]> =
   RestartFile: ([p]) => [`Restart all in ${base(String(p))}`, 'Every process of the file stops and starts again.', 'Restart all'],
   RestartDaemon: () => ['Restart supervisord', 'Every process stops and starts again from the config files.', 'Restart supervisord'],
   ShutdownDaemon: () => ['Shut down supervisord', 'Every process stops, and supervisord with them.', 'Shut down'],
+  Save: ([p]) => [`Save ${base(String(p))}`, APPLIES, 'Save and apply'],
+  ApplyFile: ([p]) => [`Apply ${base(String(p))}`, APPLIES, 'Apply'],
+  ApplyChanges: () => ['Apply every changed config', 'supervisord re-reads its configs and restarts every program that changed. Work in progress is interrupted.', 'Apply all'],
+  LoadFile: ([p]) => [`Load ${base(String(p))}`, 'supervisord adds its programs and starts the ones set to start.', 'Load'],
+  Create: ([n]) => [`Add ${String(n)}`, 'Visor writes the new config and supervisord adds its programs, starting the ones set to start.', 'Add'],
+  Import: ([items]) => [`Import ${Array.isArray(items) && items.length === 1 ? 'a config' : 'configs'}`, 'Visor writes the files and supervisord adds their programs, starting the ones set to start.', 'Import'],
+  Restore: ([p]) => [`Restore ${base(String(p))}`, APPLIES, 'Restore'],
+  RemoveFromSupervisor: ([p]) => [`Remove ${base(String(p))}`, 'Its processes stop and supervisord forgets them. Visor keeps a backup to restore it from.', 'Remove'],
 }
 
 export const GUARDED = new Set(Object.keys(QUESTIONS))
+
+/**
+ * onProduction is " on <server>" when tab is a production server, for the
+ * title of a dialog that asks itself (and then runs its call withConsent).
+ */
+export function onProduction(tab: string = currentTab.value): string {
+  if (!isProduction(tab)) return ''
+  return ` on ${serverTabs.value.find((t) => t.id === tab)?.name ?? 'this server'}`
+}
 
 /** isProduction: the tab is a server tagged production. */
 export function isProduction(tab: string): boolean {

@@ -19,6 +19,7 @@ export function classifySaveError(e: unknown): SaveFailure {
 
 /** The sentence to show for a failed save or restore. */
 export function saveErrorText(e: unknown, file: string): string {
+  if (e instanceof Error && e.name === 'CancelledError') return '' // a production question answered No
   switch (classifySaveError(e)) {
     case 'changed':
       return `${file} changed on disk after you opened it, so Visor did not save over it.`

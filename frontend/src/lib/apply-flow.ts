@@ -1,6 +1,7 @@
 // The apply flow shared by the banner, the menus and the tray popover: show
 // what supervisord will add, restart or remove, ask, apply, then report. The
 // text is pure (and tested); useApplyFlow holds the state around the calls.
+import { onProduction, withConsent } from './production'
 import { ref } from 'vue'
 import { type ApplyResultView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { ConfigService, ServerService } from './api'
@@ -104,7 +105,7 @@ export function useApplyFlow(onDone: () => void = () => {}) {
       const message = previewMessage(diff) || `${label} has no changes supervisord can see yet. Applying re-reads it and updates its processes.`
       const shown = [...list(diff.Added), ...list(diff.Changed), ...list(diff.Removed)]
       go = async () => finish('Applied', await run(shown))
-      pending.value = { title: `Apply changes to ${label}?`, message, confirmLabel: 'Apply changes', danger: false }
+      pending.value = { title: `Apply changes to ${label}${onProduction()}?`, message, confirmLabel: 'Apply changes', danger: false }
     })
   }
 
@@ -143,7 +144,8 @@ export function useApplyFlow(onDone: () => void = () => {}) {
     const run = go
     pending.value = null
     go = null
-    if (run) void guarded(run)
+    // Its confirm asked: a production server doesn't ask again.
+    if (run) void withConsent(() => guarded(run))
   }
   function cancel() {
     pending.value = null

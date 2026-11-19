@@ -151,15 +151,14 @@ export interface HostRules {
   readOnly: boolean
 }
 
-/** Why config changes are off on a server (M7: configs there are read only). */
-export const SERVER_CONFIGS_READ_ONLY = 'Configs on servers are read only in this version of Visor'
-
-const WRITES_CONFIG = new Set(['load', 'apply', 'remove', 'apply-all'])
+/** What Remove from supervisor does on a server, for its confirm. */
+export const REMOVE_ON_SERVER =
+  'Visor stops this file’s processes, removes them from supervisord and deletes the file on the server, keeping a copy in Visor’s backups on this computer. “Undo” right after, or “Restore” under Recently removed on the dashboard, puts it back.'
 
 /**
  * forHost adapts a menu to the tab: on a server, files open as a Download
- * (no Finder or editor here), config changes are off with the reason, and
- * with Read only every action that changes something is gone.
+ * (no Finder or editor here) and Remove says where the backup goes; with
+ * Read only every action that changes something is gone.
  */
 export function forHost(items: MenuItem[], h: HostRules | null | undefined): MenuItem[] {
   if (!h?.remote) return items
@@ -167,7 +166,7 @@ export function forHost(items: MenuItem[], h: HostRules | null | undefined): Men
     if (i.id === 'reveal') return [item('download', 'Download a copy', '')]
     if (i.id === 'open-log') return []
     if (i.id === 'open-config') return [{ ...i, label: 'Open config' }]
-    if (WRITES_CONFIG.has(i.id)) return [{ ...i, disabled: true, title: SERVER_CONFIGS_READ_ONLY }]
+    if (i.id === 'remove' && i.confirm) return [{ ...i, confirm: REMOVE_ON_SERVER }]
     return [i]
   })
   if (h.readOnly) out = out.filter((i) => !NEEDS_SUPERVISORD.has(i.id) && i.id !== 'restart')

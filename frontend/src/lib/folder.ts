@@ -1,7 +1,9 @@
 // Whether Visor may add, remove and restore configs: the include folder,
 // and whether this user can write it (ConfigService.Folder). A folder root
 // owns (supervisord installed from a Linux package) makes configs
-// read-only: Programs pages say so and the writing actions are off.
+// read-only: Programs pages say so and the writing actions are off. On a
+// server it is the SSH user (root with Use sudo), and a server set to Read
+// only is read-only whatever the permissions.
 import { ref } from 'vue'
 import { type FolderView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { ConfigService } from './api'
@@ -27,9 +29,10 @@ export function useFolder() {
  * tooltip say it; "" when they can.
  */
 export function readOnlyReason(f: FolderView | null): string {
-  if (f?.Remote) return 'Read only for now: this version of Visor can’t change configs on servers, with Use sudo too'
   if (!f || f.Writable || !f.Dir) return ''
-  if (f.Missing) return `Read-only: ${f.Dir} doesn’t exist yet`
+  if (f.ServerReadOnly) return 'Read only: this server is set to Read only'
+  if (f.Missing) return `Read-only: ${f.Dir} doesn’t exist${f.Remote ? ' on the server' : ''} yet`
+  if (f.Remote) return `Read-only: ${f.User || 'the SSH user'} can’t write ${f.Dir} on the server`
   return f.Owner ? `Read-only: ${f.Dir} belongs to ${f.Owner}` : `Read-only: ${f.Dir} isn’t writable for you`
 }
 
