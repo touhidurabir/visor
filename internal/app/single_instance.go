@@ -24,8 +24,11 @@ func SingleInstance(installed bool, shell *Shell) *application.SingleInstanceOpt
 	return &application.SingleInstanceOptions{
 		UniqueID: "dev.getvisor.visor",
 		OnSecondInstanceLaunch: func(d application.SecondInstanceData) {
+			// Wails calls this on a goroutine. Not InvokeAsync: ShowMain's
+			// Dock call is a dispatch_sync to the main queue, which traps
+			// (SIGILL) when run on the main thread.
 			if secondLaunchShowsWindow(d.Args) {
-				application.InvokeAsync(func() { shell.ShowMain("") })
+				shell.ShowMain("")
 			}
 		},
 	}

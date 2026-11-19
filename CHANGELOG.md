@@ -161,6 +161,7 @@ Visor is coming to Linux desktops (Ubuntu 24.04+ and Fedora 40+, GNOME and KDE, 
 - A retry while a program is still starting no longer opens an unexpected exit; FATAL and the crash loop cover programs that can't start.
 
 ### Fixed
+- On macOS, opening Visor while it already ran (from Finder or Spotlight, or another copy started by clicking a notification) crashed the running Visor, and so did a launch by the login item. Both now show the window, or start in the menu bar only.
 - Notifications for failures in the first moments after launch were dropped while the permission prompt was still open; a send now waits up to two minutes for the answer.
 - A program's history now always shows its stop when it is removed, also when the stop and the removal both happen between two polls ("by you" from Visor, "program removed" from elsewhere).
 - A supervisord restart that takes a few seconds (programs slow to stop) no longer opens "supervisord is not responding" or turns the menu-bar icon red: while it stops its programs supervisord still answers (SHUTDOWN_STATE), so those polls don't count as failed. If it then really goes away, the issue opens as before.

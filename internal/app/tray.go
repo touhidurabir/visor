@@ -45,6 +45,8 @@ type Shell struct {
 	tray    *application.SystemTray
 	popover *application.WebviewWindow
 	main    *application.WebviewWindow
+	// dock's Show/HideAppIcon dispatch_sync to the main queue: call them
+	// from a goroutine only; on the main thread (InvokeAsync) they SIGILL.
 	dock    *dock.DockService
 	started bool // the app is running, so the tray may be changed
 
@@ -430,7 +432,7 @@ func (s *Shell) Setup(a *application.App, main *application.WebviewWindow, d *do
 		quiet := s.quiet
 		s.mu.Unlock()
 		if quiet && d != nil {
-			application.InvokeAsync(d.HideAppIcon)
+			d.HideAppIcon() // on this goroutine, never the main thread: see dock
 		}
 	})
 }
