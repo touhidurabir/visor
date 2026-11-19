@@ -265,7 +265,7 @@ func RemoteWriteFix(user, dir, group string, groups []string, sudo bool) []FixSt
 	if !member {
 		steps = append(steps, FixStep{Text: "Add " + user + " to the group (it's created if it isn't there).", Command: fmt.Sprintf("sudo groupadd -f %s && sudo usermod -aG %s %s", group, group, user)})
 	}
-	steps = append(steps, FixStep{Text: "Let the group write the folder.", Command: "sudo chgrp " + group + " " + q + " && sudo chmod g+w " + q})
+	steps = append(steps, FixStep{Text: "Let the group write the folder and the configs in it.", Command: "sudo chgrp -R " + group + " " + q + " && sudo chmod -R g+w " + q})
 	if !member {
 		steps = append(steps, FixStep{Text: "Then reconnect to the server, so the new group applies."})
 	}

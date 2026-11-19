@@ -25,6 +25,10 @@ var (
 	ErrNotWritable = errors.New("config folder is not writable")
 	// ErrExists means a new file would replace one that is already there.
 	ErrExists = errors.New("file already exists")
+	// ErrUnknownOutcome means the change was sent but no answer came back
+	// (a server's connection dropped or timed out): it may have been made,
+	// so its backup is kept.
+	ErrUnknownOutcome = errors.New("no answer came back, so the change may or may not have been made; Visor kept its backup")
 )
 
 // newFileMode is the mode of files Write creates: supervisord, which may
@@ -140,7 +144,7 @@ func replace(d Disk, path string, content []byte, expectedHash string, b *Backup
 		}
 	}
 	if err := d.Replace(path, content, expectedHash); err != nil {
-		if b != nil {
+		if b != nil && !errors.Is(err, ErrUnknownOutcome) {
 			b.Discard(bk)
 		}
 		return Backup{}, err
@@ -323,7 +327,9 @@ func RemoveBackedUp(d Disk, path string, bk Backup, b Backups) (Backup, error) {
 		bk = fresh
 	}
 	if err := d.Delete(path, Hash(data)); err != nil {
-		b.Discard(bk)
+		if !errors.Is(err, ErrUnknownOutcome) {
+			b.Discard(bk)
+		}
 		return Backup{}, err
 	}
 	return bk, nil

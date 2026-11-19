@@ -103,7 +103,7 @@ func TestRemoteReportWriteRow(t *testing.T) {
 	}
 	all := strings.Join(cmds, "\n")
 	if !strings.Contains(r.Fix[0].Text, "Use sudo") || !strings.Contains(all, "usermod -aG supervisor deploy") ||
-		!strings.Contains(all, "chgrp supervisor /etc/supervisor/conf.d && sudo chmod g+w") {
+		!strings.Contains(all, "chgrp -R supervisor /etc/supervisor/conf.d && sudo chmod -R g+w") {
 		t.Fatalf("fix: %+v", r.Fix)
 	}
 	if Blocked(RemoteReport(f)) {
@@ -113,7 +113,7 @@ func TestRemoteReportWriteRow(t *testing.T) {
 	// Already in the folder's group: only the chmod, no reconnect.
 	f.IncludeGroup, f.Groups = "deploy", []string{"deploy", "www-data"}
 	r = status(RemoteReport(f), "write")
-	if len(r.Fix) != 2 || !strings.Contains(r.Fix[1].Command, "chgrp deploy") {
+	if len(r.Fix) != 2 || !strings.Contains(r.Fix[1].Command, "chgrp -R deploy") {
 		t.Fatalf("member fix: %+v", r.Fix)
 	}
 

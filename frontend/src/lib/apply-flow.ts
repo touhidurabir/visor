@@ -1,7 +1,7 @@
 // The apply flow shared by the banner, the menus and the tray popover: show
 // what supervisord will add, restart or remove, ask, apply, then report. The
 // text is pure (and tested); useApplyFlow holds the state around the calls.
-import { onProduction, withConsent } from './production'
+import { isCancelled, onProduction, withConsentOnce } from './production'
 import { ref } from 'vue'
 import { type ApplyResultView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { ConfigService, ServerService } from './api'
@@ -132,6 +132,7 @@ export function useApplyFlow(onDone: () => void = () => {}) {
           if (!last) throw new Error('Visor can’t find the backup of that file.')
           finish(`Restored ${fileName}`, await ConfigService.Restore(path, last.ID))
         } catch (e) {
+          if (isCancelled(e)) return // a production question answered No: the report stays
           // Keep Undo, so it can be tried again once the cause is fixed.
           report.value = { title: saveErrorText(e, fileName), errors: [], failed: true, undo }
         }
@@ -145,7 +146,7 @@ export function useApplyFlow(onDone: () => void = () => {}) {
     pending.value = null
     go = null
     // Its confirm asked: a production server doesn't ask again.
-    if (run) void withConsent(() => guarded(run))
+    if (run) void withConsentOnce(() => guarded(run))
   }
   function cancel() {
     pending.value = null

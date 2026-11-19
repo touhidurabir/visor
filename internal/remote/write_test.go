@@ -36,6 +36,17 @@ func diskContract(t *testing.T, d apply.Disk) {
 	if ok, err := d.Exists(p); ok || err != nil {
 		t.Fatalf("Exists before create = %v, %v", ok, err)
 	}
+	// An empty file, written and replaced (a touched file, an empty backup).
+	empty := filepath.Join(dir, "empty.ini")
+	if _, err := apply.Write(d, empty, nil, "", b); err != nil {
+		t.Fatalf("create empty: %v", err)
+	}
+	if _, err := apply.Write(d, empty, v1, apply.Hash(nil), b); err != nil {
+		t.Fatalf("replace empty: %v", err)
+	}
+	if err := apply.Revert(d, empty, nil, v1, apply.Backup{}, b); err != nil {
+		t.Fatalf("revert to empty: %v", err)
+	}
 	if _, err := apply.Write(d, p, v1, "", b); err != nil {
 		t.Fatal(err)
 	}

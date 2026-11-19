@@ -15,6 +15,8 @@ type FileInfo struct {
 	ModTime time.Time
 	UID     int
 	GID     int
+	Dev     uint64 // with Ino, the same file under another path (a link)
+	Ino     uint64
 	Owner   string
 	Group   string
 }
@@ -28,6 +30,8 @@ type statJSON struct {
 	Mtime float64 `json:"mtime"`
 	UID   int     `json:"uid"`
 	GID   int     `json:"gid"`
+	Dev   uint64  `json:"dev"`
+	Ino   uint64  `json:"ino"`
 	Owner string  `json:"owner"`
 	Group string  `json:"group"`
 }
@@ -75,7 +79,7 @@ func (b *Bridge) Stat(ctx context.Context, path string) (FileInfo, error) {
 	return FileInfo{
 		Path: path, Size: s.Size, Mode: unixMode(s.Mode),
 		ModTime: time.Unix(sec, int64((s.Mtime-float64(sec))*1e9)),
-		UID:     s.UID, GID: s.GID, Owner: s.Owner, Group: s.Group,
+		UID:     s.UID, GID: s.GID, Dev: s.Dev, Ino: s.Ino, Owner: s.Owner, Group: s.Group,
 	}, nil
 }
 

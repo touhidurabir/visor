@@ -31,7 +31,7 @@ import IniEditor from './IniEditor.vue'
 import RestoreDialog from './RestoreDialog.vue'
 import SaveBar from './SaveBar.vue'
 import { currentTab, LOCAL, tabHref } from '../lib/tabs'
-import { onProduction, withConsent } from '../lib/production'
+import { onProduction, withConsentOnce } from '../lib/production'
 
 // line (from ?line=N) is the line to show when the editor opens. processes
 // are the file's processes from the live overview, for each card's state.
@@ -252,7 +252,7 @@ async function confirmSave() {
   result.value = null
   try {
     // The preview asked: a production server doesn't ask again.
-    const res = await withConsent(() => ConfigService.Save(props.path, text.value, f.Hash))
+    const res = await withConsentOnce(() => ConfigService.Save(props.path, text.value, f.Hash))
     dropDraft(props.path)
     await load()
     reportResult('Saved and applied', res, `Saved and applied ${props.fileName}.`)
@@ -309,7 +309,7 @@ async function confirmRestore(id: string) {
   failure.value = null
   result.value = null
   try {
-    const res = await withConsent(() => ConfigService.Restore(props.path, id)) // its dialog asked
+    const res = await withConsentOnce(() => ConfigService.Restore(props.path, id)) // its dialog asked
     dropDraft(props.path)
     await load()
     const when = b ? historyTime(new Date(b.At).getTime(), Date.now()) : 'the backup'

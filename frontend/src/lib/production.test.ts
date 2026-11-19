@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { guard, isCancelled, onProduction, productionAsk, withConsent } from './production'
+import { guard, isCancelled, onProduction, productionAsk, withConsent, withConsentOnce } from './production'
 import { serverTabs, setCurrentTab } from './tabs'
 
 const flush = () => new Promise((r) => setTimeout(r, 0))
@@ -31,6 +31,19 @@ describe('production guard', () => {
     expect(onProduction()).toBe(' on cpcsl prod')
     setCurrentTab('sdev')
     expect(onProduction()).toBe('')
+  })
+  it('withConsentOnce covers its own call only, not others while it runs', async () => {
+    let finish: () => void = () => {}
+    const slow = withConsentOnce(() => guard('sprod', 'Save', ['/x/a.conf']).then(() => new Promise<void>((r) => (finish = r))), 'sprod')
+    await flush()
+    expect(productionAsk.value).toBeNull()
+    const other = guard('sprod', 'Stop', ['web:web'])
+    await flush()
+    expect(productionAsk.value?.title).toBe('Stop web:web on cpcsl prod?')
+    productionAsk.value!.answer(false)
+    await expect(other).rejects.toSatisfy(isCancelled)
+    finish()
+    await slow
   })
   it('a no stops the call quietly', async () => {
     const p = guard('sprod', 'StopAll', [])

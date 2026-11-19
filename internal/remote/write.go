@@ -16,7 +16,7 @@ import (
 
 type writeReq struct {
 	Path string `json:"path"`
-	Data []byte `json:"data,omitempty"` // base64 in JSON
+	Data []byte `json:"data"` // base64 in JSON; an empty file is "" (not left out)
 	Hash string `json:"hash,omitempty"`
 	What string `json:"what,omitempty"`
 }
@@ -75,6 +75,23 @@ func (f BridgeFS) call(fn func(*Bridge, context.Context) error) error {
 	return fn(b, ctx)
 }
 
+// change runs a request that changes path, mapping the server's answer to
+// apply's errors. A request sent without an answer (timeout, dropped
+// connection) is ErrUnknownOutcome: the server may still have done it.
+func (f BridgeFS) change(path string, fn func(*Bridge, context.Context) error) error {
+	b, ctx, cancel, err := f.bridge()
+	if err != nil {
+		return err // nothing was sent
+	}
+	defer cancel()
+	err = fn(b, ctx)
+	var re *RemoteError
+	if err != nil && !errors.As(err, &re) {
+		return fmt.Errorf("%s: %w (%v)", path, apply.ErrUnknownOutcome, err)
+	}
+	return diskError(path, err)
+}
+
 // Exists reports whether path is there (following symlinks).
 // shortcut: a dangling symlink reads as missing; add an lstat request if that matters.
 func (f BridgeFS) Exists(path string) (bool, error) {
@@ -86,15 +103,15 @@ func (f BridgeFS) Exists(path string) (bool, error) {
 }
 
 func (f BridgeFS) Replace(path string, content []byte, hash string) error {
-	return diskError(path, f.call(func(b *Bridge, ctx context.Context) error { return b.Replace(ctx, path, content, hash) }))
+	return f.change(path, func(b *Bridge, ctx context.Context) error { return b.Replace(ctx, path, content, hash) })
 }
 
 func (f BridgeFS) Create(path string, content []byte) error {
-	return diskError(path, f.call(func(b *Bridge, ctx context.Context) error { return b.Create(ctx, path, content) }))
+	return f.change(path, func(b *Bridge, ctx context.Context) error { return b.Create(ctx, path, content) })
 }
 
 func (f BridgeFS) Delete(path, hash string) error {
-	return diskError(path, f.call(func(b *Bridge, ctx context.Context) error { return b.Delete(ctx, path, hash) }))
+	return f.change(path, func(b *Bridge, ctx context.Context) error { return b.Delete(ctx, path, hash) })
 }
 
 func (f BridgeFS) CheckWritable(path string) error {
@@ -110,13 +127,15 @@ func (f BridgeFS) FolderWritable(dir string) bool {
 	return f.call(func(b *Bridge, ctx context.Context) error { return b.Check(ctx, dir, "folder") }) == nil
 }
 
-// UserExists reports whether a user exists on the server (false when it
-// can't be asked).
+// UserExists reports whether a user exists on the server. When it can't be
+// asked (not connected), it says yes: unknown is not an error to report.
 func (f BridgeFS) UserExists(name string) bool {
-	var ok bool
+	ok := true
 	_ = f.call(func(b *Bridge, ctx context.Context) error {
-		var err error
-		ok, err = b.UserExists(ctx, name)
+		got, err := b.UserExists(ctx, name)
+		if err == nil {
+			ok = got
+		}
 		return err
 	})
 	return ok

@@ -58,6 +58,20 @@ export function withConsent<T>(fn: () => T, tab: string = currentTab.value): T {
   return out
 }
 
+/**
+ * withConsentOnce is withConsent for one call made at once (a dialog that
+ * asked before Save, Restore or Apply): the go-ahead covers that call only,
+ * not every other interrupting call on the tab while it runs.
+ */
+export function withConsentOnce<T>(fn: () => T, tab: string = currentTab.value): T {
+  consent = tab
+  try {
+    return fn()
+  } finally {
+    consent = null
+  }
+}
+
 const base = (p: string) => p.split('/').pop() || p
 
 const APPLIES = 'supervisord restarts the programs that changed. Work in progress is interrupted.'

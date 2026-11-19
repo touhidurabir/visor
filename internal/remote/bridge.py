@@ -56,17 +56,19 @@ class Changed(Exception):
     """The file is no longer what Visor read, so it is left alone."""
 
 
+def message(e):
+    try:
+        return str(e)
+    except Exception:  # Python 2: a unicode message that isn't ASCII
+        return repr(e)
+
+
 def send_error(ident, e):
     if isinstance(e, Changed):
-        send("e", ident, json.dumps({"errno": 0, "code": "ECHANGED", "msg": str(e)}))
+        send("e", ident, json.dumps({"errno": 0, "code": "ECHANGED", "msg": message(e)}))
         return
     code = getattr(e, "errno", None) or 0
-    msg = getattr(e, "strerror", None)
-    if not msg:
-        try:
-            msg = str(e)
-        except Exception:  # Python 2: a unicode message that isn't ASCII
-            msg = repr(e)
+    msg = getattr(e, "strerror", None) or message(e)
     send("e", ident, json.dumps({"errno": code, "code": errno.errorcode.get(code, ""), "msg": msg}))
 
 
@@ -101,6 +103,8 @@ def stat_json(path):
         "mtime": st.st_mtime,
         "uid": st.st_uid,
         "gid": st.st_gid,
+        "dev": st.st_dev,
+        "ino": st.st_ino,
         "owner": user_name(st.st_uid),
         "group": group_name(st.st_gid),
     })
@@ -185,6 +189,11 @@ def replace_file(path, data, want):
             os.fchmod(fd, stat.S_IMODE(st.st_mode))
             if os.getuid() == 0:  # as root (sudo), keep the owner too
                 os.fchown(fd, st.st_uid, st.st_gid)
+            else:  # keep the group, where this user may set it
+                try:
+                    os.fchown(fd, -1, st.st_gid)
+                except OSError:
+                    pass
             write_fd(fd, data)
         finally:
             os.close(fd)
@@ -355,11 +364,11 @@ def handle(kind, ident, payload, conns, socks):
             send("p", ident)
         elif kind == b"W":
             req = json.loads(text(payload))
-            replace_file(req["path"], base64.b64decode(req["data"]), req["hash"])
+            replace_file(req["path"], base64.b64decode(req.get("data") or ""), req["hash"])
             send("w", ident)
         elif kind == b"C":
             req = json.loads(text(payload))
-            create_file(req["path"], base64.b64decode(req["data"]))
+            create_file(req["path"], base64.b64decode(req.get("data") or ""))
             send("c", ident)
         elif kind == b"U":
             req = json.loads(text(payload))

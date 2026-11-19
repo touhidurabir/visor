@@ -178,3 +178,37 @@ func TestBackupsRemoved(t *testing.T) {
 		t.Errorf("no backups folder: %+v, %v", got, err)
 	}
 }
+
+// lostDisk is this disk, except that changes are made but their answer is
+// lost (a server's connection dropped right after).
+type lostDisk struct{ Disk }
+
+func (d lostDisk) Replace(path string, content []byte, hash string) error {
+	_ = d.Disk.Replace(path, content, hash)
+	return ErrUnknownOutcome
+}
+
+func (d lostDisk) Delete(path, hash string) error {
+	_ = d.Disk.Delete(path, hash)
+	return ErrUnknownOutcome
+}
+
+// A change whose answer was lost may have been made: its backup stays.
+func TestUnknownOutcomeKeepsTheBackup(t *testing.T) {
+	f := newFixture(t)
+	d := lostDisk{Local}
+	p := f.file(t, "mailer.ini", prog, 0o644)
+	if _, err := Write(d, p, []byte("next\n"), Hash([]byte(prog)), f.bk); !errors.Is(err, ErrUnknownOutcome) {
+		t.Fatalf("write: %v", err)
+	}
+	if list, _ := f.bk.List(p); len(list) != 1 {
+		t.Fatalf("backups after a lost replace: %d", len(list))
+	}
+	q := f.file(t, "web.ini", prog, 0o644)
+	if _, err := Remove(d, q, f.bk); !errors.Is(err, ErrUnknownOutcome) {
+		t.Fatalf("remove: %v", err)
+	}
+	if list, _ := f.bk.List(q); len(list) != 1 || !list[0].Removed {
+		t.Fatalf("backups after a lost delete: %+v", list)
+	}
+}

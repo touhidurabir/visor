@@ -134,6 +134,7 @@ func (r *Runtime) removeFromSupervisor(path string) (apply.Result, error) {
 			return err
 		}
 		if _, err := apply.RemoveBackedUp(d, path, bk, b); err != nil {
+			removed = errors.Is(err, apply.ErrUnknownOutcome) // it may be gone: keep the backup
 			return fmt.Errorf("stopped its processes, but %w", err)
 		}
 		removed = true

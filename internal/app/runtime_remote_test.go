@@ -112,11 +112,24 @@ func TestRemoteConfigEdits(t *testing.T) {
 	f := startRemoteRuntime(t, inst, nil)
 	waitRunning(t, f.svc, "sleeper:sleeper")
 	cs := NewConfigService(f.rt)
+	if _, ok := f.rt.disk().(remote.BridgeFS); !ok {
+		t.Fatalf("a server tab writes through %T, not the server", f.rt.disk())
+	}
 	path := filepath.Join(inst.Dir(), "conf.d", "sleeper.ini")
 	fv, err := cs.Read(path)
 	if err != nil || !fv.Writable || fv.Content == "" {
 		t.Fatalf("read: %+v %v", fv, err)
 	}
+	// A link to supervisord.conf in the include folder is still the main
+	// config: never written, also on a server.
+	link := filepath.Join(inst.Dir(), "conf.d", "main.ini")
+	if err := os.Symlink(inst.ConfigPath(), link); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.rt.checkNotMain(link); !errors.Is(err, ErrMainConfig) {
+		t.Fatalf("link to the main config: %v", err)
+	}
+	_ = os.Remove(link)
 	// The checks look on the server.
 	var found, missing bool
 	for _, c := range cs.Validate("x.ini", "[program:x]\ncommand=/bin/sh -c true\ndirectory=/nonexistent-visor\n", "") {
@@ -238,6 +251,22 @@ func TestRemoteRuntimeReadOnlyServer(t *testing.T) {
 		},
 		"remove": func() error {
 			_, err := f.svc.RemoveFromSupervisor(path)
+			return err
+		},
+		"load": func() error {
+			_, err := cs.LoadFile(path)
+			return err
+		},
+		"restore": func() error {
+			_, err := cs.Restore(path, "2026-01-01T00-00-00.000000000Z")
+			return err
+		},
+		"import": func() error {
+			_, err := cs.Import([]ImportItem{{FileName: "x.ini", Content: "[program:x]\ncommand=sleep 1\n"}}, false)
+			return err
+		},
+		"apply all": func() error {
+			_, err := f.svc.ApplyChanges(nil)
 			return err
 		},
 	} {

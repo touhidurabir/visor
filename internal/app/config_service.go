@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"github.com/touhidurabir/visor/internal/remote"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"io/fs"
 	"os"
@@ -181,12 +182,13 @@ func (s *ConfigService) save(path, content, hash string) (ApplyResultView, error
 	if _, err := s.rt.includeFile(path); err != nil {
 		return ApplyResultView{}, err
 	}
-	if cs := s.Validate(filepath.Base(path), content, path); validate.HasErrors(cs) {
-		return ApplyResultView{}, invalidError(cs)
-	}
-	// Without a connection nothing could be applied: refuse before writing.
+	// Without a connection nothing could be applied (and a server's checks
+	// can't look there): refuse first, with that reason.
 	if _, err := s.rt.conn(); err != nil {
 		return ApplyResultView{}, err
+	}
+	if cs := s.Validate(filepath.Base(path), content, path); validate.HasErrors(cs) {
+		return ApplyResultView{}, invalidError(cs)
 	}
 	old, err := s.rt.files().ReadFile(path)
 	if err != nil {
@@ -383,11 +385,11 @@ func (s *ConfigService) create(path, content string) (ApplyResultView, error) {
 	if err := s.rt.checkNotMain(path); err != nil {
 		return ApplyResultView{}, err
 	}
-	if cs := s.Validate(filepath.Base(path), content, ""); validate.HasErrors(cs) {
-		return ApplyResultView{}, invalidError(cs)
-	}
 	if _, err := s.rt.conn(); err != nil {
 		return ApplyResultView{}, err
+	}
+	if cs := s.Validate(filepath.Base(path), content, ""); validate.HasErrors(cs) {
+		return ApplyResultView{}, invalidError(cs)
 	}
 	d := s.rt.disk()
 	if _, err := apply.Write(d, path, []byte(content), "", s.rt.backups()); err != nil {
@@ -471,8 +473,10 @@ func folderView(dir string, stat func(string) (os.FileInfo, error), writable fun
 	}
 	fi, err := stat(dir)
 	switch {
-	case err != nil:
+	case errors.Is(err, fs.ErrNotExist):
 		v.Writable, v.Missing = false, true
+	case err != nil && !remoteDown(err):
+		v.Writable = false
 	case !writable(dir):
 		v.Writable, v.Owner = false, owner(fi)
 	}
@@ -661,13 +665,29 @@ func (r *Runtime) checkNotMain(path string) error {
 	main := r.d.ConfigPath
 	r.mu.Unlock()
 	same := sameFile
-	if r.Remote() { // the paths are on the server: compare them as written
-		same = func(a, b string) bool { return filepath.Clean(a) == filepath.Clean(b) }
+	if r.Remote() { // the paths are on the server: the same file there, links too
+		same = func(a, b string) bool { return sameOnServer(r.files(), a, b) }
 	}
 	if main != "" && same(path, main) {
 		return fmt.Errorf("%s: %w", path, ErrMainConfig)
 	}
 	return nil
+}
+
+// sameOnServer is sameFile on a server: the same device and inode (a
+// symlink or hard link to it), or, for a path not there yet, the same text.
+func sameOnServer(f config.FS, a, b string) bool {
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	fa, ea := f.Stat(a)
+	fb, eb := f.Stat(b)
+	if ea != nil || eb != nil {
+		return false
+	}
+	ra, oka := fa.Sys().(remote.FileInfo)
+	rb, okb := fb.Sys().(remote.FileInfo)
+	return oka && okb && ra.Dev == rb.Dev && ra.Ino == rb.Ino
 }
 
 // sameFile reports whether a and b are the same file once symlinks are
@@ -750,3 +770,7 @@ var saveCopy = func(name string, data []byte) (string, error) {
 	}
 	return dest, nil
 }
+
+// remoteDown reports a server Visor isn't connected to right now: the
+// folder's state is unknown, so the banner says nothing rather than guess.
+func remoteDown(err error) bool { return errors.Is(err, remote.ErrNotConnected) }
