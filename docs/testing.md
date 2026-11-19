@@ -31,6 +31,7 @@ Opt-in live checks against a real server, by its alias in `~/.ssh/config`
 VISOR_SSH_TEST=visor-ubuntu go test -run TestLiveSSH -v ./internal/remote/          # read only: lists processes, reads configs
 VISOR_SSH_TEST=visor-ubuntu VISOR_SSH_SUDO=1 go test -run TestLiveSSH -v ./internal/remote/   # the same through sudo (NOPASSWD, or VISOR_SSH_SUDO_PASSWORD)
 VISOR_SSH_TEST=visor-ubuntu VISOR_SSH_SUDO=1 go test -run TestLiveServerTab -v ./internal/app/  # opens it as a tab; VISOR_SSH_RESTART=<process> also restarts one
+VISOR_SSH_TEST=visor-ubuntu VISOR_SSH_SUDO=1 VISOR_SSH_TEST_WRITE=1 go test -run 'TestLiveSSH|TestLiveServerTab' -v ./internal/remote/ ./internal/app/  # test machines only: writes a file in a temp folder (owner and mode kept through sudo), and adds, edits and removes visor-live-test.conf in the include folder
 VISOR_SSH_TEST=visor-ubuntu VISOR_SSH_SUDO=1 VISOR_SSH_ACTIVITY=1 go test -run TestLiveActivity -v ./internal/app/  # test machines only: restarts things and edits a config there
 ```
 
@@ -157,7 +158,8 @@ only against a real server:
 - [ ] The popover with a server open: the header says "This Mac and 1 server", this computer and the server are folding rows, all folded; a notification from a server names it and opens its tab.
 - [ ] Turn the VM's network off: the tab says Reconnecting…, an issue says it can't reach the server, and it all clears when the network is back.
 - [ ] Activity: `sudo supervisorctl restart x`, a config edit and `sudo systemctl restart supervisor` on the VM each show and notify; muting a kind on one server stops it there only.
-- [ ] The real server (read only): connect, processes, logs, the configs read only (the banner says editing on servers comes in the next version, with no Doctor link), Download a copy; a program like `php` in the explanation reads as found.
+- [ ] The real server (read only): connect, processes, logs, Download a copy; a program like `php` in the explanation reads as found. Don't edit its configs.
+- [ ] A test server (the VM): edit and save a config, Add new, Remove and Restore; with Use sudo off and the folder not writable, the banner names the user and links to the report, whose Configs writable row has the fix. Read only: no config change anywhere. Production: the save preview names the server.
 
 ## Manual Linux checklist
 
