@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { currentTab, LOCAL, tabHref } from '../lib/tabs'
 // Shown on the dashboard while Visor has no connection to supervisord: a
 // plain title and line (lib/connection.ts), Open Doctor and Try again, and
 // the raw error under "Show details". Try again asks the dashboard to
@@ -7,6 +8,8 @@ import { RouterLink } from 'vue-router'
 import type { ConnectionProblem } from '../lib/connection'
 
 defineProps<{ problem: ConnectionProblem; busy?: boolean }>()
+// On a server's tab Doctor is its report (the router guard sends it there).
+const remote = currentTab.value !== LOCAL
 const emit = defineEmits<{ retry: [] }>()
 </script>
 
@@ -25,7 +28,8 @@ const emit = defineEmits<{ retry: [] }>()
         >
       </div>
       <div class="acts">
-        <RouterLink class="btn primary" to="/doctor">Open Doctor</RouterLink>
+        <RouterLink class="btn primary" to="/doctor">{{ remote ? 'Server report' : 'Open Doctor' }}</RouterLink>
+        <RouterLink class="btn" :to="tabHref('/issues/log')">supervisord’s log</RouterLink>
         <button type="button" class="btn" :disabled="busy" @click="emit('retry')">{{ busy ? 'Trying…' : 'Try again' }}</button>
         <span v-if="problem.retrying" class="meta">Visor keeps checking in the background.</span>
       </div>

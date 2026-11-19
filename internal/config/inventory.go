@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -44,13 +43,14 @@ type Inventory struct {
 func expandGlobs(d Discovery) ([]string, error) {
 	seen := map[string]bool{}
 	var out []string
+	fsys := d.Files()
 	for _, g := range d.IncludeGlobs {
-		m, err := filepath.Glob(g)
+		m, err := fsys.Glob(g)
 		if err != nil {
 			return nil, fmt.Errorf("include glob %q: %w", g, err)
 		}
 		for _, p := range m {
-			if fi, err := os.Stat(p); err != nil || fi.IsDir() || seen[p] {
+			if fi, err := fsys.Stat(p); err != nil || fi.IsDir() || seen[p] {
 				continue
 			}
 			seen[p] = true
@@ -71,9 +71,10 @@ func LoadInventory(d Discovery) (Inventory, error) {
 	inv := Inventory{groupFile: map[string]string{}}
 	parsed := make([]File, len(paths))
 	groupOf := map[string]string{} // program name -> group
+	fsys := d.Files()
 	for i, p := range paths {
 		cf := ConfigFile{Path: p}
-		data, rerr := os.ReadFile(p)
+		data, rerr := fsys.ReadFile(p)
 		if rerr != nil {
 			cf.Err = rerr
 			inv.Files = append(inv.Files, cf)
@@ -81,7 +82,7 @@ func LoadInventory(d Discovery) (Inventory, error) {
 		}
 		sum := sha256.Sum256(data)
 		cf.Hash = hex.EncodeToString(sum[:])
-		if fi, serr := os.Stat(p); serr == nil {
+		if fi, serr := fsys.Stat(p); serr == nil {
 			cf.ModTime = fi.ModTime()
 		}
 		f, perr := ParseINI(bytes.NewReader(data), p)

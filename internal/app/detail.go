@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -66,9 +67,17 @@ func (r *Runtime) configDetail(path string) (ConfigDetailView, error) {
 			procs = append(procs, p)
 		}
 	}
-	d.Paths, d.Logs = buildPaths(inv.Files[i], inv, procs, lookPath, exists)
+	look, has := lookPath, exists
+	if r.Remote() {
+		// The paths are on the server: stat them there; a bare command name
+		// can't be looked up on the server's PATH, so it stays as written.
+		fsys := r.files()
+		look = func(string) (string, error) { return "", errors.New("not looked up on servers") }
+		has = func(p string) bool { _, err := fsys.Stat(p); return err == nil }
+	}
+	d.Paths, d.Logs = buildPaths(inv.Files[i], inv, procs, look, has)
 	d.LastError = r.lastError(d, inv, procs)
-	if raw, err := os.ReadFile(path); err != nil {
+	if raw, err := r.files().ReadFile(path); err != nil {
 		d.ExplainError = err.Error()
 	} else {
 		d.Explain = r.explain(filepath.Base(path), string(raw), path)

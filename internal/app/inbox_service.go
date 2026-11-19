@@ -9,6 +9,8 @@ import (
 // NotificationsView is Visor's own notification list, newest first, with
 // how many are unread.
 type NotificationsView struct {
+	// Server is the tab the list belongs to (LocalID for this computer).
+	Server string
 	Unread int
 	Items  []NotificationView
 }

@@ -22,6 +22,8 @@ const NoConfigFile = "(no config file)"
 // OverviewView is everything the dashboard shows for one server. It is
 // sent as the visor:overview event after every poll and every action.
 type OverviewView struct {
+	// Host is the machine this tab shows: this computer or a server.
+	Host    HostView
 	Server  ServerView
 	Stats   StatsView
 	Configs []ConfigView
@@ -103,6 +105,8 @@ type ProcessView struct {
 // "resolved_user" or "dismissed"; ClosedMs is 0 while open. Note says why
 // Visor closed it, e.g. "program removed" ("" otherwise).
 type IssueView struct {
+	// Server is the tab the issue belongs to (set on events).
+	Server   string
 	ID       string
 	Kind     string
 	Process  string
@@ -241,12 +245,14 @@ type overviewInput struct {
 	err        error // no usable connection at all
 	// failedPolls counts consecutive unreachable polls up to snap.
 	failedPolls int
+	host        HostView
 }
 
 // buildOverview turns the latest snapshot, inventory and issues into the
 // dashboard view. It is pure apart from calling in.watched.
 func buildOverview(in overviewInput) OverviewView {
 	ov := OverviewView{
+		Host: in.host,
 		Server: ServerView{
 			Name:       "Local",
 			Version:    in.version,

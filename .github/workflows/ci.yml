@@ -173,8 +173,10 @@ jobs:
           npm ci
           npm run build
 
-      - name: Build the server-mode binary
-        run: CGO_ENABLED=0 go build -tags server -o bin/visor-e2e .
+      - name: Build the server-mode binary and the test SSH server
+        run: |
+          CGO_ENABLED=0 go build -tags server -o bin/visor-e2e .
+          CGO_ENABLED=0 go build -o bin/visor-e2e-ssh ./internal/remote/remotetest/cmd/visor-e2e-ssh
 
       - name: Install Playwright and WebKit
         working-directory: e2e

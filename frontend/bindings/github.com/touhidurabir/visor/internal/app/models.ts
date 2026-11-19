@@ -12,6 +12,49 @@ import * as doctor$0 from "../doctor/models.js";
 import * as settings$0 from "../settings/models.js";
 
 /**
+ * ActivityEventView is one activity event for the frontend.
+ */
+export interface ActivityEventView {
+    "ID": string;
+    "AtMs": number;
+    "Kind": string;
+
+    /**
+     * processes, programs, files or daemon
+     */
+    "Group": string;
+    "Process": string;
+    "Config": string;
+    "ByVisor": boolean;
+
+    /**
+     * "web:web restarted"
+     */
+    "Text": string;
+    "FileName": string;
+}
+
+/**
+ * ActivityQuery selects activity: Kind is a kind or a group ("processes",
+ * "programs", "files", "daemon") or ""; Process matches part of a process or
+ * file name; Outside keeps only changes made outside Visor; Limit 0 is 500.
+ */
+export interface ActivityQuery {
+    "Kind": string;
+    "Process": string;
+    "Outside": boolean;
+    "Limit": number;
+}
+
+/**
+ * ActivityView is a tab's new events (on EventActivity) or a page of them.
+ */
+export interface ActivityView {
+    "Server": string;
+    "Events": ActivityEventView[] | null;
+}
+
+/**
  * ApplyResultView is the outcome of applying config changes: the groups
  * supervisord added, changed and removed, and any per-group errors.
  */
@@ -280,6 +323,81 @@ export interface FolderView {
     "Writable": boolean;
     "Missing": boolean;
     "Owner": string;
+
+    /**
+     * Remote: the folder is on a server, where configs are read only in
+     * this version (not a permission problem).
+     */
+    "Remote": boolean;
+}
+
+/**
+ * HostKeyView is a host key Visor asks about: one it hasn't seen (Status
+ * "unknown", trust it with RemoteService.Trust) or one that changed
+ * ("changed", refused).
+ */
+export interface HostKeyView {
+    /**
+     * "unknown" or "changed"
+     */
+    "Status": string;
+
+    /**
+     * host:port as dialled
+     */
+    "Host": string;
+
+    /**
+     * ssh-ed25519, ecdsa-sha2-nistp256, …
+     */
+    "Type": string;
+    "Fingerprint": string;
+
+    /**
+     * changed: the fingerprints on file
+     */
+    "Old": string[] | null;
+
+    /**
+     * changed: where the old key is
+     */
+    "File": string;
+    "Line": number;
+
+    /**
+     * changed: the command that removes the old key
+     */
+    "Fix": string;
+}
+
+/**
+ * HostView is which machine a tab shows.
+ */
+export interface HostView {
+    "ID": string;
+    "Name": string;
+    "Remote": boolean;
+    "Tag": string;
+    "Color": string;
+    "ReadOnly": boolean;
+    "Sudo": boolean;
+
+    /**
+     * how supervisord is reached on a server
+     */
+    "Via": string;
+
+    /**
+     * user@host:port on a server
+     */
+    "Address": string;
+
+    /**
+     * Conn is a server's connection: ConnConnected, ConnReconnecting or
+     * ConnFailed ("" on this computer, or before it connected).
+     */
+    "Conn": string;
+    "ConnError": string;
 }
 
 /**
@@ -347,6 +465,10 @@ export interface IssueStats {
  * Visor closed it, e.g. "program removed" ("" otherwise).
  */
 export interface IssueView {
+    /**
+     * Server is the tab the issue belongs to (set on events).
+     */
+    "Server": string;
     "ID": string;
     "Kind": string;
     "Process": string;
@@ -379,6 +501,14 @@ export interface LastErrorView {
     "ExitStatus": number;
     "StderrTail": string;
     "StderrLog": string;
+}
+
+/**
+ * LimitsView is the server limit for the tab bar.
+ */
+export interface LimitsView {
+    "MaxServers": number;
+    "Open": number;
 }
 
 /**
@@ -453,6 +583,13 @@ export interface LoadedDiffView {
     "Known": boolean;
     "Loaded": string;
     "Disk": string;
+
+    /**
+     * Confirmed: supervisord was just asked and still runs something else.
+     * CheckError: asking it failed.
+     */
+    "Confirmed": boolean;
+    "CheckError": string;
 }
 
 /**
@@ -469,6 +606,19 @@ export interface LogChunkView {
     "Truncated": boolean;
     "Skipped": boolean;
     "Error": string;
+}
+
+/**
+ * LogSearchView is one step of a Search (logs.SearchPage): the matching
+ * lines newest first, Next for the following step (0: the whole file is
+ * searched), the log's Size on the first step, and Capped when the lines
+ * reached the limit.
+ */
+export interface LogSearchView {
+    "Lines": string[] | null;
+    "Next": number;
+    "Size": number;
+    "Capped": boolean;
 }
 
 /**
@@ -536,6 +686,12 @@ export interface MainLogResult {
      * pass as After to read only newer lines
      */
     "Cursor": string;
+
+    /**
+     * FromFile is the log file read from disk (through the server's helper
+     * on a server) because supervisord isn't answering; "" otherwise.
+     */
+    "FromFile": string;
 }
 
 /**
@@ -577,8 +733,22 @@ export interface NotificationView {
  * how many are unread.
  */
 export interface NotificationsView {
+    /**
+     * Server is the tab the list belongs to (LocalID for this computer).
+     */
+    "Server": string;
     "Unread": number;
     "Items": NotificationView[] | null;
+}
+
+/**
+ * OpenView is the result of opening a server's tab. HostKey or Report is
+ * set when the tab could not connect and the user has something to do.
+ */
+export interface OpenView {
+    "Overview": OverviewView | null;
+    "HostKey": HostKeyView | null;
+    "Report": ReportView | null;
 }
 
 /**
@@ -586,6 +756,10 @@ export interface NotificationsView {
  * sent as the visor:overview event after every poll and every action.
  */
 export interface OverviewView {
+    /**
+     * Host is the machine this tab shows: this computer or a server.
+     */
+    "Host": HostView;
     "Server": ServerView;
     "Stats": StatsView;
     "Configs": ConfigView[] | null;
@@ -677,6 +851,72 @@ export interface RemovedView {
     "FileName": string;
     "BackupID": string;
     "At": string;
+}
+
+/**
+ * ReportView is a server's capability report.
+ */
+export interface ReportView {
+    "Rows": doctor$0.ReportRow[] | null;
+
+    /**
+     * something stops the tab from working
+     */
+    "Blocked": boolean;
+
+    /**
+     * Credentials: a password or key was refused. The report is never
+     * re-checked on its own then: each try would count against the lockout.
+     */
+    "Credentials": boolean;
+
+    /**
+     * set when the host key needs the user
+     */
+    "HostKey": HostKeyView | null;
+    "AtMs": number;
+}
+
+/**
+ * SavedServerView is a saved server for the list and the form: which
+ * secrets are saved (never the secrets) and whether its tab is open.
+ */
+export interface SavedServerView {
+    "Server": settings$0.Server;
+    "HasPassword": boolean;
+    "HasKeyPassphrase": boolean;
+    "HasSudoPassword": boolean;
+    "Open": boolean;
+
+    /**
+     * Conn is an open tab's connection: ConnConnected, ConnReconnecting or
+     * ConnFailed ("" when not open).
+     */
+    "Conn": string;
+
+    /**
+     * Unsaved: connected without saving; it is gone when its tab closes.
+     */
+    "Unsaved": boolean;
+}
+
+/**
+ * SecretInput changes one secret: Keep leaves the saved one as it is,
+ * otherwise Value replaces it ("" removes it).
+ */
+export interface SecretInput {
+    "Keep": boolean;
+    "Value": string;
+}
+
+/**
+ * ServerInput is the form: the server and what to do with each secret.
+ */
+export interface ServerInput {
+    "Server": settings$0.Server;
+    "Password": SecretInput;
+    "KeyPassphrase": SecretInput;
+    "SudoPassword": SecretInput;
 }
 
 /**

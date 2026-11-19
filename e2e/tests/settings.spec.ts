@@ -102,6 +102,22 @@ test.describe('settings', () => {
     await expect(page.getByLabel('Check supervisord every')).toHaveValue('3')
   })
 
+  test('the config recheck defaults to 60 seconds and persists across a reload', async ({ page }) => {
+    await page.goto('/#/settings')
+    const recheck = page.getByLabel('Recheck changed configs every')
+    await expect(page.getByText('All changes saved')).toBeVisible()
+    await expect(recheck).toHaveValue('60')
+    await recheck.fill('5')
+    await recheck.blur()
+    await expect(page.getByText('Set to 15 seconds, the shortest allowed.')).toBeVisible()
+    await page.reload()
+    await expect(page.getByLabel('Recheck changed configs every')).toHaveValue('15')
+    // Put it back so the other tests see the default.
+    await page.getByLabel('Recheck changed configs every').fill('60')
+    await page.getByLabel('Recheck changed configs every').blur()
+    await expect(page.getByText('All changes saved')).toBeVisible()
+  })
+
   test('a notification checkbox persists across a reload', async ({ page }) => {
     await page.goto('/#/settings')
     const box = page.getByRole('checkbox', { name: /A process exits unexpectedly/ })

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/touhidurabir/visor/internal/activity"
 	"log"
 	"os"
 	"path/filepath"
@@ -35,6 +36,9 @@ const (
 	// EventNotifications carries a NotificationsView whenever Visor's own
 	// notification list changes.
 	EventNotifications = "visor:notifications"
+	// EventTabs carries the ids of the open server tabs, in order, when one
+	// opens or closes (the popover's sections follow it).
+	EventTabs = "visor:tabs"
 )
 
 func init() {
@@ -42,6 +46,8 @@ func init() {
 	application.RegisterEvent[IssueView](EventIssueOpened)
 	application.RegisterEvent[SettingsView](EventSettings)
 	application.RegisterEvent[NotificationsView](EventNotifications)
+	application.RegisterEvent[[]string](EventTabs)
+	application.RegisterEvent[ActivityView](EventActivity)
 }
 
 const (
@@ -117,7 +123,14 @@ type RuntimeOptions struct {
 	// Notifier shows a native notification for each new issue that the
 	// notification settings and watched configs allow. nil sends none.
 	Notifier notify.Sender
+	// Remote, when set, makes this Runtime manage supervisord on a server
+	// (StateDir is then that server's folder). nil is this computer.
+	Remote *RemoteSource
 }
+
+// remoteFileCheck is how often a server's config files are re-read: each
+// check is a round trip over SSH, so not every poll.
+const remoteFileCheck = 10 * time.Second
 
 // reconnectWait bounds how long Reconnect waits for the first poll.
 const reconnectWait = 5 * time.Second
@@ -174,6 +187,23 @@ type Runtime struct {
 	// issues of processes this supervisord does not run (M4).
 	lastConfig  string
 	pruneAbsent bool
+	// session is the server connection (nil on this computer); filesAt is
+	// when its files were last checked.
+	session *RemoteSession
+	link    *remoteLink
+	filesAt time.Time
+	// confirmKey is the flagged files (changed, added, removed, uncertain)
+	// supervisord was last asked about, at confirmedAt (confirmFlagged).
+	confirmKey  string
+	confirmedAt time.Time
+	// server is the saved server after an edit (SetServer); nil until then.
+	server *settings.Server
+	// Activity: the log, this connection's deriver, Visor's own actions and
+	// the notifications waiting to be grouped.
+	actStore  *activity.Store
+	deriver   *activity.Deriver
+	visorActs []*visorAct
+	actBatch  *activityBatch
 
 	wg sync.WaitGroup
 
@@ -192,7 +222,7 @@ func NewRuntime(o RuntimeOptions) *Runtime {
 		o.Emit = func(string, any) {}
 	}
 	prefs := o.Settings
-	if prefs == (settings.Settings{}) {
+	if prefs.PollInterval == 0 && prefs.RetentionDays == 0 && prefs.Appearance == "" {
 		prefs = settings.Defaults()
 	}
 	prefs = prefs.Clamp()
@@ -218,6 +248,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 	}
 	r.started, r.parent = true, ctx
 	r.openStore()
+	r.openActivity()
 	r.connect()
 	r.emitNotifications() // the menu-bar count from launch on
 	return nil
@@ -232,6 +263,7 @@ func (r *Runtime) Stop() {
 	r.life.Lock()
 	defer r.life.Unlock()
 	r.stopped = true
+	r.stopActivity()
 	r.disconnect()
 	done := make(chan struct{})
 	go func() {
@@ -308,7 +340,8 @@ func (r *Runtime) ApplySettings(s settings.Settings, reconnect bool) error {
 	mon, tracker := r.mon, r.tracker
 	r.mu.Unlock()
 	running := r.started && !r.stopped
-	connChanged := r.configPathOf(old) != r.configPathOf(s) || old.Username != s.Username
+	// This computer's config path and username mean nothing on a server.
+	connChanged := r.opts.Remote == nil && (r.configPathOf(old) != r.configPathOf(s) || old.Username != s.Username)
 	if !running || (!reconnect && !connChanged) {
 		defer r.life.Unlock()
 		if !running {
@@ -429,8 +462,25 @@ func (r *Runtime) connect() {
 		r.mu.Unlock()
 		close(first) // no poll will come
 	}
-	d, err := config.Resolve(r.configPathOf(prefs))
-	if err != nil {
+	var d config.Discovery
+	var err error
+	var link *remoteLink
+	if src := r.opts.Remote; src != nil {
+		cur, _ := r.remoteServer()
+		sess, cerr := src.Connect(ctx, cur)
+		if cerr != nil {
+			fail(config.Discovery{ConfigPath: cur.ConfigPath}, cerr)
+			return
+		}
+		// The client and file reads go through the link, so a reconnect
+		// can swap the SSH session under them.
+		link = newLink(sess)
+		r.mu.Lock()
+		r.session, r.link = sess, link
+		r.mu.Unlock()
+		d = sess.Discovery
+		d.Transport, d.FS = link, link
+	} else if d, err = config.Resolve(r.configPathOf(prefs)); err != nil {
 		fail(d, err)
 		return
 	}
@@ -439,14 +489,18 @@ func (r *Runtime) connect() {
 		return
 	}
 	savedPass := ""
-	if prefs.Username != "" && r.opts.Keychain != nil {
+	if prefs.Username != "" && r.opts.Keychain != nil && r.opts.Remote == nil {
 		if savedPass, err = settings.Password(r.opts.Keychain, d.ConfigPath); err != nil {
 			fail(d, fmt.Errorf("%w. %s, or enter the password again in Settings", err, unlockHint()))
 			return
 		}
 	}
 	var copts []supervisor.Option
-	if user, pass := settings.Credentials(prefs.Username, savedPass, d.Username, d.Password); user != "" {
+	savedUser := prefs.Username
+	if r.opts.Remote != nil {
+		savedUser = "" // a server uses its own config's [supervisorctl] credentials
+	}
+	if user, pass := settings.Credentials(savedUser, savedPass, d.Username, d.Password); user != "" {
 		copts = append(copts, supervisor.WithBasicAuth(user, pass))
 	}
 	client := supervisor.New(d.Transport, copts...)
@@ -465,9 +519,15 @@ func (r *Runtime) connect() {
 
 	r.mu.Lock()
 	r.d, r.client, r.inv, r.watcher, r.mon = d, client, inv, watcher, mon
+	r.filesAt = time.Now()
+	r.deriver = activity.NewDeriver()
 	r.mu.Unlock()
 
 	updates, unsubscribe := mon.Subscribe()
+	if link != nil {
+		r.wg.Add(1)
+		go r.watchLink(ctx, link, r.opts.Remote)
+	}
 	r.wg.Add(2)
 	go func() {
 		defer r.wg.Done()
@@ -489,7 +549,7 @@ func (r *Runtime) connect() {
 // forgets everything learned from it. Caller holds life.
 func (r *Runtime) disconnect() {
 	r.mu.Lock()
-	cancel, client := r.cancel, r.client
+	cancel, client, sess, link := r.cancel, r.client, r.session, r.link
 	r.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -498,11 +558,18 @@ func (r *Runtime) disconnect() {
 	if client != nil {
 		client.Close()
 	}
+	switch {
+	case link != nil:
+		link.close() // its current session (a reconnect may have swapped it)
+	case sess != nil && sess.Close != nil:
+		sess.Close()
+	}
 	r.mu.Lock()
+	r.session, r.link = nil, nil
 	r.cancel, r.client, r.mon, r.watcher = nil, nil, nil, nil // the tracker and store stay
 	r.d, r.connErr = config.Discovery{}, nil
 	r.inv, r.changes, r.last = config.Inventory{}, config.ChangeSet{}, monitor.Update{}
-	r.version, r.failedPolls = "", 0
+	r.version, r.failedPolls, r.confirmKey = "", 0, ""
 	r.mu.Unlock()
 }
 
@@ -511,13 +578,20 @@ func (r *Runtime) handle(u monitor.Update) {
 	r.mu.Lock()
 	base, d, client, tracker, watcher := r.ctx, r.d, r.client, r.tracker, r.watcher
 	needVersion := u.Snapshot.Reachable && r.version == ""
+	// A server's files are re-read every remoteFileCheck, not every poll.
+	checkFiles := r.opts.Remote == nil || time.Since(r.filesAt) >= remoteFileCheck
+	if checkFiles {
+		r.filesAt = time.Now()
+	}
+	inv, changes := r.inv, r.changes
 	r.mu.Unlock()
 
-	inv, invErr := config.LoadInventory(d)
-	var changes config.ChangeSet
-	var changesErr error
-	if watcher != nil {
-		changes, changesErr = watcher.Check()
+	var invErr, changesErr error
+	if checkFiles {
+		inv, invErr = config.LoadInventory(d)
+		if watcher != nil {
+			changes, changesErr = watcher.Check()
+		}
 	}
 	for _, ev := range u.Events {
 		if ev.Kind == monitor.Reconnected { // the daemon may have been upgraded
@@ -563,11 +637,22 @@ func (r *Runtime) handle(u monitor.Update) {
 			tracker.CloseAbsent(u.Snapshot.Processes, noteNotHere)
 		}
 	}
+	r.recordActivity(u, d, changes, checkFiles && changesErr == nil, res)
 	r.emitOverview()
 	for _, is := range res.Opened {
-		r.opts.Emit(EventIssueOpened, toIssueView(is))
+		iv := toIssueView(is)
+		iv.Server = r.ID()
+		r.opts.Emit(EventIssueOpened, iv)
 	}
 	r.notifyIssues(res, tracker)
+	// Then, after any alerts, ask supervisord about flagged files. The page
+	// saw the change first (an open editor reloads the file), then sees what
+	// it said. A failed ask is retried at the next recheck.
+	if checkFiles && changesErr == nil && u.Snapshot.Reachable {
+		if asked, _ := r.confirmFlagged(base, client, changes, false); asked {
+			r.emitOverview()
+		}
+	}
 }
 
 // notifyOpened is notifyIssues for issues that just opened.
@@ -606,6 +691,13 @@ func (r *Runtime) notifyIssues(res issues.Result, tracker *issues.Tracker) {
 			continue
 		}
 		msg := notify.Compose(is)
+		if s, ok := r.remoteServer(); ok {
+			// Notifications name the server, and a click opens its tab.
+			msg.Title += " on " + s.Name
+			msg.Headline += " on " + s.Name
+			msg.Thread = s.ID + "/" + msg.Thread
+			msg.Server, msg.Route = s.ID, IssuesRoute(s.ID)
+		}
 		r.sends.Add(1)
 		go func() {
 			defer r.sends.Done()
@@ -624,7 +716,7 @@ func (r *Runtime) notifyIssues(res issues.Result, tracker *issues.Tracker) {
 		}()
 	}
 	for _, is := range res.Closed {
-		if is.Kind != issues.KindUnreachable || !notify.ShouldNotify(is, prefs, true) {
+		if (is.Kind != issues.KindUnreachable && is.Kind != issues.KindHostDown) || !notify.ShouldNotify(is, prefs, true) {
 			continue
 		}
 		if _, err := r.inbox.Recovered(is); err != nil {
@@ -639,7 +731,9 @@ func (r *Runtime) notifyIssues(res issues.Result, tracker *issues.Tracker) {
 
 // emitNotifications sends the notification list to the frontend.
 func (r *Runtime) emitNotifications() {
-	r.opts.Emit(EventNotifications, notificationsView(r.inbox))
+	v := notificationsView(r.inbox)
+	v.Server = r.ID()
+	r.opts.Emit(EventNotifications, v)
 }
 
 func (r *Runtime) configOf(process string) string {
@@ -771,11 +865,12 @@ func (r *Runtime) Overview() OverviewView {
 	if in.configPath == "" {
 		in.configPath = r.configPathOf(r.prefs)
 	}
-	pidFile, tracker := r.d.PidFile, r.tracker
+	pidFile, tracker, fsys := r.d.PidFile, r.tracker, r.d.Files()
 	r.mu.Unlock()
+	in.host = r.hostView()
 
 	if pidFile != "" {
-		if fi, err := os.Stat(pidFile); err == nil {
+		if fi, err := fsys.Stat(pidFile); err == nil {
 			in.uptime = in.now.Sub(fi.ModTime())
 		}
 	}
@@ -840,12 +935,23 @@ func (r *Runtime) actionGrace(e expectation) time.Duration {
 // (no unexpected exit, crash loop or unreachable issue) from the start of
 // the action until actionGrace after it ends.
 func (r *Runtime) act(e expectation, do func(ctx context.Context, c *supervisor.Client) error) error {
+	if err := r.CheckAction(); err != nil {
+		return err
+	}
+	return r.call(e, do)
+}
+
+// call is act without the Read only check, for calls that change nothing
+// (reading supervisord's log, rereading the config to compare).
+func (r *Runtime) call(e expectation, do func(ctx context.Context, c *supervisor.Client) error) error {
 	ac, err := r.conn()
 	if err != nil {
 		return err
 	}
 	grace := r.actionGrace(e)
 	settle := e.register(ac.tracker, time.Now().Add(actionTimeout+grace))
+	done := r.recordAct(e, grace)
+	defer done()
 	ctx, cancel := context.WithTimeout(ac.ctx, actionTimeout)
 	defer cancel()
 	err = reconnecting(ac.ctx, do(ctx, ac.client))

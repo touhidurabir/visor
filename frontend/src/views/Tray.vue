@@ -10,12 +10,19 @@
 // section per server: this Mac for now; remote servers add sections.
 import { computed, ref } from 'vue'
 import { Window } from '@wailsio/runtime'
-import { isMac } from '../lib/platform'
-import { ServerService, ShellService, type ConfigView, type ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { isMac, platform } from '../lib/platform'
+import { ShellService, type ConfigView, type ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ServerService } from '../lib/api'
 import { errorMessage, useOverview } from '../lib/overview'
 import { useApplyFlow } from '../lib/apply-flow'
 import { connectionProblem } from '../lib/connection'
 import { useNotifications } from '../lib/notifications'
+import { Events } from '@wailsio/runtime'
+import { VisorTabs } from '../../bindings/events'
+import ProductionPrompt from '../components/ProductionPrompt.vue'
+import TrayServer from '../components/TrayServer.vue'
+import { refreshTabs } from '../lib/servers'
+import { serverTabs } from '../lib/tabs'
 import { VERB_LABEL, actionTargets, downLine, foldLabel, footerReason, itemActions, itemLook, rowLook, trayActions, trayGroups, trayHeader, type TrayItem, type TrayVerb } from '../lib/tray'
 
 const { overview, error: loadError, reload } = useOverview()
@@ -37,9 +44,22 @@ const offline = computed(() => problem.value?.reason)
 
 const { unread } = useNotifications()
 
+// The open server tabs, each a section under this computer's (they follow
+// the main window's tabs through visor:tabs).
+void refreshTabs()
+Events.On(VisorTabs, () => void refreshTabs())
+
 // One section per connected server; only this Mac until remote servers.
+const local = computed(() => ({ name: server.value?.Name ?? 'Local', ...trayHeader(server.value, overview.value?.Stats, problem.value) }))
+// With servers open, this computer folds like each of them, and every
+// section starts folded; the header then names them all.
+const grouped = computed(() => serverTabs.value.length > 0)
+const localOpen = ref(false)
+const showLocal = computed(() => !grouped.value || localOpen.value)
 const sections = computed(() => [
-  { key: 'local', name: server.value?.Name ?? 'Local', ...trayHeader(server.value, overview.value?.Stats, problem.value) },
+  grouped.value
+    ? { key: 'all', name: `${platform().local} and ${serverTabs.value.length} ${serverTabs.value.length === 1 ? 'server' : 'servers'}`, tone: '', badge: null, meta: '' }
+    : { key: 'local', ...local.value },
 ])
 
 const groups = computed(() =>
@@ -172,7 +192,7 @@ function closePopover() {
     <header v-for="sec in sections" :key="sec.key" class="head">
       <div class="who">
         <div class="title-row">
-          <span :class="['dot', `d-${sec.tone}`]" aria-hidden="true" />
+          <span v-if="sec.tone" :class="['dot', `d-${sec.tone}`]" aria-hidden="true" />
           <strong class="title">{{ sec.name }}</strong>
           <span v-if="sec.badge" class="badge b-bad">{{ sec.badge }}</span>
         </div>
@@ -198,6 +218,15 @@ function closePopover() {
     </header>
 
     <div class="list">
+      <button v-if="grouped" type="button" class="local-head" :aria-expanded="localOpen" data-testid="tray-local" @click="localOpen = !localOpen">
+        <span :class="['dot', `d-${local.tone}`]" aria-hidden="true" />
+        <span class="who-col">
+          <strong>{{ platform().local }}</strong>
+          <span :class="['sub', local.badge ? 't-bad' : 'meta']">{{ local.badge ?? local.meta }}</span>
+        </span>
+        <svg :class="['chev', { open: localOpen }]" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+      </button>
+      <template v-if="showLocal">
       <div v-if="loadError && !overview" class="card" role="alert">
         <strong class="card-title">Couldn't load your processes</strong>
         <span class="raw">{{ loadError }}</span>
@@ -300,7 +329,11 @@ function closePopover() {
           </div>
         </div>
       </section>
+      </template>
+      <!-- Open servers, under this computer (in the scrolling list). -->
+      <TrayServer v-for="t in serverTabs" :key="t.id" :tab="t" />
     </div>
+    <ProductionPrompt />
 
     <div v-if="pending" class="notice info" role="alertdialog" aria-label="Apply config changes">
       <div class="body">
@@ -473,6 +506,10 @@ function closePopover() {
 .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .count-x { flex: none; color: var(--ink3); font-weight: 400; }
 .chev { flex: none; color: var(--ink3); transition: transform .15s; }
+/* This computer's folding row, as TrayServer's (when servers are open). */
+.local-head { display: flex; align-items: center; gap: 8px; width: calc(100% - 12px); min-height: 40px; margin: 4px 6px; padding: 6px 8px 6px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.local-head:hover { background: var(--hover); }
+.local-head .who-col { flex: 1; }
 .chev.open { transform: rotate(90deg); }
 .sub {
   max-width: 100%;

@@ -8,11 +8,13 @@
 // service calls.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ServerService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ConfigService, ServerService } from '../lib/api'
+import { withConsent } from '../lib/production'
 import type { ConfigView, ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import ApplyReport from '../components/ApplyReport.vue'
 import ChangedBanner from '../components/ChangedBanner.vue'
 import ConnectionBanner from '../components/ConnectionBanner.vue'
+import ActivityStrip from '../components/ActivityStrip.vue'
 import ConfigTable from '../components/ConfigTable.vue'
 import ActionMenu from '../components/ActionMenu.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
@@ -26,8 +28,8 @@ import { connectionProblem } from '../lib/connection'
 import { disconnectedHealth, firstFailing, health, NO_COUNT, openIssuesLabel } from '../lib/health'
 import { sortFailingFirst } from '../lib/sort'
 import { formatDuration } from '../lib/format'
-import { configGroups, bulkConfirm, serverMenu, withoutSupervisord, type BulkConfirm } from '../lib/menus'
-import { useOverview } from '../lib/overview'
+import { configGroups, bulkConfirm, serverMenu, withoutSupervisord, type BulkConfirm, forHost } from '../lib/menus'
+import { placeName, useOverview } from '../lib/overview'
 import { copyText } from '../lib/clipboard'
 import { configRoute } from '../lib/links'
 import { showToast } from '../lib/toast'
@@ -121,7 +123,9 @@ async function showFailing() {
   await table.value?.focusProcess(p.FullName)
 }
 
-const menuItems = computed(() => (offline.value ? withoutSupervisord(serverMenu(), offline.value) : serverMenu()))
+// The tab's machine: a server's menus and buttons differ (forHost).
+const host = computed(() => ({ remote: !!overview.value?.Host?.Remote, readOnly: !!overview.value?.Host?.ReadOnly }))
+const menuItems = computed(() => forHost(offline.value ? withoutSupervisord(serverMenu(), offline.value) : serverMenu(), host.value))
 
 /** Try again: reconnects as Doctor's Check again does, and says so when nothing changed. */
 const retrying = ref(false)
@@ -189,6 +193,9 @@ const bulkCalls = { start: ServerService.StartAll, stop: ServerService.StopAll, 
 // A bulk action waiting for confirmation: every process, or one config's.
 const pendingBulk = ref<{ call: () => Promise<unknown>; ask: BulkConfirm } | null>(null)
 
+/** The server's name on a server tab, for the confirmations. */
+const serverName = () => (overview.value?.Host?.Remote ? overview.value.Host.Name : undefined)
+
 /** askFirst runs call, after confirming when ask says to. */
 function askFirst(ask: BulkConfirm | null, call: () => Promise<unknown>) {
   if (ask) pendingBulk.value = { call, ask }
@@ -196,13 +203,13 @@ function askFirst(ask: BulkConfirm | null, call: () => Promise<unknown>) {
 }
 
 function bulk(what: keyof typeof bulkCalls) {
-  askFirst(bulkConfirm(what, overview.value?.Stats.Processes ?? 0), bulkCalls[what])
+  askFirst(bulkConfirm(what, overview.value?.Stats.Processes ?? 0, undefined, serverName()), bulkCalls[what])
 }
 
 function confirmBulk() {
   const p = pendingBulk.value
   pendingBulk.value = null
-  if (p) void run(p.call)
+  if (p) void withConsent(() => run(p.call))
 }
 
 function configLink(c: ConfigView, q: Record<string, string> = {}) {
@@ -241,9 +248,9 @@ function onConfig(c: ConfigView, id: string) {
       return void run(c.Path ? () => ServerService.StartFile(c.Path) : each(ServerService.StartGroup))
     // Like the config page's buttons, these ask first.
     case 'stop-all':
-      return askFirst(bulkConfirm('stop', c.Processes?.length ?? 0, c.FileName), c.Path ? () => ServerService.StopFile(c.Path) : each(ServerService.StopGroup))
+      return askFirst(bulkConfirm('stop', c.Processes?.length ?? 0, c.FileName, serverName()), c.Path ? () => ServerService.StopFile(c.Path) : each(ServerService.StopGroup))
     case 'restart-all':
-      return askFirst(bulkConfirm('restart', c.Processes?.length ?? 0, c.FileName), c.Path ? () => ServerService.RestartFile(c.Path) : each(ServerService.RestartGroup))
+      return askFirst(bulkConfirm('restart', c.Processes?.length ?? 0, c.FileName, serverName()), c.Path ? () => ServerService.RestartFile(c.Path) : each(ServerService.RestartGroup))
     case 'open-config':
       if (c.Path) void configLink(c, { tab: 'config' })
       return
@@ -252,6 +259,12 @@ function onConfig(c: ConfigView, id: string) {
       return
     case 'reveal':
       if (c.Path) void run(() => ServerService.Reveal(c.Path))
+      return
+    case 'download':
+      if (c.Path) void run(async () => {
+        const to = await ConfigService.Download(c.Path)
+        if (to) showToast(`Saved a copy of ${c.FileName} to ${to}`)
+      })
       return
     case 'open-log':
       if (c.Path) void run(() => openFirstLog(c.Path))
@@ -298,7 +311,7 @@ function sendSignal(sig: string) {
     <template v-else>
       <header>
         <div class="titles">
-          <h1 class="title">{{ overview.Server.Name }}</h1>
+          <h1 class="title">{{ placeName(overview) }}</h1>
           <p class="meta">
             {{ subtitle }}<template v-if="subtitle && overview.Server.ConfigPath"> · </template
             ><span class="mono">{{ overview.Server.ConfigPath }}</span>
@@ -311,10 +324,10 @@ function sendSignal(sig: string) {
             <input id="q" ref="search" v-model="query" class="input" type="search" placeholder="Search" autocomplete="off" />
             <span class="kbd" aria-hidden="true">{{ shortcutHint('find') }}</span>
           </div>
-          <button type="button" class="btn" :disabled="checking || !!offline" :title="offline" @click="checkForChanges">
+          <button v-if="!host.readOnly" type="button" class="btn" :disabled="checking || !!offline" :title="offline" @click="checkForChanges">
             {{ checking ? 'Checking…' : 'Check for changes' }}
           </button>
-          <RouterLink class="btn primary" to="/new">
+          <RouterLink v-if="!host.remote" class="btn primary" to="/new">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>Add new
           </RouterLink>
           <ActionMenu :items="menuItems" label="Server actions" heading="Whole server" @select="onServer" />
@@ -328,8 +341,9 @@ function sendSignal(sig: string) {
         <p>Check that supervisord is running, or open Doctor to find out why.</p>
       </div>
 
+      <ActivityStrip />
       <ReadOnlyBanner />
-      <ChangedBanner :configs="configs" :busy="flow.running.value" @apply="flow.applyAll" @load="(c) => onConfig(c, 'load')" />
+      <ChangedBanner v-if="!host.remote" :configs="configs" :busy="flow.running.value" @apply="flow.applyAll" @load="(c) => onConfig(c, 'load')" />
       <ApplyReport v-if="flow.report.value" :report="flow.report.value" :busy="flow.running.value" @undo="flow.undo" @dismiss="flow.dismiss" />
 
       <section v-if="healthView" class="health" aria-label="Health">
@@ -364,18 +378,18 @@ function sendSignal(sig: string) {
       <section aria-labelledby="s2">
         <div class="bar">
           <h2 id="s2" class="sec">Configs and processes</h2>
-          <div class="bulk" role="group" aria-label="All processes">
+          <div v-if="!host.readOnly" class="bulk" role="group" aria-label="All processes">
             <button type="button" class="btn quiet sm" :disabled="!!offline" :title="offline" @click="bulk('start')">Start all</button>
             <button type="button" class="btn quiet sm" :disabled="!!offline" :title="offline" @click="bulk('stop')">Stop all</button>
             <button type="button" class="btn quiet sm" :disabled="!!offline" :title="offline" @click="bulk('restart')">Restart all</button>
           </div>
         </div>
         <p v-if="!configs.length" class="muted">No config files found. Add a program to get started.</p>
-        <ConfigTable v-else ref="table" :configs="shown" :now-ms="nowMs" :offline="offline" :note="offline && BACK_NOTE" @process="onProcess" @config="onConfig" @watch="onWatch" />
+        <ConfigTable v-else ref="table" :configs="shown" :now-ms="nowMs" :offline="offline" :note="offline && BACK_NOTE" :host="host" @process="onProcess" @config="onConfig" @watch="onWatch" />
         <p class="meta">Each ⋯ menu shows the matching <span class="mono">supervisorctl</span> command in grey. Copy it with the button beside it, or {{ modKeyHint('c') }}.</p>
       </section>
 
-      <RecentlyRemoved :stamp="removedStamp" @restored="reload" />
+      <RecentlyRemoved v-if="!host.remote" :stamp="removedStamp" @restored="reload" />
     </template>
 
     <SignalDialog v-if="signalFor" :process="signalFor.FullName" @send="sendSignal" @cancel="signalFor = null" />

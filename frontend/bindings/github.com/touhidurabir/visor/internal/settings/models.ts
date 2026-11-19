@@ -6,6 +6,32 @@
 import * as time$0 from "../../../../../time/models.js";
 
 /**
+ * ActivityMutes turn off notifications for changes made outside Visor, per
+ * kind. Everything notifies by default.
+ */
+export interface ActivityMutes {
+    /**
+     * started, stopped or restarted outside Visor
+     */
+    "processes": boolean;
+
+    /**
+     * added, removed or changed by an update outside Visor
+     */
+    "programs": boolean;
+
+    /**
+     * config files added, changed or removed on disk
+     */
+    "files": boolean;
+
+    /**
+     * supervisord restarted, shut down or back
+     */
+    "daemon": boolean;
+}
+
+/**
  * CrashLoopRules: Restarts restarts within Window open a crash-loop issue.
  */
 export interface CrashLoopRules {
@@ -23,6 +49,51 @@ export interface NotifyPrefs {
     "unexpectedExit": boolean;
     "crashLoop": boolean;
     "unreachable": boolean;
+}
+
+/**
+ * Server is a saved server. Secrets are in the Keychain or keyring under
+ * ServerAccount(ID, …), never here.
+ */
+export interface Server {
+    "id": string;
+    "name": string;
+    "tag": string;
+    "color": string;
+    "host": string;
+    "port": number;
+    "user": string;
+
+    /**
+     * KeyPath is a private key file; "" uses ~/.ssh/config and the agent.
+     */
+    "keyPath": string;
+
+    /**
+     * Jump is ProxyJump hosts ("user@host:port,host2") when not set in ~/.ssh/config.
+     */
+    "jump"?: string;
+    "useSudo": boolean;
+
+    /**
+     * SudoSameAsSSH, SudoOwn or SudoNone
+     */
+    "sudoPassword": string;
+
+    /**
+     * ConfigPath is supervisord.conf on the server; "" discovers it.
+     */
+    "configPath"?: string;
+
+    /**
+     * ReadOnly hides and refuses every action: view only.
+     */
+    "readOnly": boolean;
+
+    /**
+     * Mutes are the activity kinds whose notifications are off for this server.
+     */
+    "mutes": ActivityMutes;
 }
 
 /**
@@ -56,4 +127,28 @@ export interface Settings {
      * MenuBarCount shows the unread count beside the menu-bar icon.
      */
     "menuBarCount": boolean;
+
+    /**
+     * MaxServers is how many servers can be connected at once.
+     */
+    "maxServers": number;
+
+    /**
+     * Mutes are the activity kinds whose notifications are off for this computer.
+     */
+    "mutes": ActivityMutes;
+
+    /**
+     * SearchWholeLog makes a log search read the whole log file, not only
+     * the lines the Logs tab has loaded. Off by default: each search reads
+     * the file, which on a server means downloading it over SSH.
+     */
+    "searchWholeLog": boolean;
+
+    /**
+     * ConfigRecheck is how often, while a config file looks changed on disk,
+     * Visor asks supervisord whether it already runs it (applied outside
+     * Visor, by supervisorctl update or a deploy script).
+     */
+    "configRecheck": time$0.Duration;
 }

@@ -131,6 +131,12 @@ func (i *Instance) Client() *supervisor.Client { return i.client }
 // logs/ and supervisord.out (the daemon's own output).
 func (i *Instance) Dir() string { return i.dir }
 
+// Socket is the [unix_http_server] socket path.
+func (i *Instance) Socket() string { return i.sock }
+
+// ConfigPath is the main supervisord.conf.
+func (i *Instance) ConfigPath() string { return filepath.Join(i.dir, "supervisord.conf") }
+
 // WriteProgram writes conf.d/<name>.ini. supervisord sees it after
 // ReloadConfig, or at startup when written before Start returns.
 func (i *Instance) WriteProgram(t testing.TB, p Program) {

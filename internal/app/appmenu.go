@@ -54,7 +54,9 @@ func appMenuSpec() []menuSection {
 		}},
 		{"File", []menuItem{
 			{Label: "New Config…", Accel: "CmdOrCtrl+N", Action: "route:" + routeNew}, sep,
-			role(application.CloseWindow),
+			// Closes a server's tab, or the window on this computer's tab
+			// (the page decides: it knows which tab is on screen).
+			{Label: "Close", Accel: "CmdOrCtrl+W", Action: "menu:close"},
 		}},
 		{"Edit", []menuItem{
 			role(application.Undo), role(application.Redo), sep,
@@ -89,7 +91,9 @@ func dispatchMenu(action string, show func(route string), emit func(name string)
 	case "route":
 		show(arg)
 	case "menu":
-		show("")
+		if arg != "close" { // closing must not first bring a hidden window back
+			show("")
+		}
 		emit(arg)
 	case "open":
 		open(arg)

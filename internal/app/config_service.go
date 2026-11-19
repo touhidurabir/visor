@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"github.com/wailsapp/wails/v3/pkg/application"
 	"os"
 	"path/filepath"
 	"slices"
@@ -61,6 +62,10 @@ type FileView struct {
 type LoadedDiffView struct {
 	Known        bool
 	Loaded, Disk string
+	// Confirmed: supervisord was just asked and still runs something else.
+	// CheckError: asking it failed.
+	Confirmed  bool
+	CheckError string
 }
 
 // RemovedView is a config file removed from supervisor that is not back:
@@ -84,13 +89,13 @@ func (s *ConfigService) Read(path string) (FileView, error) {
 	if _, err := s.rt.includeFile(path); err != nil {
 		return FileView{}, err
 	}
-	data, err := os.ReadFile(path)
+	data, err := s.rt.files().ReadFile(path)
 	if err != nil {
 		return FileView{}, fmt.Errorf("read %s: %w", path, err)
 	}
 	return FileView{
 		Path: path, Content: string(data), Hash: apply.Hash(data),
-		Writable: apply.CheckWritable(path) == nil,
+		Writable: !s.rt.Remote() && apply.CheckWritable(path) == nil,
 	}, nil
 }
 
@@ -113,16 +118,34 @@ func (s *ConfigService) Explain(fileName, content, selfPath string) ExplainView 
 }
 
 // LoadedDiff returns what supervisord loaded from path (Visor's snapshot)
-// and what is on disk now.
+// and what is on disk now. When path is flagged as changed, supervisord is
+// asked first whether it already runs it (not on a Read only server); if
+// it does, path is recorded as loaded and no longer flagged.
 func (s *ConfigService) LoadedDiff(path string) (LoadedDiffView, error) {
 	if _, err := s.rt.includeFile(path); err != nil {
 		return LoadedDiffView{}, err
 	}
-	disk, err := os.ReadFile(path)
+	var v LoadedDiffView
+	if s.rt.flagged(path) {
+		if ac, err := s.rt.conn(); err == nil {
+			asked, err := s.rt.confirmFlagged(ac.ctx, ac.client, s.rt.changeSet(), true)
+			if err != nil {
+				v.CheckError = err.Error()
+			} else {
+				v.Confirmed = asked && s.rt.flagged(path)
+			}
+			if asked {
+				s.rt.emitOverview()
+			}
+		} else {
+			v.CheckError = err.Error()
+		}
+	}
+	disk, err := s.rt.files().ReadFile(path)
 	if err != nil {
 		return LoadedDiffView{}, fmt.Errorf("read %s: %w", path, err)
 	}
-	v := LoadedDiffView{Disk: string(disk)}
+	v.Disk = string(disk)
 	if w := s.rt.watcherOrNil(); w != nil {
 		if loaded, ok := w.Loaded(path); ok {
 			v.Known, v.Loaded = true, string(loaded)
@@ -141,8 +164,12 @@ func (s *ConfigService) LoadedDiff(path string) (LoadedDiffView, error) {
 // When supervisord then refuses the file (it can't re-read its config),
 // the previous version is put back and the error is ErrRejected.
 func (s *ConfigService) Save(path, content, hash string) (ApplyResultView, error) {
+	if err := s.rt.CheckConfigWrite(); err != nil {
+		return ApplyResultView{}, err
+	}
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
+	defer s.rt.markWrites()() // its file changes are Visor's, not outside ones
 	return s.save(path, content, hash)
 }
 
@@ -229,8 +256,12 @@ func (s *ConfigService) applyWritten(path string, olds ...[]byte) (ApplyResultVi
 // supervisord: only the groups it defines now, and the ones supervisord
 // loaded from it before.
 func (s *ConfigService) ApplyFile(path string) (ApplyResultView, error) {
+	if err := s.rt.CheckConfigWrite(); err != nil {
+		return ApplyResultView{}, err
+	}
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
+	defer s.rt.markWrites()() // its file changes are Visor's, not outside ones
 	if _, err := s.rt.includeFile(path); err != nil {
 		return ApplyResultView{}, err
 	}
@@ -243,6 +274,9 @@ func (s *ConfigService) ApplyFile(path string) (ApplyResultView, error) {
 // supervisorctl update <group> would for just those groups. Groups it
 // already runs are left as they are, even when they changed on disk.
 func (s *ConfigService) LoadFile(path string) (ApplyResultView, error) {
+	if err := s.rt.CheckConfigWrite(); err != nil {
+		return ApplyResultView{}, err
+	}
 	ac, err := s.rt.conn()
 	if err != nil {
 		return ApplyResultView{}, err
@@ -286,8 +320,12 @@ func (s *ConfigService) Backups(path string) ([]BackupView, error) {
 // a backup of what is there now, and an apply of the file's groups. A file
 // removed from supervisor comes back as a new file.
 func (s *ConfigService) Restore(path, backupID string) (ApplyResultView, error) {
+	if err := s.rt.CheckConfigWrite(); err != nil {
+		return ApplyResultView{}, err
+	}
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
+	defer s.rt.markWrites()() // its file changes are Visor's, not outside ones
 	if err := s.rt.checkManaged(path); err != nil {
 		return ApplyResultView{}, err
 	}
@@ -400,12 +438,18 @@ type FolderView struct {
 	Writable bool
 	Missing  bool
 	Owner    string
+	// Remote: the folder is on a server, where configs are read only in
+	// this version (not a permission problem).
+	Remote bool
 }
 
 // Folder is the include folder's state for the read-only banner. With no
 // include folder there is nothing to say, so it reads as writable.
 func (s *ConfigService) Folder() FolderView {
 	dir, _ := s.rt.newFileHome()
+	if s.rt.Remote() {
+		return FolderView{Dir: dir, Remote: true}
+	}
 	return folderView(dir, os.Stat, platform.DirWritable, ownerName)
 }
 
@@ -450,8 +494,12 @@ func (r *Runtime) newFileHome() (dir, ext string) {
 // its programs, so everything else keeps running. The new config is watched
 // for notifications. A file that already exists is never overwritten.
 func (s *ConfigService) Create(fileName, content string) (ApplyResultView, error) {
+	if err := s.rt.CheckConfigWrite(); err != nil {
+		return ApplyResultView{}, err
+	}
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
+	defer s.rt.markWrites()() // its file changes are Visor's, not outside ones
 	dir, _ := s.rt.newFileHome()
 	if dir == "" {
 		return ApplyResultView{}, errors.New("supervisord's [include] files= setting names no folder Visor can write to")
@@ -486,6 +534,9 @@ type CopyDraftView struct {
 // file name already in the include folder. Nothing is written; the draft is
 // saved with Create like any new config.
 func (s *ConfigService) CopyDraft(path string) (CopyDraftView, error) {
+	if err := s.rt.CheckConfigWrite(); err != nil {
+		return CopyDraftView{}, err
+	}
 	if _, err := s.rt.includeFile(path); err != nil {
 		return CopyDraftView{}, err
 	}
@@ -555,7 +606,7 @@ func (r *Runtime) validateEnv(selfPath string) validate.Env {
 	d := r.d
 	r.mu.Unlock()
 	inv, _ := config.LoadInventory(d)
-	return validate.Env{Inventory: inv, IncludeGlobs: d.IncludeGlobs, SelfPath: selfPath}
+	return validate.Env{Inventory: inv, IncludeGlobs: d.IncludeGlobs, SelfPath: selfPath, Remote: r.Remote()}
 }
 
 func (r *Runtime) watcherOrNil() *config.Watcher {
@@ -591,7 +642,11 @@ func (r *Runtime) checkNotMain(path string) error {
 	r.mu.Lock()
 	main := r.d.ConfigPath
 	r.mu.Unlock()
-	if main != "" && sameFile(path, main) {
+	same := sameFile
+	if r.Remote() { // the paths are on the server: compare them as written
+		same = func(a, b string) bool { return filepath.Clean(a) == filepath.Clean(b) }
+	}
+	if main != "" && same(path, main) {
 		return fmt.Errorf("%s: %w", path, ErrMainConfig)
 	}
 	return nil
@@ -643,4 +698,37 @@ func (r *Runtime) matchesInclude(path string) bool {
 		}
 	}
 	return false
+}
+
+// Download saves a copy of an include file on a server (or this computer)
+// where the person picks, with the save dialog. It returns where it went,
+// or "" when they cancelled.
+func (s *ConfigService) Download(path string) (string, error) {
+	if _, err := s.rt.includeFile(path); err != nil {
+		return "", err
+	}
+	data, err := s.rt.files().ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", path, err)
+	}
+	return saveCopy(filepath.Base(path), data)
+}
+
+// saveCopy asks where to save data (named name) and writes it there.
+var saveCopy = func(name string, data []byte) (string, error) {
+	a := application.Get()
+	if a == nil {
+		return "", errors.New("cannot show the save dialog: Visor is not running as an app")
+	}
+	dest, err := a.Dialog.SaveFile().
+		SetFilename(name).
+		AttachToWindow(a.Window.Current()).
+		PromptForSingleSelection()
+	if err != nil || dest == "" {
+		return "", nil
+	}
+	if err := os.WriteFile(dest, data, 0o644); err != nil {
+		return "", err
+	}
+	return dest, nil
 }

@@ -3,7 +3,10 @@
 // state transitions. It knows nothing about Wails.
 package issues
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 // Kind says what went wrong.
 type Kind string
@@ -13,6 +16,9 @@ const (
 	KindUnexpectedExit Kind = "unexpected_exit"
 	KindCrashLoop      Kind = "crash_loop"
 	KindUnreachable    Kind = "unreachable"
+	// KindHostDown: a server's SSH connection is lost, so supervisord there
+	// can't be asked (not the same as supervisord not answering).
+	KindHostDown Kind = "host_down"
 )
 
 // Status is where an issue is in its life.
@@ -83,3 +89,7 @@ var DefaultRules = Rules{
 	StableFor:         60 * time.Second,
 	UnreachablePolls:  2,
 }
+
+// ErrHostDown is wrapped in a poll's error when the SSH connection to the
+// server is down: the tracker opens KindHostDown for it, not KindUnreachable.
+var ErrHostDown = errors.New("the server can't be reached over SSH")

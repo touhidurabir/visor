@@ -8,10 +8,13 @@
 // meaning and fixes apply straight to the text. actions=false hides the
 // fix and go-to-line buttons (the Add new form has no text to change).
 import { computed } from 'vue'
+// On a server's tab its paths are on the server: no Finder or editor here.
+const local = currentTab.value === LOCAL
 import type { EditView, ExplainLineView, LinePathView, ProblemView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { fileSize } from '../lib/explain'
 import { codeTokens } from '../lib/explain-cards'
 import { openFolderLabel, revealLabel, showFileLabel } from '../lib/platform'
+import { currentTab, LOCAL } from '../lib/tabs'
 
 const props = defineProps<{ line: ExplainLineView; mode: 'overview' | 'editor'; readOnly: boolean; actions: boolean }>()
 const emit = defineEmits<{
@@ -88,7 +91,10 @@ function tag(p: LinePathView): { text: string; cls: string } {
         <span :class="['badge', 'tag', tag(p).cls]">{{ tag(p).text }}</span>
         <span v-if="p.Auto" class="badge tag b-idle">named by supervisord</span>
         <span class="links">
-          <template v-if="p.Kind === 'bin'">
+          <template v-if="!local">
+            <button v-if="p.Process && !editor && p.Kind !== 'bin' && p.Kind !== 'dir'" type="button" class="link" @click="emit('viewLog', p.Process, p.Stream)">View in Logs tab</button>
+          </template>
+          <template v-else-if="p.Kind === 'bin'">
             <button type="button" class="link" :disabled="!p.Exists" :title="p.Exists ? undefined : 'Nothing to show: the file doesn’t exist'" @click="emit('reveal', p.Path)">{{ revealLabel() }}</button>
           </template>
           <template v-else-if="p.Kind === 'dir'">

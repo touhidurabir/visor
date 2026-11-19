@@ -14,11 +14,12 @@ import { computed, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import IssuesList from '../components/IssuesList.vue'
 import MainLogTab from '../components/MainLogTab.vue'
+import { baseName, tabHref } from '../lib/tabs'
 
 const route = useRoute()
-const onLog = computed(() => route.name === 'issues-log')
+const onLog = computed(() => baseName(route.name) === 'issues-log')
 watch(
-  () => [route.name, route.query] as const,
+  () => [baseName(route.name), route.query] as const,
   ([name, query]) => {
     if (name === 'issues' || name === 'issues-log') lastQuery[name] = query
   },
@@ -34,8 +35,8 @@ watch(
         <p v-if="!onLog" class="help">An issue opens when a process can’t start, exits when it shouldn’t, or keeps restarting. Can’t-start issues close by themselves.</p>
       </div>
       <nav class="tabs" aria-label="Issues sections">
-        <RouterLink :to="{ path: '/issues', query: lastQuery.issues }" exact-active-class="on">Issues</RouterLink>
-        <RouterLink :to="{ path: '/issues/log', query: lastQuery['issues-log'] }" exact-active-class="on">supervisord log</RouterLink>
+        <RouterLink :to="{ path: tabHref('/issues'), query: lastQuery.issues }" exact-active-class="on">Issues</RouterLink>
+        <RouterLink :to="{ path: tabHref('/issues/log'), query: lastQuery['issues-log'] }" exact-active-class="on">supervisord log</RouterLink>
       </nav>
     </header>
     <div v-if="onLog" role="region" aria-label="supervisord log">

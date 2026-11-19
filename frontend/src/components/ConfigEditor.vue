@@ -11,16 +11,8 @@
 // stands, and the explanation starts with "To fix before saving".
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import {
-  ConfigService,
-  type ApplyResultView,
-  type BackupView,
-  type EditView,
-  type ExplainView,
-  type FileView,
-  type LoadedDiffView,
-  type ProcessView,
-} from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { type ApplyResultView, type BackupView, type EditView, type ExplainView, type FileView, type LoadedDiffView, type ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ConfigService } from '../lib/api'
 import { classifySaveError, saveErrorText } from '../lib/config-errors'
 import { addLines, applyEdit, explainMarks, fixToSave } from '../lib/explain'
 import { saveReason } from '../lib/fix-list'
@@ -38,10 +30,13 @@ import ExplainPanel from './ExplainPanel.vue'
 import IniEditor from './IniEditor.vue'
 import RestoreDialog from './RestoreDialog.vue'
 import SaveBar from './SaveBar.vue'
+import { currentTab, LOCAL } from '../lib/tabs'
 
 // line (from ?line=N) is the line to show when the editor opens. processes
 // are the file's processes from the live overview, for each card's state.
-const props = defineProps<{ path: string; fileName: string; changed: boolean; uncertain: boolean; line?: number; processes?: ProcessView[] }>()
+// serverReadOnly: the server is set to Read only, so supervisord is never
+// asked whether it already runs a changed file.
+const props = defineProps<{ path: string; fileName: string; changed: boolean; uncertain: boolean; serverReadOnly?: boolean; line?: number; processes?: ProcessView[] }>()
 
 const CHECK_DELAY_MS = 300
 
@@ -59,6 +54,16 @@ const checkFailed = ref<string | null>(null)
 const checkedText = ref<string | null>(null)
 const loadedDiff = ref<LoadedDiffView | null>(null)
 const loadedDiffError = ref<string | null>(null)
+const checkingLoaded = ref(false)
+// What Visor knows from asking supervisord (LoadedDiff asks it first).
+const loadedStatus = computed(() => {
+  const v = loadedDiff.value
+  if (!v) return ''
+  if (props.serverReadOnly) return 'This server is Read only, so Visor doesn’t ask supervisord whether it already runs this file. If it was applied another way, this may be out of date.'
+  if (v.CheckError) return `Couldn’t check with supervisord: ${v.CheckError}`
+  if (v.Confirmed) return remote.value ? 'Checked with supervisord: it hasn’t loaded these changes yet.' : 'Checked with supervisord: it hasn’t loaded these changes yet. Apply them to load them.'
+  return 'Visor checks with supervisord while this file shows as changed.'
+})
 
 const preview = ref(false)
 const compare = ref(false)
@@ -68,13 +73,14 @@ const editor = ref<InstanceType<typeof IniEditor>>()
 
 const dirty = computed(() => !!file.value && text.value !== file.value.Content)
 const writable = computed(() => !!file.value?.Writable)
+const remote = computed(() => currentTab.value !== LOCAL)
 const errorCount = computed(() => explained.value?.SaveErrors ?? 0)
 const marks = computed(() => explainMarks(explained.value))
 const saveDiff = computed(() => diffLines(file.value?.Content ?? '', text.value))
 const saveStats = computed(() => diffStats(saveDiff.value))
 const cantSave = computed(() => {
   if (busy.value) return 'Wait for the current action to finish.'
-  if (!writable.value) return 'Visor can’t write this file.'
+  if (!writable.value) return remote.value ? 'Configs on servers are read only for now.' : 'Visor can’t write this file.'
   if (diskNewer.value) return 'The file changed on disk. Choose what to do with your edits first.'
   if (!dirty.value) return 'There is nothing to save yet.'
   if (checkedText.value === text.value && errorCount.value) return saveReason(explained.value) || fixToSave(errorCount.value)
@@ -84,7 +90,7 @@ const bar = computed<{ tone: 'ok' | 'bad' | 'warn' | 'idle'; status: string }>((
   if (busy.value === 'save') return { tone: 'idle', status: 'Saving…' }
   if (busy.value === 'restore') return { tone: 'idle', status: 'Restoring…' }
   if (busy.value === 'apply') return { tone: 'idle', status: 'Applying…' }
-  if (!writable.value) return { tone: 'warn', status: 'Read-only: Visor can’t write this file.' }
+  if (!writable.value) return { tone: 'warn', status: remote.value ? 'Read only: configs on servers can’t be changed yet.' : 'Read-only: Visor can’t write this file.' }
   if (diskNewer.value) return { tone: 'warn', status: 'Edited elsewhere: choose what to do with your edits first.' }
   if (dirty.value && checkedText.value === text.value && errorCount.value) return { tone: 'bad', status: `${cantSave.value}.` }
   if (dirty.value) return { tone: 'warn', status: 'Unsaved changes' }
@@ -145,16 +151,24 @@ async function refreshFromDisk() {
   }
 }
 
+let loadedSeq = 0
 async function loadLoadedDiff() {
+  const seq = ++loadedSeq // only the latest answer is shown
   if (!props.changed && !props.uncertain) {
     loadedDiff.value = null
     return
   }
+  checkingLoaded.value = true
   try {
-    loadedDiff.value = await ConfigService.LoadedDiff(props.path)
+    const v = await ConfigService.LoadedDiff(props.path)
+    if (gone || seq !== loadedSeq) return
+    loadedDiff.value = v
     loadedDiffError.value = null
   } catch (e) {
+    if (gone || seq !== loadedSeq) return
     loadedDiffError.value = describeError(e)
+  } finally {
+    if (seq === loadedSeq) checkingLoaded.value = false
   }
 }
 void loadLoadedDiff()
@@ -162,6 +176,7 @@ void loadLoadedDiff()
 watch(
   () => [props.changed, props.uncertain],
   () => {
+    loadedDiff.value = null // flagged again: not the last answer
     void loadLoadedDiff()
     if (!busy.value) void refreshFromDisk()
   },
@@ -330,10 +345,10 @@ async function applyDisk() {
 
 const diskDiff = computed(() => diffLines(diskNewer.value?.Content ?? '', text.value))
 
-async function copyEdits() {
+async function copyEdits(done = 'Copied your edits.') {
   try {
     await copyText(text.value)
-    showToast('Copied your edits.')
+    showToast(done)
   } catch (e) {
     showToast(describeError(e), 'error')
   }
@@ -383,7 +398,11 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
     <p v-else-if="!file" class="muted">Loading…</p>
     <div v-else class="grid">
       <div class="col">
-        <div v-if="!writable" class="banner warn" role="status">
+        <div v-if="!writable && remote" class="banner warn" role="status">
+          <strong>Configs on servers are read only for now.</strong>
+          <span>This version of Visor shows them and runs their processes, but can’t save, add, remove or restore them, with Use sudo too. Editing configs on servers comes in the next version.</span>
+        </div>
+        <div v-else-if="!writable" class="banner warn" role="status">
           <strong>Visor can’t write this file.</strong>
           <span>
             The file or its folder is read-only for you, so the editor is read-only too. Open Doctor to see how to fix the permissions, or edit the file with
@@ -397,13 +416,13 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
           <span>Your edits are still here and nothing was saved over the other change.</span>
           <span class="actions">
             <button type="button" class="btn" @click="compare = true">Review the differences</button>
-            <button type="button" class="btn" @click="copyEdits">Copy my edits</button>
+            <button type="button" class="btn" @click="copyEdits()">Copy my edits</button>
           </span>
         </div>
 
         <div v-if="failure" class="banner bad" role="alert">
           <span>{{ failure }}</span>
-          <button v-if="!diskNewer" type="button" class="btn" @click="copyEdits">Copy my edits</button>
+          <button v-if="!diskNewer" type="button" class="btn" @click="copyEdits()">Copy my edits</button>
         </div>
 
         <p v-if="restoredDraft" class="note" role="status">Your unsaved edits from earlier are back in the editor.</p>
@@ -435,19 +454,25 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
         </section>
 
         <section v-if="changed || uncertain" class="card" aria-labelledby="loaded-title">
-          <strong id="loaded-title">Changed on disk vs. what supervisord is running</strong>
+          <strong id="loaded-title">Changed on disk since supervisord last loaded it</strong>
           <p v-if="loadedDiffError" class="muted">{{ loadedDiffError }}</p>
-          <p v-else-if="loadedDiff && !loadedDiff.Known" class="muted">Visor can’t tell what supervisord loaded; apply to be sure.</p>
-          <DiffView
-            v-else-if="loadedDiff"
-            :from="loadedDiff.Loaded"
-            :to="loadedDiff.Disk"
-            label="Disk compared with what supervisord loaded"
-            empty="Only comments or spacing changed. Applying makes Visor record it as loaded."
-          />
+          <template v-else-if="loadedDiff">
+            <p class="muted" role="status" data-testid="loaded-status">{{ loadedStatus }}</p>
+            <p v-if="!loadedDiff.Known" class="muted">Visor has no earlier copy of this file to compare with.</p>
+            <DiffView
+              v-else
+              :from="loadedDiff.Loaded"
+              :to="loadedDiff.Disk"
+              label="Disk compared with Visor’s last record of what supervisord loaded"
+              empty="Only comments or spacing changed. Applying makes Visor record it as loaded."
+            />
+          </template>
           <div>
-            <button type="button" class="btn primary" :disabled="!!busy || dirty" :title="dirty ? 'Save or discard your edits first' : undefined" @click="applyDisk">
+            <button v-if="!remote" type="button" class="btn primary" :disabled="!!busy || dirty" :title="dirty ? 'Save or discard your edits first' : undefined" @click="applyDisk">
               {{ busy === 'apply' ? 'Applying…' : 'Apply changes' }}
+            </button>
+            <button v-else-if="!serverReadOnly" type="button" class="btn" :disabled="checkingLoaded" @click="loadLoadedDiff">
+              {{ checkingLoaded ? 'Checking…' : 'Check with supervisord' }}
             </button>
           </div>
         </section>
@@ -470,6 +495,7 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
     </div>
 
     <SaveBar v-if="file" :tone="bar.tone" :status="bar.status" note="A timestamped backup is saved before every write.">
+      <button type="button" class="btn" @click="copyEdits(dirty ? 'Copied your edits.' : `Copied ${fileName}.`)">Copy</button>
       <button type="button" class="btn" :disabled="!!busy" @click="openRestore">Restore a backup…</button>
       <button type="button" class="btn" :disabled="!!busy" @click="runChecks">Validate</button>
       <button type="button" class="btn primary" :disabled="!!cantSave" @click="startSave">
@@ -499,7 +525,7 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
       <DiffView :lines="diskDiff" label="File on disk compared with your edits" empty="Your edits match the file on disk." />
       <template #actions>
         <button type="button" class="btn" @click="compare = false">Close</button>
-        <button type="button" class="btn" @click="copyEdits">Copy my edits</button>
+        <button type="button" class="btn" @click="copyEdits()">Copy my edits</button>
         <button type="button" class="btn" @click="loadNewVersion">Load the new version</button>
         <button type="button" class="btn primary" @click="keepMyEdits">Keep my edits</button>
       </template>

@@ -147,6 +147,9 @@ func altName(name string) string {
 // autostart already started stay as they are). One result per item; the
 // error is for the batch as a whole.
 func (s *ConfigService) Import(items []ImportItem, start bool) ([]ImportResultView, error) {
+	if err := s.rt.CheckConfigWrite(); err != nil {
+		return nil, err
+	}
 	switch {
 	case len(items) == 0:
 		return nil, errors.New("choose at least one file to import")
@@ -162,6 +165,7 @@ func (s *ConfigService) Import(items []ImportItem, start bool) ([]ImportResultVi
 	}
 
 	s.rt.applyMu.Lock()
+	defer s.rt.markWrites()() // its file changes are Visor's, not outside ones
 	for i, v := range s.CheckImport(items) {
 		if v.SaveErrors > 0 {
 			s.rt.applyMu.Unlock()

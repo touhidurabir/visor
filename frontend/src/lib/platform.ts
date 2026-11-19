@@ -7,8 +7,8 @@ import { OS, type Info } from '../../bindings/github.com/touhidurabir/visor/inte
 
 export type { Info as PlatformInfo }
 
-export const MAC: Info = { os: OS.Darwin, mod: '⌘', secretStore: 'Keychain', fileManager: 'Finder', tray: 'menu bar', systemSettings: true }
-export const LINUX: Info = { os: OS.Linux, mod: 'Ctrl', secretStore: 'keyring', fileManager: 'file manager', tray: 'tray', systemSettings: false }
+export const MAC: Info = { os: OS.Darwin, mod: '⌘', secretStore: 'Keychain', fileManager: 'Finder', tray: 'menu bar', systemSettings: true, local: 'This Mac' }
+export const LINUX: Info = { os: OS.Linux, mod: 'Ctrl', secretStore: 'keyring', fileManager: 'file manager', tray: 'tray', systemSettings: false, local: 'This computer' }
 
 let info: Info = MAC
 

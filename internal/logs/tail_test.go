@@ -3,6 +3,7 @@ package logs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -73,8 +74,8 @@ func TestTailDedupesOverlap(t *testing.T) {
 	if c := poll(t, tl); c.Text != "one\ntwo\n" || c.Truncated || c.Skipped {
 		t.Fatalf("first = %+v", c)
 	}
-	if f.lastReq != [2]int{0, 64 << 10} {
-		t.Errorf("first request = %v, want [0 65536]", f.lastReq)
+	if f.lastReq != [2]int{0, 64<<10 + 1} { // one byte more shows where a line starts
+		t.Errorf("first request = %v, want [0 65537]", f.lastReq)
 	}
 	// The server returns up to 256 KiB ending at the log size, overlapping
 	// what we already have; only the new bytes must come back.
@@ -141,6 +142,19 @@ func TestTailFirstPollIsNotSkipped(t *testing.T) {
 	c := poll(t, NewTailer(f, "p", Stdout, 0))
 	if c.Skipped || len(c.Text) != 64<<10 {
 		t.Errorf("first poll: skipped=%v len=%d, want last 64 KiB", c.Skipped, len(c.Text))
+	}
+}
+
+// A log longer than the first read starts the view at a whole line, not in
+// the middle of one (seen on a server's Laravel log).
+func TestTailFirstPollStartsAtALine(t *testing.T) {
+	f := &fakeLog{}
+	for i := 0; len(f.data) < 100<<10; i++ {
+		f.write(fmt.Sprintf("line %05d of the log\n", i))
+	}
+	c := poll(t, NewTailer(f, "p", Stdout, 0))
+	if !strings.HasPrefix(c.Text, "line ") || !strings.HasSuffix(c.Text, "\n") {
+		t.Errorf("first poll starts %q", c.Text[:min(20, len(c.Text))])
 	}
 }
 

@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -24,6 +23,8 @@ type Discovery struct {
 	// SocketChown is [unix_http_server] chown= ("root:supervisor"), "" if
 	// unset: Doctor's fix for a socket owned by root depends on it.
 	SocketChown string
+	// FS is where the files are read from: nil means this machine's disk.
+	FS FS
 }
 
 // DefaultPaths are the usual supervisord.conf locations on this OS, in
@@ -64,13 +65,21 @@ var mainSections = []string{"supervisord", "unix_http_server", "inet_http_server
 
 // Discover reads the first readable path in paths. A file that exists but
 // doesn't parse is an error, not a reason to try the next path.
-func Discover(paths []string) (Discovery, error) {
+func Discover(paths []string) (Discovery, error) { return DiscoverFS(OS, paths) }
+
+// DiscoverFS is Discover on another file system (a server's). Paths are
+// absolute there.
+func DiscoverFS(fsys FS, paths []string) (Discovery, error) {
 	for _, p := range paths {
-		data, err := os.ReadFile(p)
+		data, err := fsys.ReadFile(p)
 		if err != nil {
 			continue
 		}
-		return fromConfig(p, string(data))
+		d, err := fromConfig(p, string(data))
+		if err == nil && fsys != OS {
+			d.FS = fsys
+		}
+		return d, err
 	}
 	return Discovery{}, fmt.Errorf("%w (looked in %s)", ErrNoConfig, strings.Join(paths, ", "))
 }

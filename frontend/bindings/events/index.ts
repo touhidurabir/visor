@@ -9,6 +9,11 @@ import type {} from "../github.com/wailsapp/wails/v3/internal/eventdata.js";
 import "../github.com/wailsapp/wails/v3/internal/eventcreate.js";
 
 /**
+ * Name of the custom event "visor:activity".
+ */
+export const VisorActivity = "visor:activity";
+
+/**
  * Name of the custom event "visor:files-dropped".
  */
 export const VisorFilesDropped = "visor:files-dropped";
@@ -47,4 +52,9 @@ export const VisorOverview = "visor:overview";
  * Name of the custom event "visor:settings".
  */
 export const VisorSettings = "visor:settings";
+
+/**
+ * Name of the custom event "visor:tabs".
+ */
+export const VisorTabs = "visor:tabs";
 

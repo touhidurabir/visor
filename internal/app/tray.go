@@ -12,6 +12,7 @@ import (
 
 	"github.com/touhidurabir/visor/internal/monitor"
 	"github.com/touhidurabir/visor/internal/platform"
+	"github.com/touhidurabir/visor/internal/settings"
 	"github.com/touhidurabir/visor/internal/trayicon"
 )
 
@@ -44,10 +45,14 @@ type Shell struct {
 	tray    *application.SystemTray
 	popover *application.WebviewWindow
 	main    *application.WebviewWindow
+	// dock's Show/HideAppIcon dispatch_sync to the main queue: call them
+	// from a goroutine only; on the main thread (InvokeAsync) they SIGILL.
 	dock    *dock.DockService
 	started bool // the app is running, so the tray may be changed
 
-	unread     int                   // unread notifications, shown beside the icon
+	unread     int            // unread notifications, shown beside the icon
+	unreads    map[string]int // unread per tab; unread is their sum
+	healths    map[string]monitor.Health
 	countOff   bool                  // Settings: no count beside the icon
 	drawnLabel string                // what drawUnread last put beside the icon
 	drawnBadge int                   // Linux: the count last drawn into the icon (-1: none yet)
@@ -141,7 +146,7 @@ func (s *Shell) Emit(next func(name string, data any)) func(name string, data an
 		if name == EventNotifications {
 			if v, ok := data.(NotificationsView); ok {
 				s.mu.Lock()
-				s.unread = v.Unread
+				s.setUnreadLocked(v.Server, v.Unread)
 				started := s.started
 				s.mu.Unlock()
 				if started {
@@ -157,8 +162,8 @@ func (s *Shell) Emit(next func(name string, data any)) func(name string, data an
 		if !ok {
 			return
 		}
-		s.icon.set(parseHealth(ov.Server.Health))
 		s.mu.Lock()
+		s.icon.set(s.setHealthLocked(ov.Host.ID, parseHealth(ov.Server.Health)))
 		started := s.started
 		s.mu.Unlock()
 		if started {
@@ -167,6 +172,74 @@ func (s *Shell) Emit(next func(name string, data any)) func(name string, data an
 			application.InvokeAsync(s.drawIcon)
 		}
 	}
+}
+
+// setUnreadLocked records a tab's unread count and sums them. Caller holds mu.
+func (s *Shell) setUnreadLocked(id string, n int) {
+	if id == "" {
+		id = LocalID
+	}
+	if s.unreads == nil {
+		s.unreads = map[string]int{}
+	}
+	s.unreads[id] = n
+	s.unread = 0
+	for _, v := range s.unreads {
+		s.unread += v
+	}
+}
+
+// setHealthLocked records a tab's health and returns the worst across tabs
+// (an error anywhere shows as an error). Caller holds mu.
+func (s *Shell) setHealthLocked(id string, h monitor.Health) monitor.Health {
+	if id == "" {
+		id = LocalID
+	}
+	if s.healths == nil {
+		s.healths = map[string]monitor.Health{}
+	}
+	s.healths[id] = h
+	return worstHealth(s.healths)
+}
+
+// Forget drops a closed tab from the icon's health and unread count.
+func (s *Shell) Forget(id string) {
+	s.mu.Lock()
+	delete(s.healths, id)
+	delete(s.unreads, id)
+	s.unread = 0
+	for _, v := range s.unreads {
+		s.unread += v
+	}
+	s.icon.set(worstHealth(s.healths))
+	started := s.started
+	s.mu.Unlock()
+	if started {
+		application.InvokeAsync(s.drawIcon)
+		application.InvokeAsync(s.drawUnread)
+	}
+}
+
+func healthRank(h monitor.Health) int {
+	switch h {
+	case monitor.HealthError:
+		return 3
+	case monitor.HealthWarning:
+		return 2
+	case monitor.HealthOK:
+		return 1
+	}
+	return 0
+}
+
+func worstHealth(m map[string]monitor.Health) monitor.Health {
+	worst := monitor.HealthUnknown
+	for _, h := range m {
+		if healthRank(h) > healthRank(worst) {
+			worst = h
+		}
+	}
+	return worst
 }
 
 // trayLabel is the text beside the menu-bar icon: the unread count.
@@ -359,7 +432,7 @@ func (s *Shell) Setup(a *application.App, main *application.WebviewWindow, d *do
 		quiet := s.quiet
 		s.mu.Unlock()
 		if quiet && d != nil {
-			application.InvokeAsync(d.HideAppIcon)
+			d.HideAppIcon() // on this goroutine, never the main thread: see dock
 		}
 	})
 }
@@ -454,6 +527,15 @@ func NewShellService(s *Shell) *ShellService { return &ShellService{shell: s} }
 // OpenVisor shows the main window (and the Dock icon) and hides the
 // menu-bar popover.
 func (s *ShellService) OpenVisor() { s.shell.ShowMain("") }
+
+// OpenTab shows the main window on a server's tab (the popover's sections).
+func (s *ShellService) OpenTab(id string) {
+	if !settings.ValidServerID(id) {
+		s.shell.ShowMain("")
+		return
+	}
+	s.shell.ShowMain("#/s/" + id)
+}
 
 // OpenDoctor shows the main window at Doctor (and the Dock icon) and hides
 // the menu-bar popover: the popover's Open Doctor.

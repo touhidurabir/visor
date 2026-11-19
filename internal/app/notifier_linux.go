@@ -31,7 +31,7 @@ type linuxNotifier struct {
 
 func newNativeNotifier() nativeNotifier { return &linuxNotifier{hasServer: notificationServerRunning} }
 
-func (n *linuxNotifier) start(ctx context.Context, onClick func()) {
+func (n *linuxNotifier) start(ctx context.Context, onClick func(route string)) {
 	// Wails' Linux notifier reads the app's name at startup; without a
 	// running app (tests) notifications stay off.
 	if application.Get() == nil {
@@ -51,7 +51,7 @@ func (n *linuxNotifier) start(ctx context.Context, onClick func()) {
 		// GNOME and Plasma send the "default" action for a click on the
 		// banner; Wails maps it to DefaultActionIdentifier.
 		if r.Response.ActionIdentifier == notifications.DefaultActionIdentifier && onClick != nil {
-			go onClick()
+			go onClick(routeOf(r.Response.UserInfo))
 		}
 	})
 	n.markup.Store(serverHasCapability("body-markup"))

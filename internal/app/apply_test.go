@@ -127,7 +127,10 @@ func TestApplyChangesLimitsToGroups(t *testing.T) {
 
 // A comment-only edit is not a change supervisord reports, but applying the
 // file still records it as loaded.
-func TestApplyChangesClearsCommentOnlyEdit(t *testing.T) {
+// A comment-only edit changes nothing supervisord runs: asked about the
+// flagged file, supervisord says so, and Visor records the edit as loaded on
+// its own. Applying it then has nothing to do.
+func TestCommentOnlyEditClearsOnItsOwn(t *testing.T) {
 	inst := supervisortest.Start(t, supervisortest.Sleeper, worker)
 	rt, _ := startRuntime(t, confOf(inst), t.TempDir(), 100*time.Millisecond)
 	svc := NewServerService(rt)
@@ -137,10 +140,14 @@ func TestApplyChangesClearsCommentOnlyEdit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(p, append([]byte("; owned by the mail team\n"), b...), 0o600); err != nil {
+	edited := append([]byte("; owned by the mail team\n"), b...)
+	if err := os.WriteFile(p, edited, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	waitOverview(t, svc, 5*time.Second, "worker flagged", func(OverviewView) bool { return len(changesOf(rt).Changed) == 1 })
+	waitOverview(t, svc, 5*time.Second, "the edit recorded as loaded", func(OverviewView) bool {
+		snap, ok := rt.loadedSnapshot(p)
+		return ok && string(snap) == string(edited) && flagged(changesOf(rt)) == 0
+	})
 	res, err := svc.ApplyChanges([]string{"worker"})
 	if err != nil {
 		t.Fatal(err)

@@ -1,7 +1,7 @@
 // Finder and editor actions on a path (reveal, open a folder, open a log in
 // the text editor). They change nothing in supervisord; a failure becomes
 // an error toast in plain English.
-import { ServerService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ServerService } from './api'
 import { describeError } from './faults'
 import { showToast } from './toast'
 

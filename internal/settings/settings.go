@@ -25,6 +25,8 @@ const (
 	MaxCrashLoopRestart = 100
 	MinCrashLoopWindow  = time.Minute
 	MaxCrashLoopWindow  = 24 * time.Hour
+	MinConfigRecheck    = 15 * time.Second
+	MaxConfigRecheck    = 10 * time.Minute
 )
 
 // Settings are Visor's preferences. Durations are stored in JSON as
@@ -45,6 +47,27 @@ type Settings struct {
 	Appearance string `json:"appearance"`
 	// MenuBarCount shows the unread count beside the menu-bar icon.
 	MenuBarCount bool `json:"menuBarCount"`
+	// MaxServers is how many servers can be connected at once.
+	MaxServers int `json:"maxServers"`
+	// Mutes are the activity kinds whose notifications are off for this computer.
+	Mutes ActivityMutes `json:"mutes"`
+	// SearchWholeLog makes a log search read the whole log file, not only
+	// the lines the Logs tab has loaded. Off by default: each search reads
+	// the file, which on a server means downloading it over SSH.
+	SearchWholeLog bool `json:"searchWholeLog"`
+	// ConfigRecheck is how often, while a config file looks changed on disk,
+	// Visor asks supervisord whether it already runs it (applied outside
+	// Visor, by supervisorctl update or a deploy script).
+	ConfigRecheck time.Duration `json:"configRecheck"`
+}
+
+// ActivityMutes turn off notifications for changes made outside Visor, per
+// kind. Everything notifies by default.
+type ActivityMutes struct {
+	Processes bool `json:"processes"` // started, stopped or restarted outside Visor
+	Programs  bool `json:"programs"`  // added, removed or changed by an update outside Visor
+	Files     bool `json:"files"`     // config files added, changed or removed on disk
+	Daemon    bool `json:"daemon"`    // supervisord restarted, shut down or back
 }
 
 // Appearance values.
@@ -79,6 +102,8 @@ func Defaults() Settings {
 		RetentionDays: 90,
 		Appearance:    AppearanceSystem,
 		MenuBarCount:  true,
+		MaxServers:    DefaultMaxServers,
+		ConfigRecheck: time.Minute,
 	}
 }
 
@@ -96,6 +121,8 @@ func (s Settings) Clamp() Settings {
 	s.RetentionDays = min(max(s.RetentionDays, MinRetentionDays), MaxRetentionDays)
 	s.CrashLoop.Restarts = min(max(s.CrashLoop.Restarts, MinCrashLoopRestart), MaxCrashLoopRestart)
 	s.CrashLoop.Window = min(max(s.CrashLoop.Window, MinCrashLoopWindow), MaxCrashLoopWindow)
+	s.MaxServers = min(max(s.MaxServers, MinMaxServers), MaxMaxServers)
+	s.ConfigRecheck = min(max(s.ConfigRecheck, MinConfigRecheck), MaxConfigRecheck)
 	return s
 }
 

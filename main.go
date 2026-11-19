@@ -2,9 +2,14 @@ package main
 
 import (
 	"embed"
+	"errors"
+	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"runtime"
+	"runtime/debug"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -12,6 +17,7 @@ import (
 
 	"github.com/touhidurabir/visor/internal/app"
 	"github.com/touhidurabir/visor/internal/platform"
+	"github.com/touhidurabir/visor/internal/remote"
 	"github.com/touhidurabir/visor/internal/settings"
 )
 
@@ -27,6 +33,7 @@ func main() {
 		log.Fatal(err)
 	}
 	guardWebKitSandbox(stateDir)
+	keepCrashes(stateDir)
 	// A settings file that cannot be read leaves the defaults in use; the
 	// Settings page says so.
 	prefs, loadErr := settings.Load(stateDir)
@@ -51,7 +58,12 @@ func main() {
 	shell.ShowMenuBarCount(prefs.MenuBarCount)
 	// Native notifications for new issues; clicking one opens Issues. They
 	// work only in the packaged Visor.app (and never in the server build).
-	notifier := app.NewNotifyService(func() { shell.ShowMain(app.RouteIssues) })
+	notifier := app.NewNotifyService(func(route string) {
+		if route == "" {
+			route = app.RouteIssues
+		}
+		shell.ShowMain(route)
+	})
 	rt := app.NewRuntime(app.RuntimeOptions{
 		ConfigPath: envConfig,
 		StateDir:   stateDir,
@@ -60,8 +72,20 @@ func main() {
 		Emit:       shell.Emit(app.WailsEmit),
 		Notifier:   notifier,
 	})
+	// The hub owns the tabs: this computer's Runtime and one per open server.
+	hub := app.NewHub(rt, app.HubOptions{
+		StateDir: stateDir,
+		Keychain: keychain,
+		Emit:     shell.Emit(app.WailsEmit),
+		LogEmit:  app.WailsEmit,
+		Notifier: notifier,
+		HostKeys: remote.DefaultHostKeys(stateDir),
+		Closed:   shell.Forget,
+	})
+	remoteService := app.NewRemoteService(hub, stateDir, keychain, remote.DefaultHostKeys(stateDir), rt.Settings)
 	dockService := dock.New()
 	settingsService := app.NewSettingsService(rt, stateDir, envConfig, keychain, loadErr)
+	settingsService.ApplyToServers(hub.ApplySettings)
 	loginService := app.NewLoginItemService(loginItem, shell.ShowLoginStatus)
 	// LogLevel stays at Wails' default (Info). Do not raise it to Debug:
 	// Wails then logs every binding call with its arguments, which would
@@ -69,18 +93,28 @@ func main() {
 	wails := application.New(application.Options{
 		Name:        "Visor",
 		Description: "A menu-bar and tray app for managing supervisord",
+		// A panic Wails recovers (a call from the window rejects, Visor
+		// goes on): keep its trace where keepCrashes writes the others.
+		PanicHandler: func(p *application.PanicDetails) {
+			msg := fmt.Sprintf("%s panic: %v\n%s\n", time.Now().Format(time.RFC3339), p.Error, p.StackTrace)
+			_ = appendCrash(stateDir, msg)
+			log.Print(msg)
+		},
 		Services: []application.Service{
 			// Before ServerService, so notifications are ready by the first poll.
 			application.NewService(notifier),
-			// ServerService starts and stops rt with the app.
-			application.NewService(app.NewServerService(rt)),
-			application.NewService(app.NewIssueService(rt)),
-			application.NewService(app.NewInboxService(rt)),
-			application.NewService(app.NewConfigService(rt)),
+			// The hub starts rt with the app and stops every tab at quit.
+			application.NewService(app.NewHubService(hub)),
+			// Per-tab services: each method takes the tab's id first.
+			application.NewService(app.NewServerAPI(hub)),
+			application.NewService(app.NewIssueAPI(hub)),
+			application.NewService(app.NewInboxAPI(hub)),
+			application.NewService(app.NewConfigAPI(hub)),
+			application.NewService(app.NewLogAPI(hub)),
+			// Saved servers: the form, Settings → Servers and the tab bar.
+			application.NewService(remoteService),
 			application.NewService(settingsService),
 			application.NewService(app.NewDoctorService(rt, settingsService, loginService)),
-			// Log events go to the frontend only; the shell has no use for them.
-			application.NewService(app.NewLogService(rt, app.WailsEmit)),
 			application.NewService(app.NewShellService(shell)),
 			application.NewService(loginService),
 			application.NewService(dockService),
@@ -148,4 +182,31 @@ func main() {
 	if err := wails.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// keepCrashes writes a crash's Go trace to crash.log in the state folder: an
+// app opened from Finder or the dock has no terminal to print it to.
+func keepCrashes(stateDir string) {
+	f, err := openCrashLog(stateDir)
+	if err != nil {
+		return
+	}
+	_ = debug.SetCrashOutput(f, debug.CrashOptions{}) // keeps its own copy of f
+	_ = f.Close()
+}
+
+func appendCrash(stateDir, msg string) error {
+	f, err := openCrashLog(stateDir)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(msg)
+	return errors.Join(err, f.Close())
+}
+
+func openCrashLog(stateDir string) (*os.File, error) {
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return nil, err
+	}
+	return os.OpenFile(filepath.Join(stateDir, "crash.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 }

@@ -147,7 +147,9 @@ function extensions(): Extension[] {
     EditorView.contentAttributes.of({ 'aria-label': props.label, 'aria-multiline': 'true' }),
     markField,
     theme,
-    editable.of([EditorView.editable.of(!props.readOnly), EditorState.readOnly.of(!!props.readOnly)]),
+    // Read only blocks changes but stays focusable, so clicking, select-all
+    // and copy work as in any text (EditorView.editable(false) breaks them).
+    editable.of(EditorState.readOnly.of(!!props.readOnly)),
     EditorView.updateListener.of((u) => {
       if (u.docChanged) emit('update:modelValue', u.state.doc.toString())
     }),
@@ -176,7 +178,7 @@ watch(
 )
 watch(
   () => props.readOnly,
-  (ro) => view?.dispatch({ effects: editable.reconfigure([EditorView.editable.of(!ro), EditorState.readOnly.of(!!ro)]) }),
+  (ro) => view?.dispatch({ effects: editable.reconfigure(EditorState.readOnly.of(!!ro)) }),
 )
 function applyMarks() {
   view?.dispatch({ effects: setMarks.of(props.marks ?? []) })

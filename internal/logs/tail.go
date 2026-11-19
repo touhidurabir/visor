@@ -112,17 +112,25 @@ func Tail(ctx context.Context, c TailClient, process string, s Stream, n int) (s
 	if r.Offset <= len(text) && len(text) <= n { // the whole log
 		return text, nil
 	}
+	return fromLineStart(text), nil
+}
+
+// fromLineStart drops the partial first line of bytes read from inside a
+// log with one byte to spare (that byte shows whether a line starts after
+// it). Text with no line start after the first byte (one long line) keeps
+// the rest.
+func fromLineStart(text string) string {
 	if i := strings.IndexByte(text, '\n'); i >= 0 && i+1 < len(text) {
-		return text[i+1:], nil
+		return text[i+1:]
 	}
-	return trimLeadingPartialRune(text[1:]), nil
+	return trimLeadingPartialRune(text[1:])
 }
 
 // Poll returns the output written since the previous Poll. The first call
-// returns the last 64 KiB of the log.
+// returns the last 64 KiB of the log, from a line start.
 func (t *Tailer) Poll(ctx context.Context) (Chunk, error) {
 	if !t.started {
-		r, err := t.fetch(ctx, 0, firstLength)
+		r, err := t.fetch(ctx, 0, firstLength+1)
 		if err != nil {
 			return Chunk{}, err
 		}
@@ -130,7 +138,7 @@ func (t *Tailer) Poll(ctx context.Context) (Chunk, error) {
 		t.known = r.Offset
 		text := r.Bytes
 		if r.Offset > len(text) {
-			text = trimLeadingPartialRune(text)
+			text = fromLineStart(text)
 		}
 		t.append(text)
 		return Chunk{Text: text}, nil

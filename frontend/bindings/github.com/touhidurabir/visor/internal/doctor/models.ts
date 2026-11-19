@@ -11,6 +11,17 @@ export interface FixStep {
 }
 
 /**
+ * ReportRow is one line of a server's capability report.
+ */
+export interface ReportRow {
+    "ID": string;
+    "Title": string;
+    "Status": string;
+    "Detail": string;
+    "Fix": FixStep[] | null;
+}
+
+/**
  * RootFix is the way out of a socket owned by root on Linux.
  */
 export interface RootFix {

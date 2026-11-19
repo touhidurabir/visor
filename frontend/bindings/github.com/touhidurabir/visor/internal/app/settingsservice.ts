@@ -32,6 +32,14 @@ export function ApplyRetention(days: number): $CancellablePromise<$models.Settin
 }
 
 /**
+ * Get returns the settings in use.
+ * ApplyToServers sets how saved settings reach the open server tabs.
+ */
+export function ApplyToServers(fn: any): $CancellablePromise<void> {
+    return $Call.ByID(2328960619, fn);
+}
+
+/**
  * ChooseConfig shows the open-file dialog for picking supervisord.conf and
  * returns the chosen path, or "" when the person cancels. It does not save.
  */

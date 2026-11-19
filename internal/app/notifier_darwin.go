@@ -33,7 +33,7 @@ const permissionWait = 2 * time.Minute
 
 func newNativeNotifier() nativeNotifier { return &macNotifier{asked: make(chan struct{})} }
 
-func (n *macNotifier) start(ctx context.Context, onClick func()) {
+func (n *macNotifier) start(ctx context.Context, onClick func(route string)) {
 	ns := notifications.New()
 	// Wails' own startup checks: macOS 11+ and a bundle identifier. Its
 	// error would stop the app if Wails ran it as a service.
@@ -47,7 +47,7 @@ func (n *macNotifier) start(ctx context.Context, onClick func()) {
 			return
 		}
 		if r.Response.ActionIdentifier == notifications.DefaultActionIdentifier && onClick != nil {
-			go onClick() // off the notification centre's callback
+			go onClick(routeOf(r.Response.UserInfo)) // off the notification centre's callback
 		}
 	})
 	n.ns = ns
@@ -88,6 +88,9 @@ func (n *macNotifier) send(m notify.Message) error {
 	data := map[string]any{}
 	if m.IssueID != "" {
 		data["issueId"] = m.IssueID
+	}
+	if m.Route != "" {
+		data["route"] = m.Route
 	}
 	return n.ns.SendNotification(notifications.NotificationOptions{
 		ID:       m.ID,

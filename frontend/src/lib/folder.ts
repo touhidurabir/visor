@@ -3,7 +3,8 @@
 // owns (supervisord installed from a Linux package) makes configs
 // read-only: Programs pages say so and the writing actions are off.
 import { ref } from 'vue'
-import { ConfigService, type FolderView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { type FolderView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ConfigService } from './api'
 
 const folder = ref<FolderView | null>(null)
 
@@ -26,6 +27,7 @@ export function useFolder() {
  * tooltip say it; "" when they can.
  */
 export function readOnlyReason(f: FolderView | null): string {
+  if (f?.Remote) return 'Read only for now: this version of Visor can’t change configs on servers, with Use sudo too'
   if (!f || f.Writable || !f.Dir) return ''
   if (f.Missing) return `Read-only: ${f.Dir} doesn’t exist yet`
   return f.Owner ? `Read-only: ${f.Dir} belongs to ${f.Owner}` : `Read-only: ${f.Dir} isn’t writable for you`

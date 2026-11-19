@@ -3,9 +3,11 @@ package issues
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1747,5 +1749,20 @@ func TestAddedExitedCountsOnlyANewerExit(t *testing.T) {
 	}
 	if list, _ := s.Issues(Filter{}); len(list) != 1 || list[0].Count != 2 {
 		t.Fatalf("stored = %+v", list)
+	}
+}
+
+// A socket only root may open (Linux packages) reads as words, not as Go's
+// "dial unix …: connect: permission denied".
+func TestUnreachablePermissionDeniedInWords(t *testing.T) {
+	tr, _, c := newTracker(t, nil)
+	denied := fmt.Errorf("%w: dial unix /var/run/supervisor.sock: %w", supervisor.ErrUnreachable, syscall.EACCES)
+	var opened []Issue
+	for range 2 {
+		c.advance(time.Second)
+		opened, _ = tr.Apply(monitor.Update{Snapshot: monitor.Snapshot{At: c.now(), Err: denied}})
+	}
+	if len(opened) != 1 || opened[0].Message != "supervisord is not responding: this user isn't allowed to open its socket (permission denied)" {
+		t.Fatalf("opened %+v", opened)
 	}
 }

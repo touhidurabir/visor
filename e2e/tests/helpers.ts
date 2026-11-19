@@ -43,6 +43,25 @@ export async function processAction(page: Page, fullName: string, item: string) 
   await page.getByRole('menuitem', { name: new RegExp(`^${item}`) }).click()
 }
 
+/** Calls the sandbox supervisord directly (XML-RPC over its unix socket), as supervisorctl would: outside Visor. */
+export async function supervisorCall(method: string, ...params: string[]): Promise<string> {
+  const args = params.map((p) => `<param><value><string>${p}</string></value></param>`).join('')
+  const body = `<?xml version="1.0"?><methodCall><methodName>${method}</methodName><params>${args}</params></methodCall>`
+  return new Promise<string>((resolve, reject) => {
+    const req = http.request(
+      { socketPath: '/tmp/visor-e2e/s.sock', path: '/RPC2', method: 'POST', headers: { 'Content-Type': 'text/xml', 'Content-Length': Buffer.byteLength(body) } },
+      (res) => {
+        let data = ''
+        res.setEncoding('utf8')
+        res.on('data', (c) => (data += c))
+        res.on('end', () => resolve(data))
+      },
+    )
+    req.on('error', reject)
+    req.end(body)
+  })
+}
+
 /** Every process's info from the sandbox supervisord (XML-RPC over its unix socket), as raw <struct> bodies. */
 async function allProcessInfo(): Promise<string[]> {
   const body = '<?xml version="1.0"?><methodCall><methodName>supervisor.getAllProcessInfo</methodName></methodCall>'

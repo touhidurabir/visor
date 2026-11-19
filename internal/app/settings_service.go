@@ -59,8 +59,10 @@ type ConnectionInput struct {
 type SettingsService struct {
 	rt       *Runtime
 	stateDir string
-	envPath  string
-	keychain settings.Keychain
+	// toServers puts saved settings into use on the open server tabs.
+	toServers func(settings.Settings)
+	envPath   string
+	keychain  settings.Keychain
 
 	// mu serialises saves, so two saves never interleave their
 	// read-modify-write of the settings. It also guards the fields below.
@@ -79,6 +81,10 @@ type SettingsService struct {
 func NewSettingsService(rt *Runtime, stateDir, envPath string, k settings.Keychain, loadErr error) *SettingsService {
 	return &SettingsService{rt: rt, stateDir: stateDir, envPath: envPath, keychain: k, loadErr: loadErr}
 }
+
+// Get returns the settings in use.
+// ApplyToServers sets how saved settings reach the open server tabs.
+func (s *SettingsService) ApplyToServers(fn func(settings.Settings)) { s.toServers = fn }
 
 // Get returns the settings in use.
 func (s *SettingsService) Get() SettingsView {
@@ -168,6 +174,9 @@ func (s *SettingsService) saveAndTell(next settings.Settings) (SettingsView, err
 	}
 	s.loadErr = nil
 	v := s.withWarning(s.rt.ApplySettings(next, false))
+	if s.toServers != nil {
+		s.toServers(next)
+	}
 	setNativeAppearance(next.Appearance)
 	s.rt.opts.Emit(EventSettings, v)
 	return v, nil

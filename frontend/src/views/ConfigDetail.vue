@@ -8,7 +8,9 @@
 // &stream=stderr&line=9), so links land on them.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { ServerService, type ConfigDetailView, type EditView, type ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { type ConfigDetailView, type EditView, type ProcessView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ConfigService, ServerService } from '../lib/api'
+import { withConsent } from '../lib/production'
 import ConfigEditor from '../components/ConfigEditor.vue'
 import ExplainPanel from '../components/ExplainPanel.vue'
 import HistoryList from '../components/HistoryList.vue'
@@ -23,7 +25,7 @@ import { loadFile } from '../lib/load-file'
 import { chipSince } from '../lib/format'
 import { stateLook } from '../lib/state'
 import type { Stream } from '../lib/logview'
-import { useOverview } from '../lib/overview'
+import { placeName, useOverview } from '../lib/overview'
 import { configRoute } from '../lib/links'
 import { showToast } from '../lib/toast'
 import { revealLabel } from '../lib/platform'
@@ -206,7 +208,7 @@ const fileCalls = {
 const pendingBulk = ref<{ what: keyof typeof fileCalls; ask: BulkConfirm } | null>(null)
 
 function bulk(what: keyof typeof fileCalls) {
-  const ask = bulkConfirm(what, procs.value.length, config.value?.FileName)
+  const ask = bulkConfirm(what, procs.value.length, config.value?.FileName, overview.value?.Host?.Remote ? overview.value.Host.Name : undefined)
   if (ask) pendingBulk.value = { what, ask }
   else void run(fileCalls[what])
 }
@@ -214,7 +216,7 @@ function bulk(what: keyof typeof fileCalls) {
 function confirmBulk() {
   const p = pendingBulk.value
   pendingBulk.value = null
-  if (p) void run(fileCalls[p.what])
+  if (p) void withConsent(() => run(fileCalls[p.what]))
 }
 const toggleWatch = () => {
   const c = config.value
@@ -223,12 +225,20 @@ const toggleWatch = () => {
     })
 }
 const restart = (name: string) => void run(() => ServerService.Restart(name), `Restarted ${name}.`)
+
+/** Saves a copy of a server's config here (servers have no Finder or editor from this computer). */
+function download() {
+  void run(async () => {
+    const to = await ConfigService.Download(path.value)
+    if (to) showToast(`Saved a copy to ${to}`)
+  })
+}
 </script>
 
 <template>
   <div :class="['page', { fill: tab === 'logs' && !!config }]">
     <nav class="crumbs" aria-label="Breadcrumb">
-      <RouterLink to="/">{{ overview?.Server.Name ?? 'Local' }}</RouterLink> / {{ config?.FileName ?? path.split('/').pop() }}
+      <RouterLink to="/">{{ placeName(overview) }}</RouterLink> / {{ config?.FileName ?? path.split('/').pop() }}
     </nav>
 
     <div v-if="loadError" class="alert" role="alert">
@@ -266,12 +276,13 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
             <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0" /></svg>
             {{ config.Watched ? 'Watching' : 'Watch' }}
           </button>
-          <div class="bulk" role="group" :aria-label="`All processes in ${config.FileName}`">
+          <div v-if="!overview.Host?.ReadOnly" class="bulk" role="group" :aria-label="`All processes in ${config.FileName}`">
             <button type="button" class="btn quiet" :disabled="busy" @click="bulk('start')">Start all</button>
             <button type="button" class="btn quiet" :disabled="busy || nothingLoaded" :title="nothingLoaded ? NOT_LOADED_REASON : undefined" @click="bulk('stop')">Stop all</button>
             <button type="button" class="btn quiet" :disabled="busy || nothingLoaded" :title="nothingLoaded ? NOT_LOADED_REASON : undefined" @click="bulk('restart')">Restart all</button>
           </div>
-          <button type="button" class="btn quiet" @click="reveal(config.Path)">{{ revealLabel() }}</button>
+          <button v-if="overview.Host?.Remote" type="button" class="btn quiet" @click="download">Download a copy</button>
+          <button v-else type="button" class="btn quiet" @click="reveal(config.Path)">{{ revealLabel() }}</button>
         </div>
       </header>
       <ReadOnlyBanner />
@@ -286,7 +297,7 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
           supervisord hasn’t loaded <span class="mono">{{ notLoaded.join(', ') }}</span> yet<template v-if="!procs.length">, so it runs nothing from this file</template>. Load adds
           {{ notLoaded.length === 1 ? 'it' : 'them' }}, as <span class="mono">supervisorctl update</span> would.
         </span>
-        <button type="button" class="btn sm" :disabled="busy" @click="load">Load</button>
+        <button v-if="!overview.Host?.Remote" type="button" class="btn sm" :disabled="busy" @click="load">Load</button>
       </p>
       <p v-if="!procs.length && !notLoaded.length" class="muted">supervisord runs no process from this file. Apply it to load its programs.</p>
       <div v-else-if="procs.length" class="chips" role="group" aria-label="Processes in this config">
@@ -378,6 +389,7 @@ const restart = (name: string) => void run(() => ServerService.Restart(name), `R
           :file-name="config.FileName"
           :changed="config.Changed"
           :uncertain="config.Uncertain"
+          :server-read-only="!!overview?.Host?.ReadOnly"
           :line="editorLine"
           :processes="procs"
         />

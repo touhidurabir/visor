@@ -2,7 +2,8 @@
 // what supervisord will add, restart or remove, ask, apply, then report. The
 // text is pure (and tested); useApplyFlow holds the state around the calls.
 import { ref } from 'vue'
-import { ConfigService, ServerService, type ApplyResultView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { type ApplyResultView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ConfigService, ServerService } from './api'
 import { saveErrorText } from './config-errors'
 import { describeError } from './faults'
 

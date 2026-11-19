@@ -176,6 +176,26 @@ func TestLogServiceNoLogStreams(t *testing.T) {
 	}
 }
 
+func TestLogServiceSearch(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Spammer)
+	inst.WaitFor(t, "spammer:spammer", supervisor.StateRunning)
+	time.Sleep(300 * time.Millisecond)
+	rt, _ := startRuntime(t, confOf(inst), t.TempDir(), time.Minute)
+	s, _ := newLogService(t, rt)
+
+	p, err := s.Search("spammer:spammer", "stdout", "LINE 1", -1, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The log is far smaller than a step: one call searches it all.
+	if p.Next != 0 || p.Size == 0 || len(p.Lines) == 0 || p.Lines[len(p.Lines)-1] != "line 1" && !p.Capped {
+		t.Errorf("Search = %+v, want matches newest first down to line 1 in one step", p)
+	}
+	if _, err := s.Search("spammer:spammer", "nope", "x", -1, 3); err == nil {
+		t.Error("unknown stream: want error")
+	}
+}
+
 func TestLogServiceWithoutConnection(t *testing.T) {
 	rt, _ := startRuntime(t, filepath.Join(t.TempDir(), "missing.conf"), t.TempDir(), time.Minute)
 	s, _ := newLogService(t, rt)

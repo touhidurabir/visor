@@ -17,6 +17,26 @@ go test -race ./...    # what CI runs
 Integration tests need `supervisord` on the `PATH` (`brew install supervisor`)
 and skip themselves without it.
 
+### Remote servers
+
+The SSH side runs against an SSH server inside the Go tests
+(`internal/remote/remotetest`): password and key logins, host keys, socket
+forwarding, the Python bridge with a stand-in `sudo` (checked to run once per
+connection), reconnects. They need `python3` and `supervisord`.
+
+Opt-in live checks against a real server, by its alias in `~/.ssh/config`
+(the Ubuntu test VM is `visor-ubuntu`):
+
+```sh
+VISOR_SSH_TEST=visor-ubuntu go test -run TestLiveSSH -v ./internal/remote/          # read only: lists processes, reads configs
+VISOR_SSH_TEST=visor-ubuntu VISOR_SSH_SUDO=1 go test -run TestLiveSSH -v ./internal/remote/   # the same through sudo (NOPASSWD, or VISOR_SSH_SUDO_PASSWORD)
+VISOR_SSH_TEST=visor-ubuntu VISOR_SSH_SUDO=1 go test -run TestLiveServerTab -v ./internal/app/  # opens it as a tab; VISOR_SSH_RESTART=<process> also restarts one
+VISOR_SSH_TEST=visor-ubuntu VISOR_SSH_SUDO=1 VISOR_SSH_ACTIVITY=1 go test -run TestLiveActivity -v ./internal/app/  # test machines only: restarts things and edits a config there
+```
+
+Only `TestLiveSSH` is read only. Run the others on a test machine, never on
+a server people depend on.
+
 ## Frontend unit tests
 
 ```sh
@@ -116,6 +136,28 @@ hand on a Mac before a release, with `wails3 task dev`, or the packaged app
   7. Settings → Notifications shows "Allowed"; Send a test notification shows one. Turn Visor off in System Settings → Notifications: the page says so when you come back to it.
   8. Turn off "A process can't start" (or turn Watch off for mailer-digest's config), Resolve its issue and Start it again from Visor: it goes FATAL again with no notification. supervisord not responding notifies even when no config is watched.
   9. Quit Visor, then `VISOR_SANDBOX_DIR=/tmp/visor-notify scripts/sandbox.sh down`. macOS asks only once; change the answer later in System Settings → Notifications → Visor.
+
+## Manual remote-server checklist
+
+On a Mac and on Linux, against the Ubuntu VM (state-changing steps), and read
+only against a real server:
+
+- [ ] Add a server with a password, Test: the host-key prompt shows the fingerprint; Trust; the report is all green; Connect opens its tab.
+- [ ] Remote servers (sidebar, above Doctor): the list shows each server's status (Connected, Reconnecting…, Can't connect, Not open) and the at-once limit. The + beside the tabs lists only saved servers that aren't open; with none it points to Remote servers.
+- [ ] A wrong password, a key without its passphrase, a host that doesn't answer: Test and Connect both say why in the form, and Connect opens no tab (the server is saved). Fix the field, Connect again: the tab opens. A saved server that can't connect, opened from + or Remote servers, opens its form with the report.
+- [ ] Connect without saving: the tab works; Remote servers shows it as Not saved; closing the tab forgets it (nothing in `servers.json` or the Keychain). Save… on it keeps it.
+- [ ] Editing an open server and clicking Reconnect (or Save on one that can't connect) reconnects its tab with the new details.
+- [ ] A crash (if one happens) leaves `crash.log` in the state folder.
+- [ ] A server with a key with a passphrase, and one with the key only in the agent (`ssh-add --apple-use-keychain` on a Mac).
+- [ ] A Host alias from `~/.ssh/config` with ProxyJump.
+- [ ] sudo with a password: the VM's `/var/log/auth.log` has one `sudo` line per connection, not per poll. A wrong sudo password: the report says so, and auth.log shows one try only.
+- [ ] Socket owned by root without Use sudo: the report shows the owner and mode and the group fix.
+- [ ] Tabs: switching keeps each tab's page; Ctrl+Tab; ⌘W closes a server's tab and not this computer's; Visor restarts with only this computer's tab.
+- [ ] Production: Restart asks, naming the server; Read only: no actions anywhere (dashboard, config page, popover).
+- [ ] The popover with a server open: the header says "This Mac and 1 server", this computer and the server are folding rows, all folded; a notification from a server names it and opens its tab.
+- [ ] Turn the VM's network off: the tab says Reconnecting…, an issue says it can't reach the server, and it all clears when the network is back.
+- [ ] Activity: `sudo supervisorctl restart x`, a config edit and `sudo systemctl restart supervisor` on the VM each show and notify; muting a kind on one server stops it there only.
+- [ ] The real server (read only): connect, processes, logs, the configs read only (the banner says editing on servers comes in the next version, with no Doctor link), Download a copy; a program like `php` in the explanation reads as found.
 
 ## Manual Linux checklist
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyChunk, countMatches, emptyLog, highlight, noLogMessage, shownLines } from './logview'
+import { applyChunk, countMatches, emptyLog, highlight, levelCounts, levelOf, markedLines, noLogMessage, onlyLevels, shownLines, type Level } from './logview'
 
 const chunk = (Text: string, extra: Partial<{ Truncated: boolean; Skipped: boolean }> = {}) => ({
   ID: 'log-1',
@@ -105,5 +105,103 @@ describe('noLogMessage', () => {
   })
   it('is null for other errors', () => {
     expect(noLogMessage(new Error('supervisord: unreachable'))).toBeNull()
+  })
+})
+
+describe('markedLines', () => {
+  const s = applyChunk(emptyLog(), { Text: 'aa\nb\na\nAAA\n', Truncated: false, Skipped: false })
+  const ids = (q: string, max?: number) => [...markedLines(s.lines, q, max)].map((id) => s.lines.find((l) => l.id === id)!.text)
+
+  it('highlights the newest lines whose matches stay within the cap', () => {
+    expect(ids('a')).toEqual(['AAA', 'a', 'aa'])
+    expect(ids('a', 4)).toEqual(['AAA', 'a']) // "aa" would make 6
+    expect(ids('a', 2)).toEqual([]) // the newest line alone is over the cap
+    expect(ids('')).toEqual([])
+  })
+
+  it('counts overlapping text once per match', () => {
+    expect(countMatches(s.lines, 'aa')).toBe(2) // "aa" and the first two of "AAA"
+  })
+})
+
+describe('levelOf', () => {
+  const cases: [string, Level | undefined][] = [
+    // Laravel / Monolog
+    ['[2026-11-19 10:00:01] production.ERROR: SQLSTATE[HY000] Connection refused {"exception":"[object] ..."}', 'error'],
+    ['[2026-11-19 10:00:01] local.WARNING: Slow query', 'warn'],
+    ['[2026-11-19T10:00:01.123456+00:00] app.INFO: User logged in', 'info'],
+    ['[2026-11-19 10:00:01] production.DEBUG: cache hit', 'debug'],
+    ['[2026-11-19 10:00:01] production.CRITICAL: down', 'error'],
+    // Horizon / queue:work, new and old
+    ['  2026-11-17 15:32:00 Modules\\Machinery\\Listeners\\HandleMaintenanceCompletion ...... 81.02ms FAIL', 'error'],
+    ['  2026-11-17 15:32:00 App\\Jobs\\SendMail ............................. 12.10ms DONE', 'info'],
+    ['  2026-11-17 15:32:00 App\\Jobs\\SendMail ............................. RUNNING', 'debug'],
+    ['[2026-11-17 15:32:00][abc123] Failed:     App\\Jobs\\SendMail', 'error'],
+    ['[2026-11-17 15:32:00][abc123] Processed:  App\\Jobs\\SendMail', 'info'],
+    // JSON lines: pino, Monolog JSON, structured
+    ['{"level":50,"time":1700000000,"msg":"boom"}', 'error'],
+    ['{"level":30,"msg":"listening"}', 'info'],
+    ['{"message":"x","level":400,"level_name":"ERROR"}', 'error'],
+    ['{"ts":"2026-11-19T10:00:00Z","severity":"warning","msg":"retry"}', 'warn'],
+    // logfmt / Go slog
+    ['time=2026-11-19T10:00:00Z level=ERROR msg="dial failed"', 'error'],
+    ['ts=1 lvl=warn msg=slow', 'warn'],
+    // Python, Rails, klog, nginx, Celery
+    ['ERROR:root:something broke', 'error'],
+    ['2026-11-19 10:00:00,123 - app - WARNING - disk at 90%', 'warn'],
+    ['E, [2026-11-19T10:00:00.000 #1234] ERROR -- : boom', 'error'],
+    ['W1119 10:00:00.000000   1 reflector.go:1] watch closed', 'warn'],
+    ['2026/11/19 10:00:00 [error] 12#12: *1 connect() failed', 'error'],
+    ['[2026-11-19 10:00:00,000: INFO/MainProcess] Connected', 'info'],
+    // Thrown, no level word
+    ['Traceback (most recent call last):', 'error'],
+    ['TypeError: Cannot read properties of undefined', 'error'],
+    ['Illuminate\\Database\\QueryException: SQLSTATE', 'error'],
+    ['panic: runtime error: index out of range', 'error'],
+    // No level: plain output stays unmarked
+    ['Server started on port 8000', undefined],
+    ['no error found in 12 files', undefined],
+    ['processing 4 items', undefined],
+    ['{"msg":"no level here"}', undefined],
+    ['', undefined],
+  ]
+  it.each(cases)('%s', (text, want) => {
+    expect(levelOf(text)).toBe(want)
+  })
+})
+
+describe('levels in a log', () => {
+  const log = [
+    '[2026-11-19 10:00:00] production.ERROR: boom {"exception":"x"}',
+    '[stacktrace]',
+    '#0 /app/vendor/Foo.php(12): bar()',
+    '#1 {main}',
+    '"} ',
+    '[2026-11-19 10:00:01] production.INFO: fine',
+    'plain line',
+    '    indented, but the line above it has no level',
+    'Exception in thread "main" java.lang.IllegalStateException',
+    '\tat com.example.Main.main(Main.java:5)',
+  ].join('\n') + '\n'
+  const s = applyChunk(emptyLog(), { Text: log, Truncated: false, Skipped: false })
+
+  it('gives stack trace lines the level of their entry', () => {
+    expect(s.lines.map((l) => [l.level, !!l.more])).toEqual([
+      ['error', false], ['error', true], ['error', true], ['error', true], ['error', true],
+      ['info', false],
+      [undefined, false], [undefined, false],
+      ['error', false], ['error', true],
+    ])
+  })
+
+  it('counts entries, not lines, and filters by level', () => {
+    expect(levelCounts(s.lines)).toEqual({ error: 2, warn: 0, info: 1, debug: 0 })
+    expect(onlyLevels(s.lines, new Set(['info'] as Level[])).map((l) => l.text)).toEqual(['[2026-11-19 10:00:01] production.INFO: fine'])
+    expect(onlyLevels(s.lines, new Set())).toBe(s.lines)
+  })
+
+  it('marks the partial line too', () => {
+    const p = applyChunk(emptyLog(), { Text: 'ok\nlevel=error msg="half', Truncated: false, Skipped: false })
+    expect(shownLines(p).at(-1)?.level).toBe('error')
   })
 })

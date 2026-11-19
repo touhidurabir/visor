@@ -12,6 +12,7 @@ const NS_PER_MINUTE = 60 * NS_PER_SECOND
 
 export const LIMITS = {
   pollSeconds: { min: 1, max: 10 },
+  recheckSeconds: { min: 15, max: 600 },
   restarts: { min: 2, max: 100 },
   windowMinutes: { min: 1, max: 24 * 60 },
   retentionDays: { min: 7, max: 3650 },

@@ -9,7 +9,7 @@ const calls = {
   Restore: vi.fn(),
   ApplyFile: vi.fn(),
 }
-vi.mock('../../bindings/github.com/touhidurabir/visor/internal/app', () => ({
+vi.mock('./api', () => ({
   ServerService: {
     CheckForChanges: () => calls.CheckForChanges(),
     ApplyChanges: (g: string[] | null) => calls.ApplyChanges(g),

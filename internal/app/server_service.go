@@ -6,6 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/touhidurabir/visor/internal/config"
+	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -204,6 +207,7 @@ func (r *Runtime) unloadedGroups(ac actionConn, groups []string) ([]string, erro
 func (r *Runtime) loadGroups(path string, groups []string) (ApplyResultView, error) {
 	r.applyMu.Lock()
 	defer r.applyMu.Unlock()
+	defer r.markWrites()()
 	if _, err := r.includeFile(path); err != nil {
 		return ApplyResultView{}, err
 	}
@@ -219,16 +223,34 @@ func (s *ServerService) ConfigDetail(path string) (ConfigDetailView, error) {
 }
 
 // Reveal shows a file or folder in Finder.
-func (s *ServerService) Reveal(path string) error { return platform.Reveal(path) }
+func (s *ServerService) Reveal(path string) error {
+	if s.rt.Remote() {
+		return errOnServer
+	}
+	return platform.Reveal(path)
+}
 
 // OpenInEditor opens a file with its default app, or a folder in Finder.
 // It never launches anything: executable files are refused, and app
 // bundles and file types macOS would run are revealed in Finder instead.
-func (s *ServerService) OpenInEditor(path string) error { return platform.Open(path) }
+func (s *ServerService) OpenInEditor(path string) error {
+	if s.rt.Remote() {
+		return errOnServer
+	}
+	return platform.Open(path)
+}
 
 // OpenLog opens a log file in the default text editor (open -t), whatever
 // its extension, so no other app can run it. Folders are refused.
-func (s *ServerService) OpenLog(path string) error { return platform.OpenText(path) }
+func (s *ServerService) OpenLog(path string) error {
+	if s.rt.Remote() {
+		return errOnServer
+	}
+	return platform.OpenText(path)
+}
+
+// errOnServer: a path on a server can't be opened on this computer.
+var errOnServer = errors.New("that file is on the server: use Download to save a copy")
 
 // StartAll starts every process.
 func (s *ServerService) StartAll() error {
@@ -268,9 +290,9 @@ func (s *ServerService) ClearLogs(name string) error {
 // and reports which groups were added, changed or removed. Nothing is
 // applied.
 //
-// When supervisord sees no difference, it runs every file as it is on disk,
-// so their "changed" badges clear: a file added and applied outside Visor
-// (supervisorctl update) no longer reads as changed.
+// Files supervisord already runs as they are on disk (applied outside
+// Visor, by supervisorctl update or a deploy script) have their "changed"
+// badges cleared; when nothing differs, every file's does.
 func (s *ServerService) CheckForChanges() (supervisor.ConfigDiff, error) {
 	var diff supervisor.ConfigDiff
 	err := s.rt.act(expectation{}, func(ctx context.Context, c *supervisor.Client) error {
@@ -278,9 +300,16 @@ func (s *ServerService) CheckForChanges() (supervisor.ConfigDiff, error) {
 		diff, err = c.ReloadConfig(ctx)
 		return wrap("check for changes", err)
 	})
-	if err == nil && len(diff.Added)+len(diff.Changed)+len(diff.Removed) == 0 {
+	if err == nil {
+		// Files supervisord already runs (applied outside Visor) are
+		// recorded as loaded; with nothing differing, every file is.
 		s.rt.applyMu.Lock()
-		merr := s.rt.markAllLoaded()
+		var merr error
+		if len(diff.Added)+len(diff.Changed)+len(diff.Removed) == 0 {
+			merr = s.rt.markAllLoaded()
+		} else {
+			merr = s.rt.markInSync(s.rt.changeSet(), diff)
+		}
 		s.rt.applyMu.Unlock()
 		if merr == nil {
 			s.rt.emitOverview()
@@ -297,8 +326,12 @@ func (s *ServerService) CheckForChanges() (supervisor.ConfigDiff, error) {
 // An error means nothing was applied (no connection, or supervisord could
 // not re-read its config), unless it says otherwise.
 func (s *ServerService) ApplyChanges(groups []string) (ApplyResultView, error) {
+	if err := s.rt.CheckConfigWrite(); err != nil {
+		return ApplyResultView{}, err
+	}
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
+	defer s.rt.markWrites()() // its file changes are Visor's, not outside ones
 	res, err := s.rt.applyChanges(groups)
 	return toApplyResultView(res), err
 }
@@ -310,8 +343,12 @@ func (s *ServerService) ApplyChanges(groups []string) (ApplyResultView, error) {
 // deletes the file outright, and stops nothing when the file cannot be
 // moved (a folder Visor may not write) or backed up.
 func (s *ServerService) RemoveFromSupervisor(path string) (ApplyResultView, error) {
+	if err := s.rt.CheckConfigWrite(); err != nil {
+		return ApplyResultView{}, err
+	}
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
+	defer s.rt.markWrites()() // its file changes are Visor's, not outside ones
 	res, err := s.rt.removeFromSupervisor(path)
 	return toApplyResultView(res), err
 }
@@ -321,6 +358,7 @@ func (s *ServerService) RemoveFromSupervisor(path string) (ApplyResultView, erro
 func (s *ServerService) RestartDaemon() error {
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
+	defer s.rt.markWrites()() // its file changes are Visor's, not outside ones
 	err := s.rt.act(expectDaemonRestart(), func(ctx context.Context, c *supervisor.Client) error {
 		return wrap("restart supervisord", c.Restart(ctx))
 	})
@@ -338,6 +376,7 @@ func (s *ServerService) RestartDaemon() error {
 func (s *ServerService) ShutdownDaemon() error {
 	s.rt.applyMu.Lock()
 	defer s.rt.applyMu.Unlock()
+	defer s.rt.markWrites()() // its file changes are Visor's, not outside ones
 	return s.rt.act(expectDaemonShutdown(), func(ctx context.Context, c *supervisor.Client) error {
 		return wrap("shut down supervisord", c.Shutdown(ctx))
 	})
@@ -382,6 +421,9 @@ type MainLogResult struct {
 	Matched   int  // lines matching the query, which may exceed len(Lines)
 	Since     bool
 	Cursor    string // pass as After to read only newer lines
+	// FromFile is the log file read from disk (through the server's helper
+	// on a server) because supervisord isn't answering; "" otherwise.
+	FromFile string
 }
 
 // MainLogLines reads the last 4 MiB of supervisord's own log, parses it and
@@ -389,7 +431,7 @@ type MainLogResult struct {
 // only the last 64 KiB and returns the lines written since.
 func (s *ServerService) MainLogLines(q MainLogQuery) (MainLogResult, error) {
 	var chunk supervisor.MainLogChunk
-	err := s.rt.act(expectation{}, func(ctx context.Context, c *supervisor.Client) error {
+	err := s.rt.call(expectation{}, func(ctx context.Context, c *supervisor.Client) error {
 		var err error
 		chunk, err = c.ReadMainLog(ctx, q.After, mainLogFollowBytes, mainLogReadBytes)
 		if errors.Is(err, supervisor.ErrNoFile) {
@@ -398,6 +440,12 @@ func (s *ServerService) MainLogLines(q MainLogQuery) (MainLogResult, error) {
 		return wrap("read the supervisord log", err)
 	})
 	if err != nil {
+		// supervisord isn't answering: its log file still says why.
+		if q.After == "" {
+			if res, ferr := s.mainLogFromFile(q); ferr == nil {
+				return res, nil
+			}
+		}
 		return MainLogResult{}, err
 	}
 	res := filterMainLog(supervisor.ParseMainLogLines(chunk.Text, time.Local), q)
@@ -497,4 +545,59 @@ func wrap(what string, err error) error {
 		return nil
 	}
 	return fmt.Errorf("cannot %s: %w", what, err)
+}
+
+// mainLogFromFile reads the end of supervisord's [supervisord] logfile=
+// when supervisord can't be asked: from disk here, through the helper on a
+// server.
+func (s *ServerService) mainLogFromFile(q MainLogQuery) (MainLogResult, error) {
+	s.rt.mu.Lock()
+	d := s.rt.d
+	s.rt.mu.Unlock()
+	if d.LogFile == "" {
+		return MainLogResult{}, errors.New("supervisord's config names no log file")
+	}
+	data, err := tailFile(d.Files(), d.LogFile, mainLogReadBytes)
+	if err != nil {
+		return MainLogResult{}, err
+	}
+	res := filterMainLog(supervisor.ParseMainLogLines(string(data), time.Local), q)
+	res.Truncated = len(data) >= mainLogReadBytes
+	res.FromFile = d.LogFile
+	return res, nil
+}
+
+// tailFile reads at most most bytes from the end of name on fsys.
+func tailFile(fsys config.FS, name string, most int) ([]byte, error) {
+	if t, ok := fsys.(interface {
+		Tail(string, int) ([]byte, error)
+	}); ok {
+		return t.Tail(name, most)
+	}
+	if fsys == config.OS {
+		f, err := os.Open(name)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = f.Close() }()
+		fi, err := f.Stat()
+		if err != nil {
+			return nil, err
+		}
+		off := max(0, fi.Size()-int64(most))
+		buf := make([]byte, fi.Size()-off)
+		_, err = f.ReadAt(buf, off)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, err
+		}
+		return buf, nil
+	}
+	data, err := fsys.ReadFile(name)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > most {
+		data = data[len(data)-most:]
+	}
+	return data, nil
 }

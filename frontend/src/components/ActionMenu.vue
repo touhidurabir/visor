@@ -14,6 +14,7 @@ import type { MenuItem } from '../lib/menus'
 import { showToast } from '../lib/toast'
 import ConfirmDialog from './ConfirmDialog.vue'
 import { modKeyHint } from '../lib/shortcuts'
+import { withConsent } from '../lib/production'
 
 // `small` gives the 26 px trigger for table rows.
 const props = defineProps<{ items: MenuItem[]; label: string; heading?: string; small?: boolean }>()
@@ -172,7 +173,8 @@ function confirmed() {
   const item = pending.value
   pending.value = null
   trigger.value?.focus()
-  if (item) emit('select', item.id)
+  // The person just confirmed: a production server doesn't ask again.
+  if (item) withConsent(() => emit('select', item.id))
 }
 
 function cancelled() {

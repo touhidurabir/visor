@@ -49,6 +49,11 @@ type Message struct {
 	Kind     issues.Kind
 	Process  string
 	Config   string
+	// Server is the server tab the notification belongs to ("" for this
+	// computer). Route is the main window's route a click opens ("" for
+	// this computer's Issues).
+	Server string
+	Route  string
 }
 
 // DaemonThread is the banner thread of notifications that belong to no
@@ -69,7 +74,7 @@ const (
 // SeverityOf is how serious an issue of kind k is.
 func SeverityOf(k issues.Kind) Severity {
 	switch k {
-	case issues.KindFatal, issues.KindCrashLoop, issues.KindUnreachable:
+	case issues.KindFatal, issues.KindCrashLoop, issues.KindUnreachable, issues.KindHostDown:
 		return Error
 	case issues.KindUnexpectedExit:
 		return Warning
@@ -109,7 +114,7 @@ func ShouldNotify(is issues.Issue, prefs settings.NotifyPrefs, watched bool) boo
 		return prefs.UnexpectedExit && watched
 	case issues.KindCrashLoop:
 		return prefs.CrashLoop && watched
-	case issues.KindUnreachable:
+	case issues.KindUnreachable, issues.KindHostDown:
 		return prefs.Unreachable
 	}
 	return false
@@ -142,7 +147,7 @@ func Compose(is issues.Issue) Message {
 		}
 	}
 	m.Body = m.Detail
-	if is.Config != "" && is.Kind != issues.KindUnreachable {
+	if is.Config != "" && is.Kind != issues.KindUnreachable && is.Kind != issues.KindHostDown {
 		file := filepath.Base(is.Config)
 		if text == "" {
 			m.Body = "From " + file + "."
@@ -158,6 +163,8 @@ func Compose(is issues.Issue) Message {
 		m.Headline = name + " exited unexpectedly"
 	case issues.KindCrashLoop:
 		m.Headline = name + " keeps restarting"
+	case issues.KindHostDown:
+		m.Headline = "Can't reach the server over SSH"
 	case issues.KindUnreachable:
 		m.Headline = "supervisord isn't responding"
 		if turnedDown(is) {

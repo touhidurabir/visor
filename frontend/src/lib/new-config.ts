@@ -1,7 +1,8 @@
 // The state behind "Add new": one draft shared by both pages, the live
 // checks on it, and the save. Pure draft logic is in draft.ts.
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { ConfigService, type ApplyResultView, type ExplainView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { type ApplyResultView, type ExplainView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ConfigService } from './api'
 import type { CopyDoubt, Rename } from '../../bindings/github.com/touhidurabir/visor/internal/config'
 import type { Draft } from './copy-draft'
 import type { Check } from '../../bindings/github.com/touhidurabir/visor/internal/validate'

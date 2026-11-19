@@ -120,3 +120,31 @@ export function rootFixes(user: string): Fix[] {
     },
   ]
 }
+
+/**
+ * reportLook is stepLook for a server report's row (ok, error, warning,
+ * info, skipped), and the lens segment it lights.
+ */
+export function reportLook(status: string): { glyph: string; word: string; tone: 'ok' | 'bad' | 'warn' | 'idle'; segment: 'ok' | 'bad' | 'wait' } {
+  switch (status) {
+    case 'ok':
+      return { glyph: '✓', word: 'Done', tone: 'ok', segment: 'ok' }
+    case 'error':
+      return { glyph: '!', word: 'Needs attention', tone: 'bad', segment: 'bad' }
+    case 'warning':
+      return { glyph: '!', word: 'Worth a look', tone: 'warn', segment: 'wait' }
+    case 'info':
+      return { glyph: 'i', word: 'Note', tone: 'idle', segment: 'wait' }
+  }
+  return { glyph: '', word: 'Skipped', tone: 'idle', segment: 'wait' }
+}
+
+/** The lens centre for a server report: a tick, or "!" and how many rows to fix. */
+export function reportLens(rows: { Status: string }[]): { big: string; small: string } {
+  const bad = rows.filter((r) => r.Status === 'error').length
+  if (bad === 0) {
+    const ok = rows.filter((r) => r.Status === 'ok').length
+    return { big: '✓', small: `${ok} ${ok === 1 ? 'check' : 'checks'} passed` }
+  }
+  return { big: '!', small: `${bad} ${bad === 1 ? 'thing' : 'things'} to fix` }
+}

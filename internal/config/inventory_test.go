@@ -346,6 +346,27 @@ func TestWatcherEditAfterRestartStillChanged(t *testing.T) {
 	}
 }
 
+// A restart that changes nothing, then an edit: the edit is Changed, not
+// Uncertain (the live server test caught this).
+func TestWatcherEditAfterQuietRestartIsChanged(t *testing.T) {
+	dir, state, d := newWatchFixture(t)
+	now := time.Now()
+	chtimes(t, d.PidFile, now.Add(-2*time.Hour))
+	f := writeConf(t, dir, "a.conf", "v1")
+	chtimes(t, f, now.Add(-3*time.Hour))
+	w := NewWatcher(d, state)
+	w.Check()
+	chtimes(t, d.PidFile, now.Add(time.Hour)) // supervisord restarts, after the snapshot
+	if cs, _ := w.Check(); len(cs.Changed)+len(cs.Uncertain) != 0 {
+		t.Fatalf("after restart: %+v", cs)
+	}
+	writeConf(t, dir, "a.conf", "v2")
+	chtimes(t, f, now.Add(2*time.Hour))
+	if cs, _ := w.Check(); !reflect.DeepEqual(cs.Changed, []string{f}) {
+		t.Fatalf("want Changed, got %+v", cs)
+	}
+}
+
 func TestWatcherConcurrentCheckAndMarkLoaded(t *testing.T) {
 	dir, state, d := newWatchFixture(t)
 	var paths []string

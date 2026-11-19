@@ -12,6 +12,7 @@ import type * as app$0 from "../../../../touhidurabir/visor/internal/app/models.
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
+            "visor:activity": app$0.ActivityView;
             "visor:files-dropped": app$0.DroppedFileView[] | null;
             "visor:issue-opened": app$0.IssueView;
             "visor:log": app$0.LogChunkView;
@@ -20,6 +21,7 @@ declare module "@wailsio/runtime" {
             "visor:notifications": app$0.NotificationsView;
             "visor:overview": app$0.OverviewView;
             "visor:settings": app$0.SettingsView;
+            "visor:tabs": string[] | null;
         }
     }
 }

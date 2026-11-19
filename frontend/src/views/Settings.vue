@@ -5,10 +5,12 @@
 // Everything else saves as it changes and applies straight away; Go clamps
 // out-of-range values and the page shows what it kept.
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { NotifyService, ServerService, SettingsService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { NotifyService, SettingsService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ServerService } from '../lib/api'
 import type { ConnectionInput, SettingsView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import type { Settings } from '../../bindings/github.com/touhidurabir/visor/internal/settings'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import MuteChoices from '../components/MuteChoices.vue'
 import ThemeSwitch from '../components/ThemeSwitch.vue'
 import { loginHint, loginLocked, useLaunchAtLogin } from '../lib/login-item'
 import { describeError } from '../lib/faults'
@@ -47,9 +49,9 @@ const connBusy = ref(false)
 const connError = ref('')
 
 // Number fields keep the typed text until saved; notes explain clamping.
-type FieldKey = 'poll' | 'restarts' | 'window' | 'retention'
-const fields = reactive<Record<FieldKey, string>>({ poll: '', restarts: '', window: '', retention: '' })
-const notes = reactive<Record<FieldKey, string>>({ poll: '', restarts: '', window: '', retention: '' })
+type FieldKey = 'poll' | 'recheck' | 'restarts' | 'window' | 'retention'
+const fields = reactive<Record<FieldKey, string>>({ poll: '', recheck: '', restarts: '', window: '', retention: '' })
+const notes = reactive<Record<FieldKey, string>>({ poll: '', recheck: '', restarts: '', window: '', retention: '' })
 // Fields typed in since their last change event: a save's response never
 // overwrites them.
 const editing = reactive(new Set<FieldKey>())
@@ -75,6 +77,7 @@ const connDirty = computed(() => {
 function showSaved(st: Settings) {
   const text: Record<FieldKey, string> = {
     poll: String(nsToSeconds(st.pollInterval)),
+    recheck: String(nsToSeconds(st.configRecheck)),
     restarts: String(st.crashLoop.restarts),
     window: String(nsToMinutes(st.crashLoop.window)),
     retention: String(st.retentionDays),
@@ -242,6 +245,7 @@ const queue = createSaveQueue<Settings, SettingsView>({
     const st = view.value!.Settings
     const kept: Record<FieldKey, [number, Limit, string]> = {
       poll: [nsToSeconds(st.pollInterval), LIMITS.pollSeconds, 'second'],
+      recheck: [nsToSeconds(st.configRecheck), LIMITS.recheckSeconds, 'second'],
       restarts: [st.crashLoop.restarts, LIMITS.restarts, 'restart'],
       window: [nsToMinutes(st.crashLoop.window), LIMITS.windowMinutes, 'minute'],
       retention: [st.retentionDays, LIMITS.retentionDays, 'day'],
@@ -271,6 +275,7 @@ function saveField(key: FieldKey, apply: (next: Settings, n: number) => void) {
 }
 
 const savePoll = () => saveField('poll', (next, n) => (next.pollInterval = secondsToNs(n)))
+const saveRecheck = () => saveField('recheck', (next, n) => (next.configRecheck = secondsToNs(Math.round(n))))
 const saveRestarts = () => saveField('restarts', (next, n) => (next.crashLoop.restarts = Math.round(n)))
 const saveWindow = () => saveField('window', (next, n) => (next.crashLoop.window = minutesToNs(n)))
 
@@ -396,8 +401,13 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
       <p>{{ describeError(warning) }}</p>
     </div>
 
-    <!-- Card order (flow change 3): General, Connection, Notifications,
-         Checking and history. M7's remote servers go above General. -->
+    <!-- Card order (flow change 3): Servers (M7) across the top, then General,
+         Connection, Notifications, Checking and history. -->
+    <section v-if="view && s" class="card outside" aria-labelledby="outside-title">
+      <h2 id="outside-title" class="card-title">Changes made outside Visor ({{ platform().local }})</h2>
+      <p class="meta">All on by default. Each server has its own, in Remote servers → Edit → Notifications.</p>
+      <div class="row-pad"><MuteChoices :mutes="s.mutes" @change="(k, m) => save((next) => (next.mutes = { ...next.mutes, [k]: m }))" /></div>
+    </section>
     <div v-if="view && s" class="cards">
       <!-- General -->
       <div class="card c-gen" role="group" aria-labelledby="general-title">
@@ -438,6 +448,15 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
           </div>
           <div class="ctl">
             <input id="menubar-count" class="switch" type="checkbox" role="switch" :checked="s?.menuBarCount ?? true" @change="setMenuBarCount(($event.target as HTMLInputElement).checked)" />
+          </div>
+        </div>
+        <div class="row">
+          <div class="what">
+            <label class="name" for="search-whole-log">Search the whole log file</label>
+            <span id="search-whole-log-hint" class="hint">Off: a log search covers the lines the Logs tab has loaded (up to 5,000). On: Logs also offers <em>Search the whole file</em>, which reads the whole file every time. That is slower, and on a server it downloads the log over SSH, so a 30 MB log can take half a minute.</span>
+          </div>
+          <div class="ctl">
+            <input id="search-whole-log" class="switch" type="checkbox" role="switch" aria-describedby="search-whole-log-hint" :checked="s?.searchWholeLog ?? false" @change="save((next) => (next.searchWholeLog = ($event.target as HTMLInputElement).checked))" />
           </div>
         </div>
       </div>
@@ -600,6 +619,17 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
         </div>
         <div class="row">
           <div class="what">
+            <label class="name" for="recheck">Recheck changed configs every</label>
+            <span class="hint">While a config shows as changed on disk, Visor asks supervisord this often whether it was already applied, by a deploy script or supervisorctl update. It starts and stops nothing; Read only servers are never asked. 15 to 600 seconds.</span>
+            <span v-if="notes.recheck" class="note" role="status">{{ notes.recheck }}</span>
+          </div>
+          <div class="ctl">
+            <input id="recheck" v-model="fields.recheck" class="input num" @input="editing.add('recheck')" type="number" inputmode="numeric" :min="LIMITS.recheckSeconds.min" :max="LIMITS.recheckSeconds.max" step="1" @change="saveRecheck" />
+            <span class="unit">seconds</span>
+          </div>
+        </div>
+        <div class="row">
+          <div class="what">
             <span class="name">Open a crash-loop issue after</span>
             <span class="hint">Restarts you ask for don’t count.</span>
             <span v-if="notes.restarts" class="note" role="status">{{ notes.restarts }}</span>
@@ -652,6 +682,9 @@ header { display: flex; flex-direction: column; gap: 6px; }
 .title { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 h1 { margin: 0; font-family: var(--display); font-optical-sizing: auto; font-size: 30px; font-weight: 650; line-height: 1.1; letter-spacing: -0.015em; }
 .intro { margin: 0; color: var(--ink2); }
+.outside { margin-bottom: 16px; max-width: 860px; }
+.outside > .meta { margin: 0; padding: 0 18px; }
+.row-pad { padding: 10px 18px 16px; }
 .cards { display: flex; flex-direction: column; gap: 16px; max-width: 860px; }
 @container (min-width: 1000px) {
   .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; max-width: none; }

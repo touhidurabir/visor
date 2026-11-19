@@ -3,7 +3,7 @@
 // with Restore (I-5): the way back once the report's Undo is gone. Hidden
 // when there are none.
 import { computed, onMounted, ref, watch } from 'vue'
-import { ConfigService } from '../../bindings/github.com/touhidurabir/visor/internal/app'
+import { ConfigService } from '../lib/api'
 import { saveErrorText } from '../lib/config-errors'
 import { removedRows, type RemovedRow } from '../lib/removed'
 import { showToast } from '../lib/toast'
