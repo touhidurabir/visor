@@ -33,6 +33,11 @@ const (
 	maxFollows = 8
 	// saveBytes is how much of a log Save writes: its newest bytes.
 	saveBytes = 4 << 20
+	// searchStep is how much of a log one Search call reads.
+	searchStep = 1 << 20
+	// searchTimeout bounds one Search call: a step from a server comes
+	// over SSH.
+	searchTimeout = 30 * time.Second
 	// maxPollFailures is how many polls in a row may fail before a follow
 	// gives up and says so.
 	maxPollFailures = 5
@@ -275,6 +280,39 @@ func (s *LogService) forget(f *follow) bool {
 		return true
 	}
 	return false
+}
+
+// Search searches the 1 MiB of a process's stdout or stderr log that ends
+// at before (-1: the end of the log) for query, literally and ignoring
+// case, and returns at most limit matching lines, newest first. Call it
+// again with the page's Next until Next is 0 to search the whole file.
+func (s *LogService) Search(process, stream, query string, before, limit int) (LogSearchView, error) {
+	st, err := s.checkStream(process, stream)
+	if err != nil {
+		return LogSearchView{}, err
+	}
+	ac, err := s.rt.conn()
+	if err != nil {
+		return LogSearchView{}, err
+	}
+	ctx, cancel := context.WithTimeout(ac.ctx, searchTimeout)
+	defer cancel()
+	p, err := logs.SearchBack(ctx, ac.client, process, st, query, before, searchStep, limit)
+	if err != nil {
+		return LogSearchView{}, reconnecting(ac.ctx, wrap("search the "+string(st)+" log of "+process, err))
+	}
+	return LogSearchView(p), nil
+}
+
+// LogSearchView is one step of a Search (logs.SearchPage): the matching
+// lines newest first, Next for the following step (0: the whole file is
+// searched), the log's Size on the first step, and Capped when the lines
+// reached the limit.
+type LogSearchView struct {
+	Lines  []string
+	Next   int
+	Size   int
+	Capped bool
 }
 
 // Save asks where to save a process's stdout or stderr log (the newest

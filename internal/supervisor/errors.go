@@ -36,4 +36,7 @@ var (
 	// ErrUnreachable means no connection could be made: supervisord is not
 	// running, the socket path is wrong, or permissions deny access.
 	ErrUnreachable = errors.New("supervisord: unreachable")
+	// ErrInternal means supervisord failed while answering (HTTP 500), for
+	// example reading log bytes that aren't UTF-8 text.
+	ErrInternal = errors.New("supervisord: internal error")
 )

@@ -305,3 +305,18 @@ func TestMenuBarCountIsOnUnlessTurnedOff(t *testing.T) {
 		t.Error("turning it off didn't stick")
 	}
 }
+
+func TestSearchWholeLogIsOffUntilTurnedOn(t *testing.T) {
+	if Defaults().SearchWholeLog {
+		t.Fatal("searching the whole log file should be off by default")
+	}
+	dir := t.TempDir()
+	s := Defaults()
+	s.SearchWholeLog = true
+	if err := Save(dir, s); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Load(dir); !got.SearchWholeLog {
+		t.Error("turning it on didn't stick")
+	}
+}

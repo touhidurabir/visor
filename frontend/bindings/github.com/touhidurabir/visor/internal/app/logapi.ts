@@ -10,6 +10,10 @@
 // @ts-ignore: Unused imports
 import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wailsio/runtime";
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as $models from "./models.js";
+
 /**
  * Follow starts following a process's stdout or stderr log and returns the
  * follow's ID. Every second, new output is sent as a visor:log event
@@ -28,6 +32,16 @@ export function Follow(server: string, process: string, stream: string): $Cancel
  */
 export function Save(server: string, process: string, stream: string): $CancellablePromise<string> {
     return $Call.ByID(2223760083, server, process, stream);
+}
+
+/**
+ * Search searches the 1 MiB of a process's stdout or stderr log that ends
+ * at before (-1: the end of the log) for query, literally and ignoring
+ * case, and returns at most limit matching lines, newest first. Call it
+ * again with the page's Next until Next is 0 to search the whole file.
+ */
+export function Search(server: string, process: string, stream: string, query: string, before: number, limit: number): $CancellablePromise<$models.LogSearchView> {
+    return $Call.ByID(621667158, server, process, stream, query, before, limit);
 }
 
 /**

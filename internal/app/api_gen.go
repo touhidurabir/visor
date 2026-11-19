@@ -657,6 +657,18 @@ func (a *LogAPI) Save(server string, process string, stream string) (string, err
 	return t.Log.Save(process, stream)
 }
 
+// Search searches the 1 MiB of a process's stdout or stderr log that ends
+// at before (-1: the end of the log) for query, literally and ignoring
+// case, and returns at most limit matching lines, newest first. Call it
+// again with the page's Next until Next is 0 to search the whole file.
+func (a *LogAPI) Search(server string, process string, stream string, query string, before int, limit int) (LogSearchView, error) {
+	t, err := a.hub.Tab(server)
+	if err != nil {
+		return LogSearchView{}, err
+	}
+	return t.Log.Search(process, stream, query, before, limit)
+}
+
 // Unfollow stops a follow. No event for it is sent after Unfollow returns.
 // Unknown or already stopped IDs are ignored.
 func (a *LogAPI) Unfollow(server string, id string) error {

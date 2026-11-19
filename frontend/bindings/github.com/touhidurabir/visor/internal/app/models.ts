@@ -602,6 +602,19 @@ export interface LogChunkView {
 }
 
 /**
+ * LogSearchView is one step of a Search (logs.SearchPage): the matching
+ * lines newest first, Next for the following step (0: the whole file is
+ * searched), the log's Size on the first step, and Capped when the lines
+ * reached the limit.
+ */
+export interface LogSearchView {
+    "Lines": string[] | null;
+    "Next": number;
+    "Size": number;
+    "Capped": boolean;
+}
+
+/**
  * LoginItemView is whether Visor opens at login. Status is "enabled",
  * "disabled", "requires_approval" (macOS wants the user's OK in Login
  * Items), "not_moved" (running from the disk image or Downloads) or

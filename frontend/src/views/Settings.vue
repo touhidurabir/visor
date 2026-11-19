@@ -447,6 +447,15 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
             <input id="menubar-count" class="switch" type="checkbox" role="switch" :checked="s?.menuBarCount ?? true" @change="setMenuBarCount(($event.target as HTMLInputElement).checked)" />
           </div>
         </div>
+        <div class="row">
+          <div class="what">
+            <label class="name" for="search-whole-log">Search the whole log file</label>
+            <span id="search-whole-log-hint" class="hint">Off: a log search covers the lines the Logs tab has loaded (up to 5,000). On: Logs also offers <em>Search the whole file</em>, which reads the whole file every time. That is slower, and on a server it downloads the log over SSH, so a 30 MB log can take half a minute.</span>
+          </div>
+          <div class="ctl">
+            <input id="search-whole-log" class="switch" type="checkbox" role="switch" aria-describedby="search-whole-log-hint" :checked="s?.searchWholeLog ?? false" @change="save((next) => (next.searchWholeLog = ($event.target as HTMLInputElement).checked))" />
+          </div>
+        </div>
       </div>
 
       <!-- Connection -->

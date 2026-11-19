@@ -59,6 +59,7 @@ export type {
     LinuxAdvice,
     LoadedDiffView,
     LogChunkView,
+    LogSearchView,
     LoginItemView,
     MainLogLineView,
     MainLogQuery,

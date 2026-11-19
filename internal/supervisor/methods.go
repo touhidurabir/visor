@@ -219,6 +219,22 @@ func (c *Client) TailProcessStderrLog(ctx context.Context, name string, offset, 
 	return c.tail(ctx, "supervisor.tailProcessStderrLog", name, offset, length)
 }
 
+// ReadProcessStdoutLog reads length bytes of a process's stdout log from
+// offset (forward, unlike tail). supervisord fails the call when the bytes
+// aren't whole UTF-8, for example when offset splits a character.
+func (c *Client) ReadProcessStdoutLog(ctx context.Context, name string, offset, length int) (string, error) {
+	const m = "supervisor.readProcessStdoutLog"
+	v, err := c.call(ctx, m, name, offset, length)
+	return str(m, v, err)
+}
+
+// ReadProcessStderrLog is ReadProcessStdoutLog for stderr.
+func (c *Client) ReadProcessStderrLog(ctx context.Context, name string, offset, length int) (string, error) {
+	const m = "supervisor.readProcessStderrLog"
+	v, err := c.call(ctx, m, name, offset, length)
+	return str(m, v, err)
+}
+
 // ReadLog reads supervisord's main log. A negative offset reads that many
 // bytes from the end; length 0 means to the end.
 func (c *Client) ReadLog(ctx context.Context, offset, length int) (string, error) {

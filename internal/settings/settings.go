@@ -49,6 +49,10 @@ type Settings struct {
 	MaxServers int `json:"maxServers"`
 	// Mutes are the activity kinds whose notifications are off for this computer.
 	Mutes ActivityMutes `json:"mutes"`
+	// SearchWholeLog makes a log search read the whole log file, not only
+	// the lines the Logs tab has loaded. Off by default: each search reads
+	// the file, which on a server means downloading it over SSH.
+	SearchWholeLog bool `json:"searchWholeLog"`
 }
 
 // ActivityMutes turn off notifications for changes made outside Visor, per

@@ -106,6 +106,8 @@ func (c *Client) do(ctx context.Context, method string, params ...any) (any, err
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized:
 		return nil, ErrUnauthorized
+	case resp.StatusCode == http.StatusInternalServerError:
+		return nil, fmt.Errorf("%s: %w (HTTP %s)", method, ErrInternal, resp.Status)
 	case resp.StatusCode != http.StatusOK:
 		return nil, fmt.Errorf("%s: HTTP %s", method, resp.Status)
 	}
