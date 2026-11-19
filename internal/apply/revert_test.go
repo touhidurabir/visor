@@ -13,11 +13,11 @@ import (
 func TestRevertPutsPreviousBack(t *testing.T) {
 	f := newFixture(t)
 	p := f.file(t, "mailer.ini", prog, 0o640)
-	bk, err := Write(p, []byte("rejected\n"), Hash([]byte(prog)), f.bk)
+	bk, err := Write(Local, p, []byte("rejected\n"), Hash([]byte(prog)), f.bk)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Revert(p, []byte(prog), []byte("rejected\n"), bk, f.bk); err != nil {
+	if err := Revert(Local, p, []byte(prog), []byte("rejected\n"), bk, f.bk); err != nil {
 		t.Fatal(err)
 	}
 	if got := read(t, p); got != prog {
@@ -38,14 +38,14 @@ func TestRevertPutsPreviousBack(t *testing.T) {
 func TestRevertLeavesNewerEditAlone(t *testing.T) {
 	f := newFixture(t)
 	p := f.file(t, "mailer.ini", prog, 0o644)
-	bk, err := Write(p, []byte("rejected\n"), Hash([]byte(prog)), f.bk)
+	bk, err := Write(Local, p, []byte("rejected\n"), Hash([]byte(prog)), f.bk)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(p, []byte("theirs\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := Revert(p, []byte(prog), []byte("rejected\n"), bk, f.bk); !errors.Is(err, ErrChangedOnDisk) {
+	if err := Revert(Local, p, []byte(prog), []byte("rejected\n"), bk, f.bk); !errors.Is(err, ErrChangedOnDisk) {
 		t.Fatalf("err = %v, want ErrChangedOnDisk", err)
 	}
 	if got := read(t, p); got != "theirs\n" {
@@ -59,10 +59,10 @@ func TestRevertLeavesNewerEditAlone(t *testing.T) {
 func TestRevertCreateRemovesNewFile(t *testing.T) {
 	f := newFixture(t)
 	p := filepath.Join(f.conf, "new.ini")
-	if _, err := Write(p, []byte(prog), "", f.bk); err != nil {
+	if _, err := Write(Local, p, []byte(prog), "", f.bk); err != nil {
 		t.Fatal(err)
 	}
-	if err := RevertCreate(p, []byte(prog)); err != nil {
+	if err := RevertCreate(Local, p, []byte(prog)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(p); !errors.Is(err, os.ErrNotExist) {
@@ -70,7 +70,7 @@ func TestRevertCreateRemovesNewFile(t *testing.T) {
 	}
 	// Someone else's file at that path is never removed.
 	other := f.file(t, "other.ini", "theirs\n", 0o644)
-	if err := RevertCreate(other, []byte(prog)); !errors.Is(err, ErrChangedOnDisk) {
+	if err := RevertCreate(Local, other, []byte(prog)); !errors.Is(err, ErrChangedOnDisk) {
 		t.Errorf("err = %v, want ErrChangedOnDisk", err)
 	}
 	if got := read(t, other); got != "theirs\n" {
@@ -90,7 +90,7 @@ func TestBackUpForRemoveFailsFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(f.bk.Dir, 0o700) })
-	if _, err := BackUpForRemove(p, f.bk); err == nil {
+	if _, err := BackUpForRemove(Local, p, f.bk); err == nil {
 		t.Fatal("backup into a read-only folder succeeded")
 	}
 	if got := read(t, p); got != prog {
@@ -101,7 +101,7 @@ func TestBackUpForRemoveFailsFirst(t *testing.T) {
 func TestRemoveBackedUp(t *testing.T) {
 	f := newFixture(t)
 	p := f.file(t, "mailer.ini", prog, 0o644)
-	bk, err := BackUpForRemove(p, f.bk)
+	bk, err := BackUpForRemove(Local, p, f.bk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestRemoveBackedUp(t *testing.T) {
 	if err := os.WriteFile(p, []byte("edited\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := RemoveBackedUp(p, bk, f.bk)
+	got, err := RemoveBackedUp(Local, p, bk, f.bk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestRemoveBackedUp(t *testing.T) {
 	}
 	// Discard drops a backup taken for a removal that did not happen.
 	q := f.file(t, "other.ini", prog, 0o644)
-	bk, err = BackUpForRemove(q, f.bk)
+	bk, err = BackUpForRemove(Local, q, f.bk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,17 +148,17 @@ func TestBackupsRemoved(t *testing.T) {
 	a := f.file(t, "a.ini", "a\n", 0o644)
 	b := f.file(t, "b.ini", "b\n", 0o644)
 	c := f.file(t, "c.ini", "c\n", 0o644)
-	if _, err := Remove(a, f.bk); err != nil {
+	if _, err := Remove(Local, a, f.bk); err != nil {
 		t.Fatal(err)
 	}
-	bb, err := Remove(b, f.bk)
+	bb, err := Remove(Local, b, f.bk)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Write(c, []byte("c2\n"), Hash([]byte("c\n")), f.bk); err != nil {
+	if _, err := Write(Local, c, []byte("c2\n"), Hash([]byte("c\n")), f.bk); err != nil {
 		t.Fatal(err)
 	}
-	got, err := f.bk.Removed()
+	got, err := f.bk.Removed(Local)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,12 +169,12 @@ func TestBackupsRemoved(t *testing.T) {
 	if err := os.WriteFile(a, []byte("a\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, _ = f.bk.Removed()
+	got, _ = f.bk.Removed(Local)
 	if len(got) != 1 || got[0].Path != b {
 		t.Errorf("Removed = %+v, want only b", got)
 	}
 	empty := Backups{Dir: filepath.Join(t.TempDir(), "none")}
-	if got, err := empty.Removed(); err != nil || len(got) != 0 {
+	if got, err := empty.Removed(Local); err != nil || len(got) != 0 {
 		t.Errorf("no backups folder: %+v, %v", got, err)
 	}
 }

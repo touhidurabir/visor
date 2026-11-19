@@ -204,6 +204,14 @@ func probeServer(ctx context.Context, s settings.Server, sec remote.Secrets, sud
 	f.ConfigPath, f.Chown, f.Service = d.ConfigPath, d.SocketChown, serviceFor(d.ConfigPath)
 	if len(d.IncludeGlobs) > 0 {
 		f.IncludeDir = filepath.Dir(d.IncludeGlobs[0])
+		fsys := remote.BridgeFS{T: files}
+		f.IncludeChecked = true
+		if fi, err := fsys.Stat(f.IncludeDir); err != nil {
+			f.IncludeMissing = errors.Is(err, fs.ErrNotExist)
+		} else if rf, ok := fi.Sys().(remote.FileInfo); ok {
+			f.IncludeGroup = rf.Group
+		}
+		f.IncludeWritable = !f.IncludeMissing && fsys.FolderWritable(f.IncludeDir)
 	}
 	if inv, err := config.LoadInventory(d); err == nil {
 		f.Files = len(inv.Files)

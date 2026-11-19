@@ -81,7 +81,14 @@ func (r *Runtime) recordAct(e expectation, grace time.Duration) (done func()) {
 // or removes files (and a file check after).
 func (r *Runtime) markWrites() (done func()) {
 	tail := visorWindow + remoteFileCheck
-	return r.addAct(&visorAct{files: true}, time.Hour, tail)
+	end := r.addAct(&visorAct{files: true}, time.Hour, tail)
+	return func() {
+		end()
+		// A server's files are re-read at the next poll, not in up to 10 s.
+		r.mu.Lock()
+		r.filesAt = time.Time{}
+		r.mu.Unlock()
+	}
 }
 
 func (r *Runtime) addAct(a *visorAct, during, after time.Duration) func() {

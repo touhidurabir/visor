@@ -45,6 +45,12 @@ type RemoteFacts struct {
 	IncludeDir      string
 	Files           int
 	FilesUnreadable int
+	// IncludeChecked: the helper looked at IncludeDir. IncludeWritable:
+	// its user may add files there; IncludeGroup is the folder's group.
+	IncludeChecked  bool
+	IncludeWritable bool
+	IncludeMissing  bool
+	IncludeGroup    string
 
 	Version      string
 	VersionError string
@@ -197,8 +203,7 @@ func RemoteReport(f RemoteFacts) []ReportRow {
 		read.Detail = fmt.Sprintf("%d %s in %s.", f.Files, plural(f.Files, "file", "files"), f.IncludeDir)
 	}
 	rows = append(rows, read)
-	rows = append(rows, ReportRow{ID: "write", Title: "Configs writable", Status: RowInfo,
-		Detail: "Editing configs on servers comes in a later version of Visor; for now they are read only."})
+	rows = append(rows, writeRow(f))
 
 	ver := ReportRow{ID: "version", Title: "supervisord version"}
 	switch {
@@ -217,4 +222,52 @@ func loginUser(login string) string {
 		return u
 	}
 	return "this user"
+}
+
+// writeRow says whether Visor can add and change configs in the include
+// folder, as the helper's user, and how to allow it.
+func writeRow(f RemoteFacts) ReportRow {
+	row := ReportRow{ID: "write", Title: "Configs writable"}
+	who := f.BridgeUser
+	if who == "" {
+		who = loginUser(f.Login)
+	}
+	switch {
+	case !f.IncludeChecked || f.IncludeDir == "":
+		row.Status, row.Detail = RowInfo, "supervisord.conf names no include folder, so there's nowhere to add configs."
+	case f.IncludeMissing:
+		row.Status, row.Detail = RowWarning, f.IncludeDir+" doesn't exist on the server yet."
+		row.Fix = []FixStep{{Text: "Create it on the server:", Command: "sudo mkdir -p " + shellQuote(f.IncludeDir)}}
+	case f.IncludeWritable && f.Sudo:
+		row.Status, row.Detail = RowOK, "Visor adds and changes configs in "+f.IncludeDir+" through sudo."
+	case f.IncludeWritable:
+		row.Status, row.Detail = RowOK, who+" can add and change configs in "+f.IncludeDir+"."
+	default:
+		row.Status, row.Detail = RowWarning, who+" can't write "+f.IncludeDir+", so configs are read only. Processes and logs work as usual."
+		row.Fix = RemoteWriteFix(who, f.IncludeDir, f.IncludeGroup, f.Groups, f.Sudo)
+	}
+	return row
+}
+
+// RemoteWriteFix is how to let user change configs in dir on a server: turn
+// on Use sudo, or let a group user is in write the folder (the folder's own
+// group unless that is root's, else supervisor).
+func RemoteWriteFix(user, dir, group string, groups []string, sudo bool) []FixStep {
+	if sudo {
+		return []FixStep{{Text: "Even root can't write it: the folder may be on a read-only file system. Check it on the server."}}
+	}
+	if group == "" || group == "root" {
+		group = supervisorGroup
+	}
+	q := shellQuote(dir)
+	steps := []FixStep{{Text: "Turn on Use sudo in this server's settings, or let " + user + " write the folder through the " + group + " group:"}}
+	member := slices.Contains(groups, group)
+	if !member {
+		steps = append(steps, FixStep{Text: "Add " + user + " to the group (it's created if it isn't there).", Command: fmt.Sprintf("sudo groupadd -f %s && sudo usermod -aG %s %s", group, group, user)})
+	}
+	steps = append(steps, FixStep{Text: "Let the group write the folder.", Command: "sudo chgrp " + group + " " + q + " && sudo chmod g+w " + q})
+	if !member {
+		steps = append(steps, FixStep{Text: "Then reconnect to the server, so the new group applies."})
+	}
+	return steps
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/touhidurabir/visor/internal/apply"
 
 	"github.com/touhidurabir/visor/internal/config"
 	"github.com/touhidurabir/visor/internal/platform"
@@ -15,8 +16,6 @@ import (
 const LocalID = "local"
 
 var (
-	// ErrRemoteReadOnly: configs on servers can be read but not changed in this version.
-	ErrRemoteReadOnly = errors.New("configs on servers are read only in this version of Visor")
 	// ErrServerReadOnly: the server is set to Read only, so nothing can be changed on it.
 	ErrServerReadOnly = errors.New("this server is set to Read only: turn it off in the server's settings to make changes")
 )
@@ -47,6 +46,10 @@ type RemoteSession struct {
 	Close func()
 	// Tail reads the end of a file on the server (supervisord's own log).
 	Tail func(path string, max int) ([]byte, error)
+	// Server changes and checks the server's files through the helper
+	// (apply.Disk), as Helper.User (root with Use sudo).
+	Server remote.BridgeFS
+	Helper remote.Hello
 }
 
 // ServerSecrets reads a server's secrets from the Keychain or keyring.
@@ -115,7 +118,8 @@ func ConnectServer(k settings.Keychain, hk remote.HostKeys) ConnectFunc {
 		defer stop()
 		// Start the helper first, so sudo's answer (a refused password)
 		// comes back as it is, not as "no config found".
-		if _, err := files.Bridge(ctx); err != nil {
+		b, err := files.Bridge(ctx)
+		if err != nil {
 			closeAll()
 			return nil, err
 		}
@@ -147,6 +151,8 @@ func ConnectServer(k settings.Keychain, hk remote.HostKeys) ConnectFunc {
 			Lost:      c.Closed(),
 			Close:     closeAll,
 			Tail:      fsys.Tail,
+			Server:    fsys,
+			Helper:    b.Hello(),
 		}, nil
 	}
 }
@@ -232,12 +238,33 @@ func (r *Runtime) ID() string {
 // Remote reports whether this Runtime manages a server.
 func (r *Runtime) Remote() bool { return r.opts.Remote != nil }
 
-// CheckConfigWrite refuses config changes on servers.
-func (r *Runtime) CheckConfigWrite() error {
-	if r.Remote() {
-		return ErrRemoteReadOnly
+// CheckConfigWrite refuses config changes on a server set to Read only.
+func (r *Runtime) CheckConfigWrite() error { return r.CheckAction() }
+
+// disk is where this Runtime changes config files: this machine, or the
+// server through its helper.
+func (r *Runtime) disk() apply.Disk {
+	if !r.Remote() {
+		return apply.Local
 	}
-	return nil
+	f, _ := r.serverFS()
+	return f
+}
+
+// serverFS is the connected server's files through the helper, and who the
+// helper runs as. Not connected, its calls fail.
+func (r *Runtime) serverFS() (remote.BridgeFS, remote.Hello) {
+	r.mu.Lock()
+	l := r.link
+	r.mu.Unlock()
+	if l == nil {
+		return remote.BridgeFS{}, remote.Hello{}
+	}
+	s, err := l.current()
+	if err != nil {
+		return remote.BridgeFS{}, remote.Hello{}
+	}
+	return s.Server, s.Helper
 }
 
 // CheckAction refuses every action on a server set to Read only.

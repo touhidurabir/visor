@@ -181,8 +181,8 @@ func validID(id string) bool {
 
 // Removed lists, newest first, the newest backup of each file that was
 // removed from supervisor (its newest backup is marked Removed) and is not
-// on disk now: the files a Restore can bring back.
-func (b Backups) Removed() ([]Backup, error) {
+// on d now: the files a Restore can bring back.
+func (b Backups) Removed(d Disk) ([]Backup, error) {
 	es, err := os.ReadDir(b.Dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return []Backup{}, nil
@@ -207,7 +207,7 @@ func (b Backups) Removed() ([]Backup, error) {
 		if err != nil || len(list) == 0 || !list[0].Removed {
 			continue
 		}
-		if _, err := os.Lstat(m.Path); !errors.Is(err, fs.ErrNotExist) {
+		if there, err := d.Exists(m.Path); there || err != nil {
 			continue
 		}
 		out = append(out, list[0])

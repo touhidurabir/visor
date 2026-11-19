@@ -110,12 +110,13 @@ func (r *Runtime) removeFromSupervisor(path string) (apply.Result, error) {
 	if err != nil {
 		return apply.Result{}, err
 	}
-	if err := apply.CheckRemovable(path); err != nil {
+	d := r.disk()
+	if err := d.CheckRemovable(path); err != nil {
 		return apply.Result{}, err
 	}
 	// The backup first, so a backups folder Visor can't write stops nothing.
 	b := r.backups()
-	bk, err := apply.BackUpForRemove(path, b)
+	bk, err := apply.BackUpForRemove(d, path, b)
 	if err != nil {
 		return apply.Result{}, err
 	}
@@ -132,7 +133,7 @@ func (r *Runtime) removeFromSupervisor(path string) (apply.Result, error) {
 		if err := errors.Join(errs...); err != nil {
 			return err
 		}
-		if _, err := apply.RemoveBackedUp(path, bk, b); err != nil {
+		if _, err := apply.RemoveBackedUp(d, path, bk, b); err != nil {
 			return fmt.Errorf("stopped its processes, but %w", err)
 		}
 		removed = true

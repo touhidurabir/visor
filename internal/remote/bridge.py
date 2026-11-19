@@ -7,17 +7,25 @@
 #   type (1 byte) | id (uint32 BE) | length (uint32 BE) | payload
 # From Visor: O open (payload "unix:<path>" or "tcp:<host>:<port>"),
 #   D data, X close, R read file, T tail file (json {path, max}),
-#   S stat, G glob, P ping.
+#   S stat, G glob, P ping, W replace (json {path, data (base64), hash}),
+#   C create (json {path, data}), U delete (json {path, hash}),
+#   A check (json {path, what: write|remove|folder}), L user exists.
 # To Visor: H hello (json), o opened, D data, X closed, r file, t tail,
-#   s stat (json), g glob (json list), p pong, e error (json {errno, msg}).
+#   s stat (json), g glob (json list), p pong, w/c/u/a done, l (json bool),
+#   e error (json {errno, code, msg}; code ECHANGED: the file is no longer
+#   what Visor read).
+import base64
 import errno
 import glob
+import hashlib
 import json
 import os
 import select
 import socket
+import stat
 import struct
 import sys
+import tempfile
 
 MAX_READ = 32 << 20
 HEADER = struct.Struct(">cII")
@@ -44,7 +52,14 @@ def send(kind, ident, payload=b""):
     write_all(HEADER.pack(b(kind), ident, len(payload)) + payload)
 
 
+class Changed(Exception):
+    """The file is no longer what Visor read, so it is left alone."""
+
+
 def send_error(ident, e):
+    if isinstance(e, Changed):
+        send("e", ident, json.dumps({"errno": 0, "code": "ECHANGED", "msg": str(e)}))
+        return
     code = getattr(e, "errno", None) or 0
     msg = getattr(e, "strerror", None)
     if not msg:
@@ -112,6 +127,138 @@ def tail_file(path, most):
         return f.read(most)
     finally:
         f.close()
+
+
+def sha(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def write_fd(fd, data):
+    while data:
+        n = os.write(fd, data)
+        data = data[n:]
+    os.fsync(fd)
+
+
+def sync_dir(d):
+    try:
+        fd = os.open(d, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    os.close(fd)
+
+
+def temp_beside(path):
+    # Hidden, so an include glob such as conf.d/* doesn't pick it up.
+    return tempfile.mkstemp(prefix="." + os.path.basename(path) + ".visor-",
+                            suffix=".tmp", dir=os.path.dirname(path))
+
+
+def unlink_quietly(name):
+    if name:
+        try:
+            os.unlink(name)
+        except OSError:
+            pass
+
+
+def replace_file(path, data, want):
+    # The file a symlink points at is written; the link stays.
+    target = os.path.realpath(path)
+    try:
+        st = os.stat(target)
+    except OSError as e:
+        if e.errno == errno.ENOENT:
+            raise Changed(path + " was deleted")
+        raise
+    if not stat.S_ISREG(st.st_mode):
+        raise ValueError(path + " is not a regular file")
+    if sha(read_file(target)) != want:
+        raise Changed(path)
+    fd, tmp = temp_beside(target)
+    try:
+        try:
+            os.fchmod(fd, stat.S_IMODE(st.st_mode))
+            if os.getuid() == 0:  # as root (sudo), keep the owner too
+                os.fchown(fd, st.st_uid, st.st_gid)
+            write_fd(fd, data)
+        finally:
+            os.close(fd)
+        # Last look: an edit made meanwhile still wins.
+        if sha(read_file(target)) != want:
+            raise Changed(path)
+        os.rename(tmp, target)
+        tmp = None
+    finally:
+        unlink_quietly(tmp)
+    sync_dir(os.path.dirname(target))
+
+
+def create_file(path, data):
+    if os.path.lexists(path):
+        raise OSError(errno.EEXIST, "file exists")
+    fd, tmp = temp_beside(path)
+    try:
+        try:
+            os.fchmod(fd, 0o644)
+            write_fd(fd, data)
+        finally:
+            os.close(fd)
+        try:
+            # A hard link fails if a file appeared meanwhile; rename wouldn't.
+            os.link(tmp, path)
+        except OSError as e:
+            if e.errno in (errno.EEXIST, errno.EACCES, errno.EPERM):
+                raise
+            if os.path.lexists(path):  # no hard links here: check, then rename
+                raise OSError(errno.EEXIST, "file exists")
+            os.rename(tmp, path)
+            tmp = None
+    finally:
+        unlink_quietly(tmp)
+    sync_dir(os.path.dirname(path))
+
+
+def delete_file(path, want):
+    if sha(read_file(path)) != want:
+        raise Changed(path)
+    os.unlink(path)  # a symlink itself
+    sync_dir(os.path.dirname(path))
+
+
+def check(path, what):
+    wx = os.W_OK | os.X_OK
+    if what == "write":
+        target = os.path.realpath(path)
+        os.stat(target)
+        ok = os.access(target, os.W_OK) and os.access(os.path.dirname(target), wx)
+    elif what == "remove":
+        if not os.path.lexists(path):
+            raise OSError(errno.ENOENT, "no such file or directory")
+        ok = os.access(os.path.dirname(path), wx)
+    elif what == "folder":
+        os.stat(path)
+        ok = os.access(path, wx)
+    else:
+        raise ValueError("unknown check " + what)
+    if not ok:
+        raise OSError(errno.EACCES, "permission denied")
+
+
+def user_exists(name):
+    import pwd
+    try:
+        if name.isdigit():
+            pwd.getpwuid(int(name))
+        else:
+            pwd.getpwnam(name)
+        return True
+    except KeyError:
+        return False
 
 
 def open_conn(spec):
@@ -206,6 +353,24 @@ def handle(kind, ident, payload, conns, socks):
             send("g", ident, json.dumps(sorted(glob.glob(text(payload)))))
         elif kind == b"P":
             send("p", ident)
+        elif kind == b"W":
+            req = json.loads(text(payload))
+            replace_file(req["path"], base64.b64decode(req["data"]), req["hash"])
+            send("w", ident)
+        elif kind == b"C":
+            req = json.loads(text(payload))
+            create_file(req["path"], base64.b64decode(req["data"]))
+            send("c", ident)
+        elif kind == b"U":
+            req = json.loads(text(payload))
+            delete_file(req["path"], req["hash"])
+            send("u", ident)
+        elif kind == b"A":
+            req = json.loads(text(payload))
+            check(req["path"], req["what"])
+            send("a", ident)
+        elif kind == b"L":
+            send("l", ident, json.dumps(user_exists(text(payload).strip())))
         else:
             raise ValueError("unknown frame")
     except Exception as e:  # report every failure to Visor, keep serving

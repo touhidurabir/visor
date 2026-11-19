@@ -3,7 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
-	"os"
+	"github.com/touhidurabir/visor/internal/apply"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -60,7 +60,7 @@ func (s *ConfigService) CheckImport(items []ImportItem) []ExplainView {
 	}
 	out := make([]ExplainView, len(items))
 	for i, it := range items {
-		ps := importProblems(dir, items, i)
+		ps := importProblems(s.rt.disk(), dir, items, i)
 		if i >= maxImportFiles {
 			// Past the cap: say so, without checking the text.
 			ps = append(ps, ProblemView{Level: "error", Message: fmt.Sprintf("Visor imports at most %d files at a time", maxImportFiles), Fix: "Add the others in a second import."})
@@ -103,7 +103,7 @@ func programsIn(content string) []string {
 
 // importProblems are the problems with item i as a file: its name, its
 // size and whether it is text.
-func importProblems(dir string, items []ImportItem, i int) []ProblemView {
+func importProblems(disk apply.Disk, dir string, items []ImportItem, i int) []ProblemView {
 	it := items[i]
 	var ps []ProblemView
 	bad := func(msg, fix string) { ps = append(ps, ProblemView{Level: "error", Message: msg, Fix: fix}) }
@@ -114,7 +114,7 @@ func importProblems(dir string, items []ImportItem, i int) []ProblemView {
 	case name != filepath.Base(name) || strings.HasPrefix(name, "."):
 		bad(fmt.Sprintf("%s is not a file name", name), "Use a plain name like web.ini, without folders.")
 	case dir != "":
-		if _, err := os.Lstat(filepath.Join(dir, name)); err == nil {
+		if there, _ := disk.Exists(filepath.Join(dir, name)); there {
 			bad(fmt.Sprintf("%s already exists in %s", name, dir), "Choose another file name, e.g. "+altName(name)+".")
 		}
 	}
@@ -180,7 +180,7 @@ func (s *ConfigService) Import(items []ImportItem, start bool) ([]ImportResultVi
 			out[i].Error = err.Error()
 			continue
 		}
-		if _, err := os.Lstat(path); err == nil {
+		if there, _ := s.rt.disk().Exists(path); there {
 			out[i].Error = fmt.Sprintf("%s already exists in %s. Choose another file name", it.FileName, dir)
 			continue
 		}
@@ -196,7 +196,7 @@ func (s *ConfigService) Import(items []ImportItem, start bool) ([]ImportResultVi
 		if err != nil {
 			out[i].Error = err.Error()
 		}
-		if _, statErr := os.Lstat(path); statErr == nil {
+		if there, _ := s.rt.disk().Exists(path); there {
 			out[i].Written = true
 		} else if !was {
 			_ = s.rt.watch.set(path, false)
