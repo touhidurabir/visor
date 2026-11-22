@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { collectErrors, configRow, openApp, processAction, removeConfig, words } from './helpers'
+import { collectErrors, configRow, mcpCall, mcpToken, openApp, processAction, removeConfig, words } from './helpers'
 
 // A server tab against the e2e SSH server (bin/visor-e2e-ssh on
 // 127.0.0.1:8767, started by serve.sh) in front of the sandbox supervisord.
@@ -340,6 +340,33 @@ test.describe('server tabs', () => {
     // Read only: no buttons on its rows.
     await expect(sec.getByRole('button', { name: /^Restart .* on / })).toHaveCount(0)
     await expect(sec.getByRole('button', { name: 'Open tab' })).toBeVisible()
+  })
+
+  test('MCP: a saved server is invisible to AI tools until allowed, then readable but not changeable at Read', async ({ page }) => {
+    await openApp(page, '/mcp')
+    await page.getByRole('switch', { name: 'Enable MCP server' }).check()
+    await expect(page.getByTestId('mcp-status')).toHaveText('Running')
+    const token = await mcpToken(page)
+    const level = page.getByTestId('mcp-access').getByLabel(`Access for ${NAME}`)
+    await expect(level).toHaveValue('off')
+    expect((await mcpCall(token, 'list_servers')).text).not.toContain(NAME)
+    expect((await mcpCall(token, 'get_status', { server: NAME })).text).toBe(`No server named "${NAME}". list_servers shows the ones Visor can use.`)
+
+    await level.selectOption({ label: 'Read' })
+    await expect(level).toHaveValue('read')
+    expect((await mcpCall(token, 'list_servers')).text).toContain(NAME)
+    const status = await mcpCall(token, 'get_status', { server: NAME })
+    expect(status.isError).toBe(false)
+    expect(status.text).toContain('"Reachable":true')
+    const logs = await mcpCall(token, 'read_config', { server: NAME, path: REPORTS })
+    expect(logs.text).toContain('[program:reports-export]')
+    expect(await mcpCall(token, 'restart', { server: NAME, target: 'reports-export' })).toEqual({
+      isError: true, text: `${NAME} is set to Read for MCP. Raise it on Visor's MCP page.`,
+    })
+
+    await level.selectOption({ label: 'Off' })
+    await page.getByRole('switch', { name: 'Enable MCP server' }).uncheck()
+    await expect(page.getByTestId('mcp-status')).toHaveText('Off')
   })
 
   test('Remote servers lists the server; Delete removes it and closes its tab', async ({ page }) => {

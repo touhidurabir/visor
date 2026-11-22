@@ -180,6 +180,7 @@ export const WORDS = {
     loginUnsupported: /the package or the AppImage/,
     noBanners: 'This build can’t show desktop banners',
     ready: 'Your computer is ready',
+    local: 'This computer',
   },
   darwin: {
     mod: 'Meta',
@@ -192,6 +193,7 @@ export const WORDS = {
     loginUnsupported: /installed Visor\.app/,
     noBanners: 'This build can’t show macOS banners',
     ready: 'Your Mac is ready',
+    local: 'This Mac',
   },
 } as const
 export type Platform = keyof typeof WORDS
@@ -295,4 +297,57 @@ export async function stopSupervisord(conf: string) {
     }
     expect(alive).toBe(false)
   }).toPass({ timeout: 15_000 })
+}
+
+// --- MCP (M9) ---------------------------------------------------------------
+
+/** The e2e Visor's MCP endpoint (serve.sh sets VISOR_MCP_PORT=8768). */
+export const MCP_URL = 'http://127.0.0.1:8768/mcp'
+
+export class McpHttpError extends Error {
+  constructor(public status: number, body: string) {
+    super(`MCP HTTP ${status}: ${body}`)
+  }
+}
+
+/** One JSON-RPC response from a Streamable HTTP reply (JSON or an SSE stream). */
+function rpcResult(contentType: string, body: string): { result?: Record<string, unknown>; error?: { message: string } } {
+  if (contentType.includes('text/event-stream')) {
+    const data = body.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim()).filter(Boolean)
+    return JSON.parse(data[data.length - 1])
+  }
+  return JSON.parse(body)
+}
+
+/**
+ * mcpCall calls one MCP tool the way an AI tool does: initialize, initialized,
+ * then tools/call, with the bearer token. It returns the tool's text and
+ * whether it was an error; a refused request throws McpHttpError.
+ */
+export async function mcpCall(token: string, tool: string, args: Record<string, unknown> = {}, client = 'e2e-test'): Promise<{ text: string; isError: boolean }> {
+  const base: Record<string, string> = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }
+  const post = async (headers: Record<string, string>, body: unknown) => {
+    const res = await fetch(MCP_URL, { method: 'POST', headers: { ...base, ...headers }, body: JSON.stringify(body) })
+    const text = await res.text()
+    if (!res.ok) throw new McpHttpError(res.status, text)
+    return { res, text }
+  }
+  const init = await post({}, {
+    jsonrpc: '2.0', id: 1, method: 'initialize',
+    params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: client, version: '1' } },
+  })
+  const session = init.res.headers.get('mcp-session-id') ?? ''
+  const version = String(rpcResult(init.res.headers.get('content-type') ?? '', init.text).result?.protocolVersion ?? '2025-06-18')
+  const h = { 'Mcp-Session-Id': session, 'Mcp-Protocol-Version': version }
+  await post(h, { jsonrpc: '2.0', method: 'notifications/initialized' })
+  const call = await post(h, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: tool, arguments: args } })
+  const msg = rpcResult(call.res.headers.get('content-type') ?? '', call.text)
+  if (msg.error) return { text: msg.error.message, isError: true }
+  const content = (msg.result?.content as { type: string; text?: string }[] | undefined) ?? []
+  return { text: content.map((c) => c.text ?? '').join(''), isError: !!msg.result?.isError }
+}
+
+/** The MCP page's token (the page must be open). */
+export async function mcpToken(page: Page): Promise<string> {
+  return page.getByLabel('Access token').inputValue()
 }

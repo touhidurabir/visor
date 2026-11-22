@@ -413,3 +413,29 @@ func containsID(ids []string, id string) bool {
 	}
 	return false
 }
+
+// A change through the MCP endpoint shows in this computer's Activity as
+// made via that client.
+func TestMcpChangeShowsViaInActivity(t *testing.T) {
+	old := activityGroupWait
+	activityGroupWait = 200 * time.Millisecond
+	t.Cleanup(func() { activityGroupWait = old })
+	f := newMcpFixture(t)
+	if _, err := f.svc.SetEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	cs, err := f.client(t, "e2e-test", f.svc.Get().Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	if text, isErr := callText(t, cs, "restart", map[string]any{"target": "sleeper"}); isErr {
+		t.Fatalf("restart: %s", text)
+	}
+	e := waitEvent(t, NewIssueService(f.hub.Local().RT), "sleeper restarted", func(e ActivityEventView) bool {
+		return e.Process == "sleeper:sleeper" && e.Kind == "process_restarted"
+	})
+	if e.Via != "e2e-test" {
+		t.Fatalf("restart through MCP: %+v", e)
+	}
+}
