@@ -32,6 +32,7 @@ import RestoreDialog from './RestoreDialog.vue'
 import SaveBar from './SaveBar.vue'
 import { currentTab, LOCAL, tabHref } from '../lib/tabs'
 import { onProduction, withConsentOnce } from '../lib/production'
+import { groupRestartNote } from '../lib/apply-flow'
 
 // line (from ?line=N) is the line to show when the editor opens. processes
 // are the file's processes from the live overview, for each card's state.
@@ -78,6 +79,7 @@ const errorCount = computed(() => explained.value?.SaveErrors ?? 0)
 const marks = computed(() => explainMarks(explained.value))
 const saveDiff = computed(() => diffLines(file.value?.Content ?? '', text.value))
 const saveStats = computed(() => diffStats(saveDiff.value))
+const groupNote = computed(() => groupRestartNote(props.processes))
 const cantSave = computed(() => {
   if (busy.value) return 'Wait for the current action to finish.'
   if (!writable.value) return props.serverReadOnly ? 'This server is set to Read only.' : remote.value ? 'Visor can’t write this file on the server.' : 'Visor can’t write this file.'
@@ -514,6 +516,7 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
       <p class="muted">
         Visor saves a backup first, then applies this file only. Programs whose settings changed restart; everything else keeps running.
       </p>
+      <p v-if="groupNote" class="muted" data-testid="group-note">{{ groupNote }}</p>
       <template #actions>
         <button type="button" class="btn" @click="preview = false">Cancel</button>
         <button type="button" class="btn primary" data-autofocus @click="confirmSave">Save &amp; apply</button>
