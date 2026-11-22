@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -64,35 +65,31 @@ func TestLimiter(t *testing.T) {
 	now := time.Date(2026, 11, 23, 10, 0, 0, 0, time.UTC)
 	l := NewLimiter(func() time.Time { return now })
 
-	if err := l.Allow("local", true); err != nil {
+	if err := l.Change("local"); err != nil {
 		t.Fatalf("first change: %v", err)
 	}
-	if err := l.Allow("local", true); !errors.Is(err, ErrRateLimited) {
+	if err := l.Change("local"); !errors.Is(err, ErrRateLimited) {
 		t.Fatalf("second change within 1s on the same machine: %v, want ErrRateLimited", err)
 	}
-	if err := l.Allow("prod", true); err != nil {
+	if err := l.Change("prod"); err != nil {
 		t.Fatalf("a change on another machine: %v", err)
 	}
-	if err := l.Allow("local", false); err != nil {
-		t.Fatalf("a read right after a change: %v", err)
-	}
 	now = now.Add(time.Second)
-	if err := l.Allow("local", true); err != nil {
+	if err := l.Change("local"); err != nil {
 		t.Fatalf("a change 1s later: %v", err)
 	}
 
-	// 4 calls so far; 26 more reach 30, the 31st is refused.
-	for i := 0; i < 26; i++ {
-		if err := l.Allow("local", false); err != nil {
-			t.Fatalf("call %d: %v", i+5, err)
+	for i := 0; i < 30; i++ {
+		if err := l.Allow(); err != nil {
+			t.Fatalf("call %d: %v", i+1, err)
 		}
 	}
-	err := l.Allow("local", false)
-	if !errors.Is(err, ErrRateLimited) {
-		t.Fatalf("31st call within 10s: %v, want ErrRateLimited", err)
+	err := l.Allow()
+	if !errors.Is(err, ErrRateLimited) || !strings.Contains(err.Error(), "wait 10s") {
+		t.Fatalf("31st call within 10s: %v, want ErrRateLimited with the wait", err)
 	}
 	now = now.Add(10 * time.Second)
-	if err := l.Allow("local", false); err != nil {
+	if err := l.Allow(); err != nil {
 		t.Fatalf("after the window: %v", err)
 	}
 }

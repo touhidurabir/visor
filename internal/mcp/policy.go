@@ -121,8 +121,9 @@ func NewLimiter(now func() time.Time) *Limiter {
 	return &Limiter{now: now, changes: map[string]time.Time{}}
 }
 
-// Allow records a call on machineID and refuses it when it is over a limit.
-func (l *Limiter) Allow(machineID string, change bool) error {
+// Allow records a call and refuses it when 30 calls were made in the last
+// 10 seconds.
+func (l *Limiter) Allow() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
@@ -137,14 +138,22 @@ func (l *Limiter) Allow(machineID string, change bool) error {
 		return fmt.Errorf("%w: at most %d calls in %s; wait %s and try again",
 			ErrRateLimited, maxCalls, callsWindow, roundUp(callsWindow-now.Sub(l.calls[0])))
 	}
-	if last, ok := l.changes[machineID]; change && ok && now.Sub(last) < changeGap {
+	l.calls = append(l.calls, now)
+	return nil
+}
+
+// Change records a change on machineID and refuses it within a second of
+// the last one there. It runs after asking, so a declined change doesn't
+// hold up the next.
+func (l *Limiter) Change(machineID string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	if last, ok := l.changes[machineID]; ok && now.Sub(last) < changeGap {
 		return fmt.Errorf("%w: at most one change per second on a machine; wait %s and try again",
 			ErrRateLimited, roundUp(changeGap-now.Sub(last)))
 	}
-	l.calls = append(l.calls, now)
-	if change {
-		l.changes[machineID] = now
-	}
+	l.changes[machineID] = now
 	return nil
 }
 
