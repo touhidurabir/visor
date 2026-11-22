@@ -369,7 +369,7 @@ func (t *Tracker) apply(u monitor.Update) (opened, closed []Issue) {
 				// a "not responding" opened while the dead connection still
 				// timed out.
 				closed = append(closed, t.closeWhere(func(i *Issue) bool { return i.Kind == KindUnreachable }, StatusResolvedAuto, "", now)...)
-				opened = append(opened, t.openIssue(KindHostDown, "", "Can't reach the server over SSH.", now)...)
+				opened = append(opened, t.openIssue(KindHostDown, "", "The SSH connection dropped. Visor keeps trying to reconnect.", now)...)
 			} else {
 				msg := "supervisord is not responding"
 				switch err := u.Snapshot.Err; {

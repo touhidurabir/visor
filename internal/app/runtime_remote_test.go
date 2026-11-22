@@ -387,6 +387,20 @@ func TestRemoteReconnectsAfterADrop(t *testing.T) {
 	}
 }
 
+// Retry tries at once instead of waiting out the backoff (here an hour).
+func TestRemoteRetryReconnectsAtOnce(t *testing.T) {
+	fastReconnect(t)
+	reconnectFirst, reconnectMax = time.Hour, time.Hour
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	f := startRemoteRuntime(t, inst, nil)
+	waitRunning(t, f.svc, "sleeper:sleeper")
+	f.rt.RetryNow() // while connected: no effect, and not kept for later
+	f.ssh.DropAll()
+	waitOverview(t, f.svc, 10*time.Second, "reconnecting", func(ov OverviewView) bool { return ov.Host.Conn == ConnReconnecting })
+	f.rt.RetryNow()
+	waitOverview(t, f.svc, 10*time.Second, "connected", func(ov OverviewView) bool { return ov.Host.Conn == ConnConnected })
+}
+
 func TestRemoteHostDownOpensItsOwnIssue(t *testing.T) {
 	fastReconnect(t)
 	inst := supervisortest.Start(t, supervisortest.Sleeper)

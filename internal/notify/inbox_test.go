@@ -84,6 +84,10 @@ func TestInboxRecoveredIsRead(t *testing.T) {
 	if !e.Read || e.Title != "supervisord is responding again" || e.Detail != "It was unreachable for 8 seconds." || b.Unread() != 0 || e.Level() != Info {
 		t.Fatalf("Recovered = %+v", e)
 	}
+	host := issues.Issue{ID: "h", Kind: issues.KindHostDown, OpenedAt: c.t.Add(-4 * time.Hour), ClosedAt: c.t, Status: issues.StatusResolvedAuto}
+	if e, _ := b.Recovered(host); e.Title != "Reconnected to the server" || e.Detail != "The connection was down for 4 hours." {
+		t.Fatalf("Recovered host down = %+v", e)
+	}
 }
 
 func TestInboxKeepsNewestAndRecent(t *testing.T) {
@@ -126,5 +130,13 @@ func TestInboxIgnoresBrokenFile(t *testing.T) {
 	}
 	if _, err := b.Record(exitIssue("i1", 1, time.Now())); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The host-down detail says what Visor does, not the headline again.
+func TestComposeHostDown(t *testing.T) {
+	m := Compose(issues.Issue{ID: "h", Kind: issues.KindHostDown, Message: "The SSH connection dropped. Visor keeps trying to reconnect."})
+	if m.Headline != "Can't reach the server over SSH" || m.Detail != "The SSH connection dropped. Visor keeps trying to reconnect." {
+		t.Fatalf("Compose = %q / %q", m.Headline, m.Detail)
 	}
 }

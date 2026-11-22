@@ -36,10 +36,19 @@ type remoteLink struct {
 	sess  *RemoteSession
 	down  error // why, while not connected
 	state string
+	kick  chan struct{} // Retry: try now instead of waiting out the backoff
 }
 
 func newLink(s *RemoteSession) *remoteLink {
-	return &remoteLink{sess: s, state: ConnConnected}
+	return &remoteLink{sess: s, state: ConnConnected, kick: make(chan struct{}, 1)}
+}
+
+// retry asks a reconnecting link to try again now (a no-op otherwise).
+func (l *remoteLink) retry() {
+	select {
+	case l.kick <- struct{}{}:
+	default:
+	}
 }
 
 func (l *remoteLink) current() (*RemoteSession, error) {
@@ -142,6 +151,16 @@ func (l *remoteLink) status() (string, error) {
 	return l.state, l.down
 }
 
+// RetryNow makes a server tab that is reconnecting try at once.
+func (r *Runtime) RetryNow() {
+	r.mu.Lock()
+	l := r.link
+	r.mu.Unlock()
+	if l != nil {
+		l.retry()
+	}
+}
+
 // errConnectionLost is why a session ended when the connection says nothing.
 var errConnectionLost = errors.New("the SSH connection was lost")
 
@@ -162,12 +181,18 @@ func (r *Runtime) watchLink(ctx context.Context, l *remoteLink, src *RemoteSourc
 		}
 		l.setDown(errConnectionLost, ConnReconnecting)
 		r.emitOverview()
+		select { // a Retry made while connected is stale
+		case <-l.kick:
+		default:
+		}
 		wait := reconnectFirst
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-time.After(wait):
+			case <-l.kick:
+				wait = reconnectFirst
 			}
 			// As saved now, and with the config this tab found first.
 			cur, _ := r.remoteServer()

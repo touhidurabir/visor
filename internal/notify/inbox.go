@@ -114,9 +114,10 @@ func (b *Inbox) Record(is issues.Issue) (Entry, error) {
 		Title: m.Headline, Detail: m.Detail, Count: is.Times()})
 }
 
-// Recovered adds a note that supervisord answers again after the
-// unreachable issue is closed. It is good news with nothing to do, so it
-// is added as read: it shows under All, not in the unread count.
+// Recovered adds a note that supervisord answers again (or the server is
+// reconnected) after the unreachable (or host down) issue is closed. It is
+// good news with nothing to do, so it is added as read: it shows under
+// All, not in the unread count.
 func (b *Inbox) Recovered(is issues.Issue) (Entry, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -124,8 +125,12 @@ func (b *Inbox) Recovered(is issues.Issue) (Entry, error) {
 	if end.IsZero() {
 		end = b.now()
 	}
-	return b.add(Entry{IssueID: is.ID, Kind: is.Kind, Title: "supervisord is responding again",
-		Detail: "It was unreachable for " + span(end.Sub(is.OpenedAt)) + ".", Read: true, Severity: Info})
+	e := Entry{IssueID: is.ID, Kind: is.Kind, Title: "supervisord is responding again",
+		Detail: "It was unreachable for " + span(end.Sub(is.OpenedAt)) + ".", Read: true, Severity: Info}
+	if is.Kind == issues.KindHostDown {
+		e.Title, e.Detail = "Reconnected to the server", "The connection was down for "+span(end.Sub(is.OpenedAt))+"."
+	}
+	return b.add(e)
 }
 
 // add stamps e with an ID and the time and puts it first. Caller holds mu.

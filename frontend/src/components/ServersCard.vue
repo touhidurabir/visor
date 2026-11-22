@@ -82,8 +82,19 @@ const options = (s: SavedServerView) => [s.Server.useSudo ? 'Use sudo' : '', s.S
 const isOpen = (s: SavedServerView) => serverTabs.value.some((t) => t.id === s.Server.id)
 const STATUS: Record<string, [string, string]> = {
   connected: ['Connected', 't-ok'],
-  reconnecting: ['Reconnecting…', 't-warn'],
+  reconnecting: ['Disconnected', 't-warn'],
   failed: ['Can’t connect', 't-bad'],
+}
+const reconnecting = (s: SavedServerView) => isOpen(s) && conn.value[s.Server.id] === 'reconnecting'
+
+// Visor retries on its own (every minute at most); Retry tries now.
+async function retry(s: SavedServerView) {
+  try {
+    await RemoteService.Retry(s.Server.id)
+    showToast(`Trying to reconnect to ${s.Server.name}…`)
+  } catch (e) {
+    showToast(errorMessage(e), 'error')
+  }
 }
 const status = (s: SavedServerView): [string, string] => (isOpen(s) ? (STATUS[conn.value[s.Server.id]] ?? ['Connecting…', 't-idle']) : ['Not open', 't-idle'])
 </script>
@@ -113,7 +124,8 @@ const status = (s: SavedServerView): [string, string] => (isOpen(s) ? (STATUS[co
         <span class="mono addr">{{ addr(s) }}</span>
         <span class="opts"><span v-for="o in options(s)" :key="o" class="badge b-idle">{{ o }}</span></span>
         <span class="act">
-          <span :class="status(s)[1]" data-testid="server-status">{{ status(s)[0] }}</span>
+          <span :class="status(s)[1]" data-testid="server-status" :title="reconnecting(s) ? 'The connection dropped. Visor keeps trying to reconnect.' : undefined">{{ status(s)[0] }}</span>
+          <button v-if="reconnecting(s)" class="btn sm" type="button" :aria-label="`Retry connecting to ${s.Server.name}`" @click="retry(s)">Retry</button>
           <button class="btn sm" type="button" :disabled="opening.includes(s.Server.id)" @click="open(s)">{{ opening.includes(s.Server.id) ? 'Connecting…' : isOpen(s) ? 'Show' : 'Connect' }}</button>
           <button class="btn sm" type="button" :aria-label="`${s.Unsaved ? 'Save' : 'Edit'} ${s.Server.name}`" @click="serverForm = { server: s }">{{ s.Unsaved ? 'Save…' : 'Edit' }}</button>
           <button v-if="s.Unsaved" class="btn sm quiet" type="button" :aria-label="`Close ${s.Server.name}`" @click="closeServer(router, s.Server.id)">Close</button>
