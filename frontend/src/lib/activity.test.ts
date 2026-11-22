@@ -4,7 +4,7 @@ import type { ActivityEventView } from '../../bindings/github.com/touhidurabir/v
 vi.mock('@wailsio/runtime', () => ({ Events: { On: () => () => {} } }))
 vi.mock('../../bindings/events', () => ({ VisorActivity: 'visor:activity' }))
 vi.mock('../../bindings/github.com/touhidurabir/visor/internal/app', () => ({ IssueAPI: { Activity: () => Promise.resolve({ Server: 'local', Events: [] }) } }))
-const { byDay, matches } = await import('./activity')
+const { byDay, byLabel, matches } = await import('./activity')
 
 const ev = (o: Partial<ActivityEventView>): ActivityEventView => ({
   ID: 'x', AtMs: 0, Kind: 'process_restarted', Group: 'processes', Process: 'web:web', Config: '', ByVisor: false, Via: '', Text: 'web:web restarted', FileName: '', ...o,
@@ -23,5 +23,13 @@ describe('activity', () => {
     const g = byDay([ev({ AtMs: now - 60_000 }), ev({ AtMs: now - 20 * 3600_000 }), ev({ AtMs: now - 3 * 24 * 3600_000 })], now)
     expect(g.map((x) => x.label).slice(0, 2)).toEqual(['Today', 'Yesterday'])
     expect(g).toHaveLength(3)
+  })
+})
+
+describe('byLabel', () => {
+  it('says who made the change', () => {
+    expect(byLabel(ev({ ByVisor: true, Via: 'Claude Code' }))).toBe('via Claude Code')
+    expect(byLabel(ev({ ByVisor: true }))).toBe('By Visor')
+    expect(byLabel(ev({}))).toBe('Outside Visor')
   })
 })

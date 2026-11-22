@@ -8,6 +8,7 @@
 // shows the unread count (visor:notifications) and opens the notifications,
 // so a failure is noticed even when macOS shows no banner. Laid out as one
 // section per server: this Mac for now; remote servers add sections.
+import McpAsk from '../components/McpAsk.vue'
 import { computed, ref } from 'vue'
 import { Window } from '@wailsio/runtime'
 import { isMac, platform } from '../lib/platform'
@@ -380,6 +381,7 @@ function closePopover() {
       </div>
       <span v-if="problem" class="meta reason" data-testid="tray-offline">{{ footerReason(problem) }}</span>
     </footer>
+    <McpAsk compact />
   </div>
 </template>
 
