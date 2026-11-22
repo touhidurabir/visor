@@ -40,6 +40,38 @@ export interface CrashLoopRules {
 }
 
 /**
+ * MCPAccess is one machine's MCP level ("off", "read", "control" or
+ * "configs") and whether changes there ask in Visor first.
+ */
+export interface MCPAccess {
+    "level": string;
+    "ask": boolean;
+}
+
+/**
+ * MCPSettings configure Visor's MCP server.
+ */
+export interface MCPSettings {
+    /**
+     * Enabled starts the server on 127.0.0.1:Port. Off by default.
+     */
+    "enabled": boolean;
+    "port": number;
+
+    /**
+     * Access is the level and asking per machine: "local" for this
+     * computer, else a server id. A missing entry uses the default (this
+     * computer Control, servers Off).
+     */
+    "access"?: { [_ in string]?: MCPAccess } | null;
+
+    /**
+     * AllowEnv lets AI agents read environment= values in configs.
+     */
+    "allowEnv": boolean;
+}
+
+/**
  * NotifyPrefs are which macOS notifications Visor sends. Enabled is the
  * master switch.
  */
@@ -151,4 +183,9 @@ export interface Settings {
      * Visor, by supervisorctl update or a deploy script).
      */
     "configRecheck": time$0.Duration;
+
+    /**
+     * MCP is the MCP server for AI agents (M9).
+     */
+    "mcp": MCPSettings;
 }

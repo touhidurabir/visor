@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -322,7 +323,7 @@ func TestSettingsSaveClampsPersistsAndAppliesLive(t *testing.T) {
 		t.Errorf("load error still shown after a save: %q", v.LoadError)
 	}
 	got, err := settings.Load(stateDir)
-	if err != nil || got != v.Settings || got.RetentionDays != 7 {
+	if err != nil || !reflect.DeepEqual(got, v.Settings) || got.RetentionDays != 7 {
 		t.Errorf("settings.json = %+v, %v; want %+v", got, err, v.Settings)
 	}
 

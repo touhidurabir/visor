@@ -8,6 +8,9 @@ import type { Events } from "@wailsio/runtime";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import type * as app$0 from "../../../../touhidurabir/visor/internal/app/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import type * as mcp$0 from "../../../../touhidurabir/visor/internal/mcp/models.js";
 
 declare module "@wailsio/runtime" {
     namespace Events {
@@ -17,6 +20,10 @@ declare module "@wailsio/runtime" {
             "visor:issue-opened": app$0.IssueView;
             "visor:log": app$0.LogChunkView;
             "visor:login-item": app$0.LoginItemView;
+            "visor:mcp": app$0.McpView;
+            "visor:mcp-ask": mcp$0.Question;
+            "visor:mcp-ask-done": string;
+            "visor:mcp-call": mcp$0.Call;
             "visor:menu": string;
             "visor:notifications": app$0.NotificationsView;
             "visor:overview": app$0.OverviewView;

@@ -9,6 +9,9 @@ import * as config$0 from "../config/models.js";
 import * as doctor$0 from "../doctor/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as mcp$0 from "../mcp/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as settings$0 from "../settings/models.js";
 
 /**
@@ -700,6 +703,48 @@ export interface MainLogResult {
      * on a server) because supervisord isn't answering; "" otherwise.
      */
     "FromFile": string;
+}
+
+/**
+ * McpMachineView is one row of the Access table.
+ */
+export interface McpMachineView {
+    "ID": string;
+    "Name": string;
+    "Tag": string;
+    "Local": boolean;
+    "ReadOnly": boolean;
+    "Connected": boolean;
+
+    /**
+     * Level and Ask are as stored; MaxLevel is the highest allowed (read on
+     * a Read only server); AskLocked: production always asks.
+     */
+    "Level": string;
+    "Ask": boolean;
+    "MaxLevel": string;
+    "AskLocked": boolean;
+}
+
+/**
+ * McpView is the MCP server page.
+ */
+export interface McpView {
+    /**
+     * McpOff, McpRunning, McpPortInUse, McpFailed
+     */
+    "Status": string;
+    "Error": string;
+    "Enabled": boolean;
+    "Port": number;
+    "URL": string;
+    "Token": string;
+    "AllowEnv": boolean;
+    "HasClaude": boolean;
+    "Machines": McpMachineView[] | null;
+    "Tools": mcp$0.ToolInfo[] | null;
+    "Calls": mcp$0.Call[] | null;
+    "Asks": mcp$0.Question[] | null;
 }
 
 /**

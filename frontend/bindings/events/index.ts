@@ -34,6 +34,26 @@ export const VisorLog = "visor:log";
 export const VisorLoginItem = "visor:login-item";
 
 /**
+ * Name of the custom event "visor:mcp".
+ */
+export const VisorMcp = "visor:mcp";
+
+/**
+ * Name of the custom event "visor:mcp-ask".
+ */
+export const VisorMcpAsk = "visor:mcp-ask";
+
+/**
+ * Name of the custom event "visor:mcp-ask-done".
+ */
+export const VisorMcpAskDone = "visor:mcp-ask-done";
+
+/**
+ * Name of the custom event "visor:mcp-call".
+ */
+export const VisorMcpCall = "visor:mcp-call";
+
+/**
  * Name of the custom event "visor:menu".
  */
 export const VisorMenu = "visor:menu";

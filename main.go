@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -87,6 +88,15 @@ func main() {
 	settingsService := app.NewSettingsService(rt, stateDir, envConfig, keychain, loadErr)
 	settingsService.ApplyToServers(hub.ApplySettings)
 	loginService := app.NewLoginItemService(loginItem, shell.ShowLoginStatus)
+	doctorService := app.NewDoctorService(rt, settingsService, loginService)
+	// The MCP server for AI agents (Claude Code, Codex): 127.0.0.1 only, off
+	// until turned on. VISOR_MCP_PORT is for the e2e tests only.
+	mcpPort, _ := strconv.Atoi(os.Getenv("VISOR_MCP_PORT"))
+	mcpService := app.NewMcpService(app.McpOptions{
+		Hub: hub, Remote: remoteService, Settings: settingsService, Doctor: doctorService,
+		Keychain: keychain, Emit: shell.Emit(app.WailsEmit), Notifier: notifier,
+		Show: func() { shell.ShowMain("") }, Version: "0.1.0", Port: mcpPort,
+	})
 	// LogLevel stays at Wails' default (Info). Do not raise it to Debug:
 	// Wails then logs every binding call with its arguments, which would
 	// put SaveConnection's supervisord password in the log.
@@ -114,7 +124,10 @@ func main() {
 			// Saved servers: the form, Settings → Servers and the tab bar.
 			application.NewService(remoteService),
 			application.NewService(settingsService),
-			application.NewService(app.NewDoctorService(rt, settingsService, loginService)),
+			application.NewService(doctorService),
+			// After the hub, so the tabs exist when an agent calls; stopped
+			// before them at quit, saying no to any waiting question.
+			application.NewService(mcpService),
 			application.NewService(app.NewShellService(shell)),
 			application.NewService(loginService),
 			application.NewService(dockService),

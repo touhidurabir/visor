@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"reflect"
 	"errors"
 	"os"
 	"path/filepath"
@@ -17,7 +18,7 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := Defaults()
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Load of a missing file = %+v, want %+v", got, want)
 	}
 	if want.PollInterval != 2*time.Second || want.RetentionDays != 90 ||
@@ -47,7 +48,7 @@ func TestLoadKeepsDefaultsForMissingKeys(t *testing.T) {
 	}
 	want := Defaults()
 	want.RetentionDays = 30
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
 }
@@ -61,7 +62,7 @@ func TestLoadCorruptFileReturnsDefaultsAndError(t *testing.T) {
 	if err == nil {
 		t.Error("Load of a corrupt file: want error")
 	}
-	if got != Defaults() {
+	if !reflect.DeepEqual(got, Defaults()) {
 		t.Errorf("got %+v, want defaults", got)
 	}
 }
@@ -94,7 +95,7 @@ func TestClamp(t *testing.T) {
 		in, want := Defaults(), Defaults()
 		c.in(&in)
 		c.want(&want)
-		if got := in.Clamp(); got != want {
+		if got := in.Clamp(); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s: Clamp = %+v, want %+v", c.name, got, want)
 		}
 	}
@@ -179,6 +180,7 @@ func TestRoundTrip(t *testing.T) {
 		MaxServers:    5,
 		Mutes:         ActivityMutes{Files: true},
 		ConfigRecheck: 2 * time.Minute,
+		MCP:           MCPSettings{Enabled: true, Port: 4999, Access: map[string]MCPAccess{"local": {Level: "configs"}}},
 	}
 	if err := Save(dir, in); err != nil {
 		t.Fatal(err)
@@ -187,7 +189,7 @@ func TestRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != in {
+	if !reflect.DeepEqual(got, in) {
 		t.Errorf("round trip = %+v, want %+v", got, in)
 	}
 	// Save clamps too: what is on disk is what Load returns.
@@ -331,6 +333,34 @@ func TestConfigRecheckDefaultsToAMinuteAndIsClamped(t *testing.T) {
 		s.ConfigRecheck = in
 		if got := s.Clamp().ConfigRecheck; got != want {
 			t.Errorf("Clamp(%v) = %v, want %v", in, got, want)
+		}
+	}
+}
+
+func TestMCPSettings(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"pollInterval":2000000000}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.MCP.Enabled || s.MCP.Port != DefaultMCPPort || s.MCP.AllowEnv || len(s.MCP.Access) != 0 {
+		t.Fatalf("an old settings file: %+v", s.MCP)
+	}
+	s.MCP = MCPSettings{Enabled: true, Port: 5000, Access: map[string]MCPAccess{"local": {Level: "read"}, "abc": {Level: "control", Ask: true}}}
+	if err := Save(dir, s); err != nil {
+		t.Fatal(err)
+	}
+	back, _ := Load(dir)
+	if !back.MCP.Enabled || back.MCP.Port != 5000 || back.MCP.Access["abc"] != (MCPAccess{Level: "control", Ask: true}) {
+		t.Fatalf("round trip: %+v", back.MCP)
+	}
+	for _, p := range []int{0, 80, 70000} {
+		c := Settings{MCP: MCPSettings{Port: p}}.Clamp()
+		if c.MCP.Port != DefaultMCPPort {
+			t.Errorf("port %d clamped to %d", p, c.MCP.Port)
 		}
 	}
 }
