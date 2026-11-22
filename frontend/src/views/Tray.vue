@@ -385,7 +385,32 @@ function closePopover() {
 
 <style scoped>
 /* theme.ts sets data-theme on <html>; the popover is its own window, and
-   the tokens follow it. */
+   the tokens follow it. The popover takes getvisor.dev's palette (navy in
+   dark, cool grey in light; site src/styles/tokens.css), so it matches the
+   site's drawing of it; the accent stays the app's. */
+.popover {
+  --line: #dce2ea;
+  --line2: #cdd5df;
+  --hover: #eef2f6;
+  --ink: #0e1621;
+  --ink2: #45526a;
+  --ink3: #59667e;
+}
+:root[data-theme='dark'] .popover {
+  --raised: #111925;
+  --sunken: #0e1520;
+  --hover: #172232;
+  --line: #243246;
+  --line2: #2e3f57;
+  --ink: #eaf0f7;
+  --ink2: #a9b6c7;
+  --ink3: #8d9bae;
+  --bad: #ff8080;
+  --bad-soft: rgba(255, 128, 128, 0.08);
+  --ok-dot: #45d49a;
+  --bad-dot: #ff8080;
+  --idle-dot: #8d9bae;
+}
 .popover {
   display: flex;
   flex-direction: column;
@@ -442,7 +467,7 @@ function closePopover() {
   justify-content: space-between;
   gap: 8px;
   min-height: var(--control);
-  padding: 2px 2px 0 10px;
+  padding: 4px 2px 0 12px;
 }
 /* The config's name as a small eyebrow; Needs attention in red. */
 .eyebrow {
@@ -452,9 +477,9 @@ function closePopover() {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--ink3);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .07em;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .08em;
   text-transform: uppercase;
 }
 .eyebrow.t-bad { color: var(--bad); }
@@ -467,8 +492,8 @@ function closePopover() {
 .prow {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 7px 8px 7px 10px;
+  gap: 12px;
+  padding: 8px 8px 8px 12px;
   border-radius: 8px;
 }
 .prow:hover { background: var(--hover); }
@@ -521,6 +546,9 @@ function closePopover() {
 }
 .sub.t-bad { font-weight: 600; }
 .acts-row { display: inline-flex; flex: none; gap: 6px; }
+.popover :deep(.btn:not(.primary):not(.quiet)) { border-color: var(--line2); background: var(--sunken); }
+.popover :deep(.btn:not(.primary):not(.quiet):hover:not(:disabled)) { background: var(--hover); }
+.popover :deep(.btn) { border-radius: 9px; font-weight: 600; }
 .prow.bad .btn:hover:not(:disabled) { background: var(--raised); }
 /* The copies of a "name ×N" row, indented under it on a guide line. */
 .copies { margin: 0 0 4px 22px; padding-left: 8px; border-left: 1px solid var(--line); }
