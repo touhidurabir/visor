@@ -73,10 +73,6 @@ func toMCPProcess(p ProcessView, conf string) mcpProcess {
 	}
 }
 
-func failing(state string) bool {
-	return state == "FATAL" || state == "BACKOFF" || state == "EXITED" || state == "UNKNOWN"
-}
-
 func (g *tabTarget) Status() (any, error) {
 	if err := g.live(); err != nil {
 		return nil, err
@@ -86,7 +82,7 @@ func (g *tabTarget) Status() (any, error) {
 	fail, changed, notLoaded := []mcpProcess{}, []string{}, []string{}
 	for _, c := range ov.Configs {
 		for _, p := range c.Processes {
-			if failing(p.State) {
+			if p.Status == classFailing.String() { // as the dashboard counts it: an expected exit isn't failing
 				fail = append(fail, toMCPProcess(p, c.Path))
 			}
 		}

@@ -290,3 +290,28 @@ func TestMCPTargetReconnecting(t *testing.T) {
 		t.Fatalf("restart while reconnecting: %v", err)
 	}
 }
+
+// get_status counts as failing what the dashboard does: a clean, expected
+// exit is not failing.
+func TestMCPStatusFailingMatchesTheDashboard(t *testing.T) {
+	oneshot := supervisortest.Program{Name: "oneshot", Command: "sh -c 'exit 0'", Extra: map[string]string{"startsecs": "0", "startretries": "0", "autorestart": "false"}}
+	inst := supervisortest.Start(t, supervisortest.Sleeper, supervisortest.Failer, oneshot)
+	tg, svc := targetFor(t, inst)
+	waitRunning(t, svc, "sleeper:sleeper")
+	waitOverview(t, svc, 15*time.Second, "both exited", func(ov OverviewView) bool {
+		a, _, okA := findProc(ov, "failer:failer")
+		b, _, okB := findProc(ov, "oneshot:oneshot")
+		return okA && okB && a.State == "EXITED" && b.State == "EXITED"
+	})
+	st, err := tg.Status()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := decode[struct {
+		Failing []struct{ Name string } `json:"failing"`
+		Counts  struct{ Failing int }  `json:"counts"`
+	}](t, st)
+	if len(got.Failing) != 1 || got.Failing[0].Name != "failer:failer" || got.Counts.Failing != 1 {
+		t.Fatalf("failing: %s", js(t, st))
+	}
+}
