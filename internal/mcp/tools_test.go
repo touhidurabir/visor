@@ -70,11 +70,15 @@ type fakeTarget struct {
 	m string
 }
 
-func (t *fakeTarget) Status() (any, error)                { return t.b.log(t.m, "Status", "", "") }
-func (t *fakeTarget) Processes(in ProcessesIn) (any, error) { return t.b.log(t.m, "Processes", "", in.State) }
-func (t *fakeTarget) Process(in ProcessIn) (any, error)   { return t.b.log(t.m, "Process", "", in.Name) }
-func (t *fakeTarget) Logs(in LogsIn) (any, error)         { return t.b.log(t.m, "Logs", "", in.Process) }
-func (t *fakeTarget) SearchLogs(in SearchIn) (any, error) { return t.b.log(t.m, "SearchLogs", "", in.Query) }
+func (t *fakeTarget) Status() (any, error) { return t.b.log(t.m, "Status", "", "") }
+func (t *fakeTarget) Processes(in ProcessesIn) (any, error) {
+	return t.b.log(t.m, "Processes", "", in.State)
+}
+func (t *fakeTarget) Process(in ProcessIn) (any, error) { return t.b.log(t.m, "Process", "", in.Name) }
+func (t *fakeTarget) Logs(in LogsIn) (any, error)       { return t.b.log(t.m, "Logs", "", in.Process) }
+func (t *fakeTarget) SearchLogs(in SearchIn) (any, error) {
+	return t.b.log(t.m, "SearchLogs", "", in.Query)
+}
 func (t *fakeTarget) SupervisordLog(in SupervisordLogIn) (any, error) {
 	return t.b.log(t.m, "SupervisordLog", "", "")
 }

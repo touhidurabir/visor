@@ -28,6 +28,11 @@ export interface ActivityEventView {
     "ByVisor": boolean;
 
     /**
+     * the AI tool, for a change made through MCP
+     */
+    "Via": string;
+
+    /**
      * "web:web restarted"
      */
     "Text": string;

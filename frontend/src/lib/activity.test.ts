@@ -7,7 +7,7 @@ vi.mock('../../bindings/github.com/touhidurabir/visor/internal/app', () => ({ Is
 const { byDay, matches } = await import('./activity')
 
 const ev = (o: Partial<ActivityEventView>): ActivityEventView => ({
-  ID: 'x', AtMs: 0, Kind: 'process_restarted', Group: 'processes', Process: 'web:web', Config: '', ByVisor: false, Text: 'web:web restarted', FileName: '', ...o,
+  ID: 'x', AtMs: 0, Kind: 'process_restarted', Group: 'processes', Process: 'web:web', Config: '', ByVisor: false, Via: '', Text: 'web:web restarted', FileName: '', ...o,
 })
 
 describe('activity', () => {
