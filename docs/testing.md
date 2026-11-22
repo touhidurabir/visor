@@ -161,6 +161,31 @@ only against a real server:
 - [ ] The real server (read only): connect, processes, logs, Download a copy; a program like `php` in the explanation reads as found. Don't edit its configs.
 - [ ] A test server (the VM): edit and save a config, Add new, Remove and Restore; with Use sudo off and the folder not writable, the banner names the user and links to the report, whose Configs writable row has the fix. Read only: no config change anywhere. Production: the save preview names the server.
 
+## MCP server
+
+Go: `internal/mcp` (the tools, access levels, asking, rate limits, the token
+and Origin checks, through the SDK's in-memory client) and `internal/app`
+(`TestMCPTarget*` on a real supervisord, `TestMcp*` over real HTTP with the
+SDK's client, including a saved server's tab opened over the test SSH
+server). e2e: `mcp.spec.ts` (the page, real calls with `mcpCall`, a wrong
+token, Regenerate, Read refusing a change, Deny and Allow, Activity's "via")
+and the MCP step in `servers.spec.ts`. The e2e Visor listens for MCP on
+127.0.0.1:8768 (`VISOR_MCP_PORT`, set by `e2e/scripts/serve.sh`).
+
+### Manual MCP checklist
+
+With the ad-hoc build against the sandbox (`scripts/sign-check.sh adhoc`,
+then `open`):
+
+- [ ] MCP server (sidebar): Off; Enable shows Running and a dot in the sidebar. Another app on the port: "Port in use" with the fix; a new port works.
+- [ ] Add to Claude Code shows the command first; then `claude mcp list` shows visor connected. In a Claude Code session, "what's failing in supervisord?" calls get_status and list_issues; Recent calls shows them.
+- [ ] Codex (if installed): the config.toml lines, then `codex mcp list`.
+- [ ] Turn on Ask for this computer, ask the agent to restart a process: Visor comes forward with the prompt (and a notification when allowed). Deny: the agent says it was declined. Allow for 10 minutes: the next restart doesn't ask. Activity shows "via Claude Code".
+- [ ] read_config on a file with environment= shows «hidden»; saving that text is refused; with "Let AI read environment values" on, the values show.
+- [ ] A test server (the VM) at Control: a restart from the agent shows in its Activity as via Claude Code. A production-tagged server always asks. Off: the agent can't see it.
+- [ ] Regenerate: the agent's next call fails until the new command is added.
+- [ ] Quit Visor while a prompt waits: the agent gets "declined".
+
 ## Manual Linux checklist
 
 Check these on Ubuntu 24.04 (GNOME, Wayland) and Fedora 40+ (KDE Plasma)

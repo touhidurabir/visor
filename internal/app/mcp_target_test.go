@@ -309,7 +309,7 @@ func TestMCPStatusFailingMatchesTheDashboard(t *testing.T) {
 	}
 	got := decode[struct {
 		Failing []struct{ Name string } `json:"failing"`
-		Counts  struct{ Failing int }  `json:"counts"`
+		Counts  struct{ Failing int }   `json:"counts"`
 	}](t, st)
 	if len(got.Failing) != 1 || got.Failing[0].Name != "failer:failer" || got.Counts.Failing != 1 {
 		t.Fatalf("failing: %s", js(t, st))
