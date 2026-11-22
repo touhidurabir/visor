@@ -21,6 +21,7 @@ type fakeBackend struct {
 	calls    []string // "machine:method:client:arg"
 	recorded []Call
 	env      bool
+	block    chan struct{} // Status waits on it when set
 }
 
 func (b *fakeBackend) Machines() []Machine {
@@ -70,7 +71,12 @@ type fakeTarget struct {
 	m string
 }
 
-func (t *fakeTarget) Status() (any, error) { return t.b.log(t.m, "Status", "", "") }
+func (t *fakeTarget) Status() (any, error) {
+	if t.b.block != nil {
+		<-t.b.block
+	}
+	return t.b.log(t.m, "Status", "", "")
+}
 func (t *fakeTarget) Processes(in ProcessesIn) (any, error) {
 	return t.b.log(t.m, "Processes", "", in.State)
 }
@@ -341,7 +347,7 @@ func TestAskFlow(t *testing.T) {
 	if text, _ := call(t, cs, "signal_process", map[string]any{"name": "web", "signal": "KILL"}); text != "The person declined in Visor." {
 		t.Fatalf("KILL without asking: %q", text)
 	}
-	if len(b.asked) != 1 || b.asked[0].Verb != "send KILL to" {
+	if len(b.asked) != 1 || b.asked[0].Verb != "send KILL to" || !b.asked[0].Force {
 		t.Fatalf("KILL question: %+v", b.asked)
 	}
 	if text, _ := call(t, cs, "signal_process", map[string]any{"name": "web", "signal": "STOP"}); !strings.Contains(text, "HUP, USR1, USR2, TERM, INT, QUIT or KILL") {
@@ -397,13 +403,29 @@ func TestCallsRing(t *testing.T) {
 	}
 }
 
-func TestRateLimitThroughTools(t *testing.T) {
+func TestChangeGapIsWaitedOut(t *testing.T) {
 	b := newFake()
 	cs := connect(t, NewServer(b, "test"), "x")
 	call(t, cs, "restart", map[string]any{"target": "a"})
+	start := time.Now()
 	text, isErr := call(t, cs, "restart", map[string]any{"target": "b"})
-	if !isErr || !strings.Contains(text, "one change per second") {
-		t.Fatalf("second change at once: %q", text)
+	if isErr || time.Since(start) < 900*time.Millisecond {
+		t.Fatalf("second change at once: %q after %s, want it to wait out the second", text, time.Since(start))
+	}
+}
+
+func TestReadsTimeOut(t *testing.T) {
+	old := readTimeout
+	readTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { readTimeout = old })
+	b := newFake()
+	b.block = make(chan struct{})
+	defer close(b.block)
+	cs := connect(t, NewServer(b, "test"), "x")
+	start := time.Now()
+	text, isErr := call(t, cs, "get_status", nil)
+	if !isErr || !strings.Contains(text, "didn't answer within") || time.Since(start) > 2*time.Second {
+		t.Fatalf("a stuck read: %q after %s", text, time.Since(start))
 	}
 }
 

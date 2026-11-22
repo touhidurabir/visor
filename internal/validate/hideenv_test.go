@@ -1,6 +1,9 @@
 package validate
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestHideEnv(t *testing.T) {
 	cases := []struct{ name, in, want string }{
@@ -19,7 +22,8 @@ func TestHideEnv(t *testing.T) {
 		{"an unreadable value is hidden whole",
 			"environment=A=\"open\n",
 			"environment=«hidden»\n"},
-		{"no environment", "[program:a]\ncommand=x\n; environment=A=1 is a comment\n", "[program:a]\ncommand=x\n; environment=A=1 is a comment\n"},
+		{"no environment", "[program:a]\ncommand=x\n; the environment is set below\n", "[program:a]\ncommand=x\n; the environment is set below\n"},
+		{"commented-out values are hidden too", "[program:a]\n;environment=OLD_PASSWORD=\"x\"\n# environment = B=2\n", "[program:a]\n;environment=OLD_PASSWORD=\"«hidden»\"\n# environment = B=\"«hidden»\"\n"},
 		{"an empty environment stays", "environment=\n", "environment=\n"},
 		{"supervisord's own section too", "[supervisord]\nenvironment=X=1\n", "[supervisord]\nenvironment=X=\"«hidden»\"\n"},
 		{"CRLF and no final newline", "environment=A=1\r\nuser=x", "environment=A=\"«hidden»\"\r\nuser=x"},
@@ -46,5 +50,27 @@ func TestHideEnvValue(t *testing.T) {
 	}
 	if got := HideEnvValue(""); got != "" {
 		t.Fatalf("empty: %q", got)
+	}
+}
+
+func TestRestoreEnv(t *testing.T) {
+	disk := "[program:a]\ncommand=old\nenvironment = DB_PASSWORD=\"s3cret\",\n    APP_KEY=\"k\"\n;environment=OLD=\"x\"\nuser=www\n"
+	hidden := HideEnv(disk)
+	edited := strings.Replace(hidden, "command=old", "command=new", 1)
+	got, err := RestoreEnv(edited, disk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := strings.Replace(disk, "command=old", "command=new", 1); got != want {
+		t.Fatalf("RestoreEnv:\n%q\nwant\n%q", got, want)
+	}
+	// A hidden line moved to another program keeps its values only where it was.
+	if _, err := RestoreEnv(strings.Replace(hidden, "DB_PASSWORD", "DB_PASS", 1), disk); err == nil {
+		t.Fatal("an edited hidden line was accepted")
+	}
+	// Text without hidden values is left as it is.
+	plain := "[program:a]\nenvironment=A=\"new\"\n"
+	if got, err := RestoreEnv(plain, disk); err != nil || got != plain {
+		t.Fatalf("plain text: %q %v", got, err)
 	}
 }

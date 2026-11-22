@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"path/filepath"
@@ -257,25 +258,51 @@ func TestMcpAsk(t *testing.T) {
 		t.Fatal("answered a prompt twice")
 	}
 
-	// Allow for 10 minutes: the next change there doesn't ask.
-	go func() {
-		waitAsks(t, f.svc, 1)
-		_ = f.svc.Answer("ask-4", true, 10)
-	}()
+	// Allow for 10 minutes covers that client, machine and verb only, and
+	// never production or a forced question (KILL).
+	allow10 := func(qq mcp.Question) bool {
+		go func() {
+			waitAsks(t, f.svc, 1)
+			_ = f.svc.Answer(qq.ID, true, 10)
+		}()
+		ok, _ := f.svc.ask(ctx, qq)
+		return ok
+	}
+	asksAgain := func(qq mcp.Question) bool {
+		f.svc.askTimeout = 200 * time.Millisecond
+		defer func() { f.svc.askTimeout = 5 * time.Second }()
+		start := time.Now()
+		ok, _ := f.svc.ask(ctx, qq)
+		return !ok && time.Since(start) >= 150*time.Millisecond
+	}
 	q.ID = "ask-4"
-	if ok, _ := f.svc.ask(ctx, q); !ok {
-		t.Fatal("allowed for 10 minutes: no")
+	if !allow10(q) {
+		t.Fatal("allowed: no")
 	}
 	q.ID = "ask-5"
-	start := time.Now()
-	if ok, _ := f.svc.ask(ctx, q); !ok || time.Since(start) > 100*time.Millisecond {
-		t.Fatal("the next ask within 10 minutes asked again")
+	if !asksAgain(q) {
+		t.Fatal("production asked once for 10 minutes")
 	}
-	q.Client = "Codex"
-	q.ID = "ask-6"
-	f.svc.askTimeout = 200 * time.Millisecond
-	if ok, _ := f.svc.ask(ctx, q); ok {
-		t.Fatal("another client inherited the 10 minutes")
+	dev := mcp.Question{ID: "ask-6", Client: "Claude Code", Verb: "restart", Subject: "web", Machine: "dev", MachineID: "d1"}
+	if !allow10(dev) {
+		t.Fatal("dev allowed: no")
+	}
+	dev.ID = "ask-7"
+	start := time.Now()
+	if ok, _ := f.svc.ask(ctx, dev); !ok || time.Since(start) > 100*time.Millisecond {
+		t.Fatal("the same change within 10 minutes asked again")
+	}
+	for _, other := range []mcp.Question{
+		{ID: "ask-8", Client: "Claude Code", Verb: "stop", Subject: "web", Machine: "dev", MachineID: "d1"},
+		{ID: "ask-9", Client: "Codex", Verb: "restart", Subject: "web", Machine: "dev", MachineID: "d1"},
+		{ID: "ask-10", Client: "Claude Code", Verb: "send KILL to", Subject: "web", Machine: "dev", MachineID: "d1", Force: true},
+	} {
+		if !asksAgain(other) {
+			t.Fatalf("%s %s inherited the 10 minutes", other.Client, other.Verb)
+		}
+	}
+	if err := f.svc.Answer("ask-x", true, 10); err == nil {
+		t.Fatal("answered a question that isn't waiting")
 	}
 
 	// Quitting says no to a waiting prompt.
@@ -283,7 +310,7 @@ func TestMcpAsk(t *testing.T) {
 	done := make(chan bool)
 	go func() {
 		qq := q
-		qq.ID = "ask-7"
+		qq.ID = "ask-11"
 		ok, _ := f.svc.ask(ctx, qq)
 		done <- ok
 	}()
@@ -437,5 +464,87 @@ func TestMcpChangeShowsViaInActivity(t *testing.T) {
 	})
 	if e.Via != "e2e-test" {
 		t.Fatalf("restart through MCP: %+v", e)
+	}
+}
+
+// mcpKeychain counts reads and writes, and can fail reads.
+type mcpKeychain struct {
+	settings.MemoryKeychain
+	gets, sets atomic.Int32
+	getErr     error
+}
+
+func (k *mcpKeychain) Get(service, account string) (string, error) {
+	k.gets.Add(1)
+	if k.getErr != nil {
+		return "", k.getErr
+	}
+	return k.MemoryKeychain.Get(service, account)
+}
+
+func (k *mcpKeychain) Set(service, account, secret string) error {
+	k.sets.Add(1)
+	return k.MemoryKeychain.Set(service, account, secret)
+}
+
+// The token is read from the Keychain or keyring only when MCP is used, and
+// a failed read never replaces it.
+func TestMcpTokenOnlyWhenNeeded(t *testing.T) {
+	f := newMcpFixture(t)
+	k := &mcpKeychain{}
+	svc := NewMcpService(McpOptions{Hub: f.hub, Remote: f.remote, Settings: f.svc.o.Settings, Keychain: k})
+	if err := svc.ServiceStartup(context.Background(), application.ServiceOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if svc.Status() != McpOff || k.gets.Load() != 0 {
+		t.Fatalf("with MCP off, launch read the keyring %d times", k.gets.Load())
+	}
+	if v := svc.Get(); v.Token == "" || k.sets.Load() != 1 {
+		t.Fatalf("the page made no token: %+v, %d sets", v, k.sets.Load())
+	}
+	_ = svc.ServiceShutdown()
+
+	locked := &mcpKeychain{getErr: errors.New("the keyring is locked")}
+	svc = NewMcpService(McpOptions{Hub: f.hub, Remote: f.remote, Settings: f.svc.o.Settings, Keychain: locked})
+	_ = svc.ServiceStartup(context.Background(), application.ServiceOptions{})
+	v := svc.Get()
+	if v.Token != "" || locked.sets.Load() != 0 || !strings.Contains(v.Error, "keyring is locked") {
+		t.Fatalf("a locked keyring: %+v, %d sets", v, locked.sets.Load())
+	}
+	if _, err := svc.SetEnabled(true); err == nil {
+		t.Fatal("enabled without a token")
+	}
+	_ = svc.ServiceShutdown()
+}
+
+// Two calls at once to a server that isn't open both get it (Claude Code
+// runs reads in parallel).
+func TestMcpOpensAServerOnceForParallelCalls(t *testing.T) {
+	f := newMcpFixture(t)
+	sv := f.saveServer(t, "vm", "development", false)
+	if _, err := f.svc.SetAccess(sv.ID, "read", false); err != nil {
+		t.Fatal(err)
+	}
+	b := &mcpBackend{s: f.svc}
+	var m mcp.Machine
+	for _, x := range f.svc.machines() {
+		if x.ID == sv.ID {
+			m = x
+		}
+	}
+	var wg sync.WaitGroup
+	errs := make([]error, 3)
+	for i := range errs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, errs[i] = b.Target(context.Background(), m)
+		}(i)
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("call %d: %v", i, err)
+		}
 	}
 }

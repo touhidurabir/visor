@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -71,5 +72,41 @@ func TestHandlerAuth(t *testing.T) {
 	token.Store("")
 	if got := post(t, url, map[string]string{"Authorization": "Bearer "}); got != http.StatusUnauthorized {
 		t.Errorf("empty token: %d, want 401", got)
+	}
+}
+
+func TestIdleSessionsExpire(t *testing.T) {
+	old := sessionTimeout
+	sessionTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { sessionTimeout = old })
+	srv := sdk.NewServer(&sdk.Implementation{Name: "visor", Version: "test"}, nil)
+	ts := httptest.NewServer(Handler(srv, func() string { return "t" }))
+	defer ts.Close()
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/mcp", strings.NewReader(initBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("Authorization", "Bearer t")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	id := res.Header.Get("Mcp-Session-Id")
+	if id == "" {
+		t.Fatal("no session")
+	}
+	time.Sleep(time.Second)
+	ping, _ := http.NewRequest(http.MethodPost, ts.URL+"/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":2,"method":"ping"}`))
+	ping.Header.Set("Content-Type", "application/json")
+	ping.Header.Set("Accept", "application/json, text/event-stream")
+	ping.Header.Set("Authorization", "Bearer t")
+	ping.Header.Set("Mcp-Session-Id", id)
+	res, err = http.DefaultClient.Do(ping)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("an idle session after its timeout: %d, want 404", res.StatusCode)
 	}
 }

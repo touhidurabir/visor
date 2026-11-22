@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/touhidurabir/visor/internal/mcp"
+	"github.com/touhidurabir/visor/internal/settings"
 	"github.com/touhidurabir/visor/internal/supervisor/supervisortest"
 )
 
@@ -116,12 +117,29 @@ func TestMCPTargetReads(t *testing.T) {
 	if one.Text != "  at trace line\n" || one.Cursor == 0 {
 		t.Fatalf("last line: %+v", one)
 	}
+	type page struct {
+		Text    string
+		Cursor  int
+		AtStart bool `json:"atStart"`
+	}
 	l, _ = tg.Logs(mcp.LogsIn{Process: "logger", Before: one.Cursor})
-	if back := decode[struct {
-		Text   string
-		Cursor int
-	}](t, l); back.Text != "INFO ok\nERROR boom\n" || back.Cursor != 0 {
-		t.Fatalf("paging back: %+v", back)
+	if back := decode[page](t, l); back.Text != "INFO ok\nERROR boom\n" || !back.AtStart || back.Cursor != 0 {
+		t.Fatalf("paging back to the start: %+v", back)
+	}
+	// Errors only, one line at a time: each error line once, then the start.
+	var pages []string
+	before := 0
+	for range 5 {
+		l, _ = tg.Logs(mcp.LogsIn{Process: "logger", ErrorsOnly: true, Lines: 1, Before: before})
+		p := decode[page](t, l)
+		pages = append(pages, p.Text)
+		if p.AtStart {
+			break
+		}
+		before = p.Cursor
+	}
+	if strings.Join(pages, "|") != "  at trace line\n|ERROR boom\n|" {
+		t.Fatalf("errors only, paged: %q", pages)
 	}
 	if _, err := tg.Logs(mcp.LogsIn{Process: "logger", Stream: "stdlog"}); err == nil {
 		t.Fatal("a bad stream gave no error")
@@ -228,9 +246,16 @@ func TestMCPTargetChanges(t *testing.T) {
 	lp := confFile(inst, "logger")
 	lc, _ := tg.ReadConfig(mcp.PathIn{Path: lp}, false)
 	lf := decode[struct{ Content, Hash string }](t, lc)
-	if _, err := tg.SaveConfig("Codex", mcp.SaveIn{Path: lp, Content: lf.Content, Hash: lf.Hash}); err == nil ||
-		!strings.Contains(err.Error(), "«hidden»") {
-		t.Fatalf("text with hidden values saved: %v", err)
+	// Hidden lines left as read are put back from the file; a changed one is refused.
+	if _, err := tg.SaveConfig("Codex", mcp.SaveIn{Path: lp, Content: strings.Replace(lf.Content, "SECRET=", "SECRET2=", 1), Hash: lf.Hash}); err == nil ||
+		!strings.Contains(err.Error(), "isn't as Visor showed it") {
+		t.Fatalf("a changed hidden line saved: %v", err)
+	}
+	if _, err := tg.SaveConfig("Codex", mcp.SaveIn{Path: lp, Content: strings.Replace(lf.Content, "exec sleep 3600", "exec sleep 3601", 1), Hash: lf.Hash}); err != nil {
+		t.Fatalf("a save around hidden values: %v", err)
+	}
+	if disk, _ := os.ReadFile(lp); !strings.Contains(string(disk), `SECRET="s3cr3t"`) || !strings.Contains(string(disk), "sleep 3601") {
+		t.Fatalf("the file after the save: %s", disk)
 	}
 	res, err := tg.SaveConfig("Codex", mcp.SaveIn{Path: path, Content: strings.Replace(f.Content, "sleep 3600", "sleep 3601", 1), Hash: f.Hash})
 	if err != nil || !strings.Contains(js(t, res), "sleeper") {
@@ -313,5 +338,18 @@ func TestMCPStatusFailingMatchesTheDashboard(t *testing.T) {
 	}](t, st)
 	if len(got.Failing) != 1 || got.Failing[0].Name != "failer:failer" || got.Counts.Failing != 1 {
 		t.Fatalf("failing: %s", js(t, st))
+	}
+}
+
+// A Read only server is never asked to re-read its configs: get_pending_changes
+// answers from what Visor already knows.
+func TestMCPPendingOnAReadOnlyServer(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	f := startRemoteRuntime(t, inst, func(s *settings.Server) { s.ReadOnly = true })
+	waitRunning(t, f.svc, "sleeper:sleeper")
+	tg := &tabTarget{t: newTab(f.rt, func(string, any) {}, ""), name: "vm"}
+	out, err := tg.PendingChanges(mcp.OptPathIn{})
+	if err != nil || !strings.Contains(js(t, out), "Read only") {
+		t.Fatalf("pending on a Read only server: %v %s", err, js(t, out))
 	}
 }

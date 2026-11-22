@@ -65,18 +65,23 @@ func TestLimiter(t *testing.T) {
 	now := time.Date(2026, 11, 23, 10, 0, 0, 0, time.UTC)
 	l := NewLimiter(func() time.Time { return now })
 
-	if err := l.Change("local"); err != nil {
-		t.Fatalf("first change: %v", err)
+	// The gap is waited out, not refused: a change the person allowed goes
+	// ahead, one per second per machine.
+	if w := l.Change("local"); w != 0 {
+		t.Fatalf("first change waits %s", w)
 	}
-	if err := l.Change("local"); !errors.Is(err, ErrRateLimited) {
-		t.Fatalf("second change within 1s on the same machine: %v, want ErrRateLimited", err)
+	if w := l.Change("local"); w != time.Second {
+		t.Fatalf("second change at once waits %s, want 1s", w)
 	}
-	if err := l.Change("prod"); err != nil {
-		t.Fatalf("a change on another machine: %v", err)
+	if w := l.Change("local"); w != 2*time.Second {
+		t.Fatalf("third change at once waits %s, want 2s (its slot is after the second's)", w)
 	}
-	now = now.Add(time.Second)
-	if err := l.Change("local"); err != nil {
-		t.Fatalf("a change 1s later: %v", err)
+	if w := l.Change("prod"); w != 0 {
+		t.Fatalf("a change on another machine waits %s", w)
+	}
+	now = now.Add(3 * time.Second)
+	if w := l.Change("local"); w != 0 {
+		t.Fatalf("a change 3s later waits %s", w)
 	}
 
 	for i := 0; i < 30; i++ {

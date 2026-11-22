@@ -109,9 +109,22 @@ func LineLevel(text string) string {
 // ErrorsOnly keeps the error lines of text and the stack-trace lines under
 // them, as the Logs tab's Errors filter shows them.
 func ErrorsOnly(text string) string {
+	lines := strings.SplitAfter(text, "\n")
 	var b strings.Builder
+	for i, keep := range ErrorMask(lines) {
+		if keep {
+			b.WriteString(lines[i])
+		}
+	}
+	return b.String()
+}
+
+// ErrorMask marks the lines (each with or without its newline) that are
+// errors or the stack-trace lines under one.
+func ErrorMask(lines []string) []bool {
+	keep := make([]bool, len(lines))
 	prev := ""
-	for _, line := range strings.SplitAfter(text, "\n") {
+	for i, line := range lines {
 		bare := strings.TrimRight(line, "\r\n")
 		if line == "" {
 			continue
@@ -121,11 +134,9 @@ func ErrorsOnly(text string) string {
 			l = prev
 		}
 		prev = l
-		if l == "error" {
-			b.WriteString(line)
-		}
+		keep[i] = l == "error"
 	}
-	return b.String()
+	return keep
 }
 
 // CutFront keeps at most max bytes from the end of text, starting at a line

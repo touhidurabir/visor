@@ -29,6 +29,12 @@ export interface Question {
     "machine": string;
     "machineId": string;
     "production": boolean;
+
+    /**
+     * Force: it asks even where asking is off (KILL), so "Allow for 10
+     * minutes" doesn't cover it.
+     */
+    "force": boolean;
 }
 
 /**

@@ -12,6 +12,11 @@ const props = defineProps<{ compact?: boolean }>()
 const queue = ref<Question[]>([])
 const q = computed(() => queue.value[0])
 const denyBtn = ref<HTMLButtonElement>()
+const allowBtn = ref<HTMLButtonElement>()
+let returnFocus: HTMLElement | null = null
+// "Allow for 10 minutes" isn't offered where Visor always asks: production
+// servers, and KILL.
+const canAllow10 = computed(() => !!q.value && !q.value.production && !q.value.force)
 const titleId = `mcp-ask-${Math.random().toString(36).slice(2)}`
 
 const drop = (id: string) => (queue.value = queue.value.filter((x) => x.id !== id))
@@ -32,11 +37,22 @@ function onKeydown(e: KeyboardEvent) {
     e.preventDefault()
     e.stopPropagation()
     void answer(false)
+  } else if (e.key === 'Tab') {
+    // Focus stays in the question (Deny first, Allow last).
+    if (e.shiftKey && document.activeElement === denyBtn.value) {
+      e.preventDefault()
+      allowBtn.value?.focus()
+    } else if (!e.shiftKey && document.activeElement === allowBtn.value) {
+      e.preventDefault()
+      denyBtn.value?.focus()
+    }
   }
 }
 
-watch(q, (cur) => {
+watch(q, (cur, prev) => {
+  if (cur && !prev) returnFocus = document.activeElement as HTMLElement | null
   if (cur) void nextTick(() => denyBtn.value?.focus())
+  else if (prev) returnFocus?.focus?.()
 })
 
 let offs: (() => void)[] = []
@@ -65,11 +81,11 @@ onUnmounted(() => offs.forEach((off) => off()))
           <h2 :id="titleId">{{ q.client }} wants to {{ q.verb }} <span class="mono">{{ q.subject }}</span> on {{ q.machine }}</h2>
           <span v-if="q.production" class="badge b-bad">Production</span>
         </div>
-        <p>Asked through MCP. If nobody answers within a minute, Visor says no.<template v-if="queue.length > 1"> {{ queue.length - 1 }} more waiting.</template></p>
+        <p>Asked through MCP. If nobody answers within a minute, Visor says no.<template v-if="q.production"> Production servers always ask.</template><template v-if="queue.length > 1"> {{ queue.length - 1 }} more waiting.</template></p>
         <div class="actions">
           <button ref="denyBtn" type="button" class="btn" @click="answer(false)">Deny</button>
-          <button type="button" class="btn" @click="answer(true, 10)">{{ props.compact ? '10 min' : 'Allow for 10 minutes' }}</button>
-          <button type="button" class="btn primary" @click="answer(true)">Allow</button>
+          <button v-if="canAllow10" type="button" class="btn" @click="answer(true, 10)">{{ props.compact ? '10 min' : 'Allow for 10 minutes' }}</button>
+          <button ref="allowBtn" type="button" class="btn primary" @click="answer(true)">Allow</button>
         </div>
       </div>
     </div>

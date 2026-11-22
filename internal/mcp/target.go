@@ -31,6 +31,9 @@ type Question struct {
 	Machine    string `json:"machine"`
 	MachineID  string `json:"machineId"`
 	Production bool   `json:"production"`
+	// Force: it asks even where asking is off (KILL), so "Allow for 10
+	// minutes" doesn't cover it.
+	Force bool `json:"force"`
 }
 
 // Call is one tool call, for Recent calls.

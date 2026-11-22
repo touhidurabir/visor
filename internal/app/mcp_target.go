@@ -210,23 +210,45 @@ func (g *tabTarget) Logs(in mcp.LogsIn) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if in.ErrorsOnly {
-		text = logs.ErrorsOnly(text)
-	}
-	// The last n lines; the cursor is where they start in the log.
+	// Whole lines with their offsets; errors only keeps the error lines.
 	lines := strings.SplitAfter(text, "\n")
 	if lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
-	keep := lines[max(len(lines)-n, 0):]
-	kept := strings.Join(keep, "")
-	cut := false
-	kept, cut = logs.CutFront(kept, mcpMaxBytes)
-	cursor := start
-	if !in.ErrorsOnly {
-		cursor = start + len(text) - len(kept)
+	offs := make([]int, len(lines))
+	for i, off := 0, 0; i < len(lines); i++ {
+		offs[i], off = off, off+len(lines[i])
 	}
-	out := map[string]any{"process": fullName(in.Process), "stream": string(st), "text": kept, "cursor": cursor}
+	if in.ErrorsOnly {
+		mask := logs.ErrorMask(lines)
+		var kl []string
+		var ko []int
+		for i, keep := range mask {
+			if keep {
+				kl, ko = append(kl, lines[i]), append(ko, offs[i])
+			}
+		}
+		lines, offs = kl, ko
+	}
+	// The last n lines, at most 64 KB; the cursor is where the first one
+	// starts in the log (the window's start when none is kept).
+	first := max(len(lines)-n, 0)
+	kept, cut := logs.CutFront(strings.Join(lines[first:], ""), mcpMaxBytes)
+	cursor := start
+	if first < len(lines) {
+		dropped := len(strings.Join(lines[first:], "")) - len(kept)
+		for first < len(lines)-1 && dropped >= len(lines[first]) {
+			dropped -= len(lines[first])
+			first++
+		}
+		cursor = start + offs[first]
+	}
+	out := map[string]any{"process": fullName(in.Process), "stream": string(st), "text": kept}
+	if cursor == 0 {
+		out["atStart"] = true
+	} else {
+		out["cursor"] = cursor
+	}
 	if cut {
 		out["cut"] = true
 		out["note"] = "Cut at 64 KB: pass cursor as before for the lines before."
@@ -419,8 +441,23 @@ func (g *tabTarget) PendingChanges(in mcp.OptPathIn) (any, error) {
 	if err := g.live(); err != nil {
 		return nil, err
 	}
+	if g.t.RT.CheckAction() != nil {
+		// A Read only server is never asked anything (confirm.go): answer
+		// from the files Visor already found changed.
+		changed := []string{}
+		for _, c := range g.t.Server.Overview().Configs {
+			if c.Changed {
+				changed = append(changed, c.Path)
+			}
+		}
+		return map[string]any{
+			"changedOnDisk": changed,
+			"note":          "This server is set to Read only, so Visor didn't ask supervisord to re-read its configs: these files differ from what it runs.",
+		}, nil
+	}
 	var diff supervisor.ConfigDiff
-	// A reread changes nothing, so it runs on Read only servers too.
+	g.t.RT.applyMu.Lock() // not in the middle of an apply
+	defer g.t.RT.applyMu.Unlock()
 	err := g.t.RT.call(expectation{}, func(ctx context.Context, c *supervisor.Client) error {
 		var err error
 		diff, err = c.ReloadConfig(ctx)
@@ -559,11 +596,20 @@ func (g *tabTarget) Apply(client string, in mcp.OptPathIn) (any, error) {
 }
 
 func (g *tabTarget) SaveConfig(client string, in mcp.SaveIn) (any, error) {
-	if validate.HasHidden(in.Content) {
-		return nil, errors.New("the text still holds «hidden» environment values, which Visor can't write back: edit that line in Visor, or allow AI to read environment values on Visor's MCP page and read the file again")
+	content := in.Content
+	if validate.HasHidden(content) {
+		// Lines left as read_config showed them get their real values back
+		// from the file (its hash is checked again when it is saved).
+		f, err := g.t.Config.Read(in.Path)
+		if err != nil {
+			return nil, err
+		}
+		if content, err = validate.RestoreEnv(content, f.Content); err != nil {
+			return nil, err
+		}
 	}
 	return g.act(client, g.t.RT.expectFile(in.Path), true, func() (any, error) {
-		return g.t.Config.Save(in.Path, in.Content, in.Hash)
+		return g.t.Config.Save(in.Path, content, in.Hash)
 	})
 }
 

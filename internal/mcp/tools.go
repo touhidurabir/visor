@@ -60,7 +60,7 @@ func read[In input](name, title, desc string, run func(t Target, in In, env bool
 		register: func(s *Server, t *sdk.Tool) {
 			sdk.AddTool(s.SDK, t, func(ctx context.Context, req *sdk.CallToolRequest, in In) (*sdk.CallToolResult, any, error) {
 				out, err := s.handle(ctx, req, name, Read, in.server(), nil, func(tg Target, _ string) (any, error) {
-					return run(tg, in, s.b.AllowEnv())
+					return withTimeout(readTimeout, func() (any, error) { return run(tg, in, s.b.AllowEnv()) })
 				})
 				return nil, out, err
 			})
@@ -134,7 +134,7 @@ var entries = []entry{
 		func(t Target, in ProcessesIn, _ bool) (any, error) { return t.Processes(in) }),
 	read("get_process", "Get a process", "One process in depth: state, last error, recent state history, its open issues, and its program settings (environment values hidden unless allowed).",
 		func(t Target, in ProcessIn, _ bool) (any, error) { return t.Process(in) }),
-	read("read_logs", "Read logs", "The end of a process's stdout or stderr log, 100 lines by default and at most 500. Use the returned cursor as before to page back. errors_only keeps error lines and the stack traces under them.",
+	read("read_logs", "Read logs", "The end of a process's stdout or stderr log, 100 lines by default and at most 500. Use the returned cursor as before to page back; atStart means the start of the log was reached. errors_only keeps error lines and the stack traces under them.",
 		func(t Target, in LogsIn, _ bool) (any, error) { return t.Logs(in) }),
 	read("search_logs", "Search logs", "Lines matching text (ignoring case) in a process's log, newest first, with line numbers. By default the last megabyte; page back with the returned cursor. whole_file only when Visor's Settings allow searching whole log files.",
 		func(t Target, in SearchIn, _ bool) (any, error) { return t.SearchLogs(in) }),
@@ -189,7 +189,7 @@ var entries = []entry{
 		},
 		func(t Target, c string, in OptPathIn) (any, error) { return t.Apply(c, in) }),
 
-	change("save_config", "Save a config", "Replaces a config file's text when it still has the hash read_config gave. Visor checks it, keeps a backup, writes it and applies that file. Refused when the checks find errors, the file changed since it was read, or the text still holds «hidden».", Configs, true, false,
+	change("save_config", "Save a config", "Replaces a config file's text when it still has the hash read_config gave. Visor checks it, keeps a backup, writes it and applies that file. Lines left as read_config showed them, «hidden» values included, keep their real values. Refused when the checks find errors, the file changed since it was read, or a hidden line was changed.", Configs, true, false,
 		func(in SaveIn) (askSpec, error) {
 			if strings.TrimSpace(in.Path) == "" || in.Hash == "" {
 				return askSpec{}, errors.New("path and hash are required: call read_config first")
@@ -330,7 +330,13 @@ func (s *Server) handle(ctx context.Context, req *sdk.CallToolRequest, tool stri
 		err = s.ask(ctx, client, m, *a)
 	}
 	if err == nil && a != nil {
-		err = s.lim.Change(m.ID)
+		if wait := s.lim.Change(m.ID); wait > 0 {
+			select {
+			case <-time.After(wait):
+			case <-ctx.Done():
+				err = ctx.Err()
+			}
+		}
 	}
 	if err != nil {
 		s.record(req, tool, m.Name, ResultRefused, err)
@@ -365,7 +371,7 @@ func (s *Server) ask(ctx context.Context, client string, m Machine, a askSpec) e
 	}
 	q := Question{
 		ID: fmt.Sprintf("ask-%d", s.seq.Add(1)), Client: client, Verb: a.verb, Subject: a.subject,
-		Machine: m.Name, MachineID: m.ID, Production: m.Production(),
+		Machine: m.Name, MachineID: m.ID, Production: m.Production(), Force: a.force,
 	}
 	ok, err := s.b.Ask(ctx, q)
 	if err != nil {
@@ -375,6 +381,28 @@ func (s *Server) ask(ctx context.Context, client string, m Machine, a askSpec) e
 		return ErrDeclined
 	}
 	return nil
+}
+
+// readTimeout is how long a read waits for its machine (spec §7: 20 s); the
+// call goes on in the background and is dropped.
+var readTimeout = 20 * time.Second
+
+func withTimeout(d time.Duration, fn func() (any, error)) (any, error) {
+	type result struct {
+		out any
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		out, err := fn()
+		ch <- result{out, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.out, r.err
+	case <-time.After(d):
+		return nil, fmt.Errorf("the machine didn't answer within %s: it may be slow, or its connection down", d)
+	}
 }
 
 // serverView is one machine in list_servers.

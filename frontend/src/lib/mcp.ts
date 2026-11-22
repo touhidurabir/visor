@@ -3,7 +3,7 @@
 import { Events } from '@wailsio/runtime'
 import { ref } from 'vue'
 import { VisorMcp } from '../../bindings/events'
-import { Get } from '../../bindings/github.com/touhidurabir/visor/internal/app/mcpservice'
+import { Status } from '../../bindings/github.com/touhidurabir/visor/internal/app/mcpservice'
 import type { McpView } from '../../bindings/github.com/touhidurabir/visor/internal/app/models'
 
 export const mcpStatus = ref('')
@@ -13,7 +13,8 @@ export function followMcp() {
   if (following) return
   following = true
   Events.On(VisorMcp, (ev: { data: McpView }) => (mcpStatus.value = ev.data.Status))
-  Get()
-    .then((v) => (mcpStatus.value = v.Status))
+  // Status, not Get: Get reads the token, which can mean a keyring prompt.
+  Status()
+    .then((st) => (mcpStatus.value = st))
     .catch(() => {})
 }

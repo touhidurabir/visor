@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/zalando/go-keyring"
 
 	"github.com/touhidurabir/visor/internal/mcp"
 	"github.com/touhidurabir/visor/internal/notify"
@@ -85,15 +86,18 @@ type McpService struct {
 	o          McpOptions
 	askTimeout time.Duration
 
-	mu      sync.Mutex
-	srv     *mcp.Server
-	http    *http.Server
-	status  string
-	errText string
-	token   string
-	asks    []*pendingAsk
-	allowed map[string]time.Time // client|machine → until
-	closed  bool
+	mu       sync.Mutex
+	srv      *mcp.Server
+	http     *http.Server
+	status   string
+	errText  string
+	token    string
+	tokenErr error // the Keychain or keyring couldn't be read
+	asks     []*pendingAsk
+	allowed  map[string]time.Time // client|machine|verb → until
+	closed   bool
+	// openMu lets one call open a saved server's tab while others wait.
+	openMu sync.Mutex
 }
 
 type pendingAsk struct {
@@ -154,22 +158,54 @@ func (s *McpService) port() int {
 	return s.cfg().Port
 }
 
-// ServiceStartup loads or makes the token and starts the server when enabled.
+// ServiceStartup starts the server when it is enabled. The token is read
+// only then (or when the page opens), so people who don't use MCP never
+// get a keyring prompt for it.
 func (s *McpService) ServiceStartup(context.Context, application.ServiceOptions) error {
-	tok := s.loadToken()
-	if tok == "" {
-		var err error
-		if tok, err = s.newToken(); err != nil {
+	if s.cfg().Enabled {
+		if _, err := s.ensureToken(); err != nil {
 			log.Printf("visor: MCP token: %v", err)
 		}
-	}
-	s.mu.Lock()
-	s.token = tok
-	s.mu.Unlock()
-	if s.cfg().Enabled {
 		s.restart()
 	}
 	return nil
+}
+
+// ensureToken loads the token, or makes one when none is saved. A token
+// that can't be read is never replaced: clients using it keep working once
+// the keyring answers again.
+func (s *McpService) ensureToken() (string, error) {
+	s.mu.Lock()
+	tok := s.token
+	s.mu.Unlock()
+	if tok != "" {
+		return tok, nil
+	}
+	tok, err := s.o.Keychain.Get(settings.KeychainService, mcpTokenAccount)
+	switch {
+	case err == nil && tok != "":
+	case err == nil || errors.Is(err, keyring.ErrNotFound):
+		if tok, err = s.newToken(); err != nil {
+			return "", err
+		}
+	default:
+		s.mu.Lock()
+		s.tokenErr = err
+		s.mu.Unlock()
+		return "", fmt.Errorf("Visor can't read the MCP token from the %s: %w", platform.Describe(platform.Current()).SecretStore, err) //nolint:staticcheck // shown as a sentence
+	}
+	s.mu.Lock()
+	s.token, s.tokenErr = tok, nil
+	s.mu.Unlock()
+	return tok, nil
+}
+
+// Status is the server's status alone (the sidebar's dot), without reading
+// the token.
+func (s *McpService) Status() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.status
 }
 
 // ServiceShutdown stops the server and says no to every waiting question.
@@ -264,6 +300,7 @@ func (s *McpService) changed() McpView {
 
 // Get is the MCP server page.
 func (s *McpService) Get() McpView {
+	_, tokErr := s.ensureToken()
 	c := s.cfg()
 	s.mu.Lock()
 	v := McpView{
@@ -274,6 +311,9 @@ func (s *McpService) Get() McpView {
 		v.Asks = append(v.Asks, a.q)
 	}
 	s.mu.Unlock()
+	if tokErr != nil && v.Error == "" {
+		v.Error = tokErr.Error()
+	}
 	v.URL = fmt.Sprintf("http://127.0.0.1:%d/mcp", v.Port)
 	v.HasClaude = findClaude() != ""
 	for _, m := range s.machines() {
@@ -294,6 +334,11 @@ func (s *McpService) Get() McpView {
 
 // SetEnabled turns the MCP server on or off.
 func (s *McpService) SetEnabled(on bool) (McpView, error) {
+	if on {
+		if _, err := s.ensureToken(); err != nil {
+			return s.Get(), err
+		}
+	}
 	if _, err := s.o.Settings.updateMCP(func(m *settings.MCPSettings) { m.Enabled = on }); err != nil {
 		return s.Get(), err
 	}
@@ -409,17 +454,26 @@ func (s *McpService) machines() []mcp.Machine {
 	return out
 }
 
+// allowKey is what "Allow for 10 minutes" covers: that client, machine and
+// verb. Production and forced questions (KILL) always ask.
+func allowKey(q mcp.Question) string {
+	if q.Production || q.Force {
+		return ""
+	}
+	return q.Client + "|" + q.MachineID + "|" + q.Verb
+}
+
 // ask shows q in Visor (the window comes forward, with a notification
 // pointing to it) and waits up to a minute for Answer. No answer, closing
 // Visor or the agent going away is a no.
 func (s *McpService) ask(ctx context.Context, q mcp.Question) (bool, error) {
-	key := q.Client + "|" + q.MachineID
+	key := allowKey(q)
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
 		return false, nil
 	}
-	if time.Now().Before(s.allowed[key]) {
+	if key != "" && time.Now().Before(s.allowed[key]) {
 		s.mu.Unlock()
 		return true, nil
 	}
@@ -468,8 +522,8 @@ func (s *McpService) Answer(askID string, allow bool, minutes int) error {
 	}
 	a := s.asks[i]
 	s.asks = slices.Delete(s.asks, i, i+1)
-	if allow && minutes > 0 {
-		s.allowed[a.q.Client+"|"+a.q.MachineID] = time.Now().Add(time.Duration(min(minutes, 10)) * time.Minute)
+	if key := allowKey(a.q); allow && minutes > 0 && key != "" {
+		s.allowed[key] = time.Now().Add(time.Duration(min(minutes, 10)) * time.Minute)
 	}
 	a.answer <- allow
 	return nil

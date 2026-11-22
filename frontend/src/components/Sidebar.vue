@@ -112,7 +112,7 @@ const dot = computed(() => {
           <path d="M8 3v4M16 3v4" /><rect x="5" y="7" width="14" height="6" rx="2" /><path d="M12 13v3a4 4 0 0 1-4 4" />
         </svg>
         MCP server
-        <span v-if="mcpRunning" class="dot d-ok run" aria-hidden="true" />
+        <span v-if="mcpRunning" class="dot d-ok run" aria-hidden="true" /><span v-if="mcpRunning" class="sr-only">(running)</span>
       </RouterLink>
       <RouterLink to="/servers" :class="['nav', on('servers')]">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

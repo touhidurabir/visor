@@ -87,6 +87,25 @@ test.describe('MCP server', () => {
     await setLevel(page, 'Control')
   })
 
+  test('KILL always asks, without Allow for 10 minutes; focus stays in the question; Esc denies', async ({ page }) => {
+    await openApp(page, '/mcp')
+    const token = await mcpToken(page)
+    const killed = mcpCall(token, 'signal_process', { name: 'reports-export', signal: 'KILL' })
+    const prompt = page.getByTestId('mcp-ask')
+    await expect(prompt).toContainText(`e2e-test wants to send KILL to reports-export on ${LOCAL}`)
+    await expect(prompt.getByRole('button', { name: 'Allow for 10 minutes' })).toHaveCount(0)
+    const deny = prompt.getByRole('button', { name: 'Deny' })
+    const allow = prompt.getByRole('button', { name: 'Allow', exact: true })
+    await expect(deny).toBeFocused()
+    await page.keyboard.press('Shift+Tab')
+    await expect(allow).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(deny).toBeFocused()
+    await page.keyboard.press('Escape')
+    expect(await killed).toEqual({ isError: true, text: 'The person declined in Visor.' })
+    await expect(prompt).toHaveCount(0)
+  })
+
   test('asking: Deny declines; Allow restarts, and Activity says via the AI tool', async ({ page }) => {
     await openApp(page, '/mcp')
     const ask = access(page).getByRole('switch', { name: `Ask before changes on ${LOCAL}` })

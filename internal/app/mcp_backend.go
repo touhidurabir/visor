@@ -38,6 +38,8 @@ func (b *mcpBackend) Target(_ context.Context, m mcp.Machine) (mcp.Target, error
 		}
 		return &tabTarget{t: o.Hub.Local(), name: m.Name, diagnose: diag, env: env}, nil
 	}
+	b.s.openMu.Lock() // one opens it; parallel calls (Claude Code reads in parallel) wait for that
+	defer b.s.openMu.Unlock()
 	t, err := o.Hub.Tab(m.ID)
 	if err != nil || !slices.Contains(o.Hub.Open(), m.ID) {
 		ov, err := o.Remote.Open(m.ID)

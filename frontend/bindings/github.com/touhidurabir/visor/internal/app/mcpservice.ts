@@ -83,3 +83,11 @@ export function SetEnabled(on: boolean): $CancellablePromise<$models.McpView> {
 export function SetPort(port: number): $CancellablePromise<$models.McpView> {
     return $Call.ByID(1868909652, port);
 }
+
+/**
+ * Status is the server's status alone (the sidebar's dot), without reading
+ * the token.
+ */
+export function Status(): $CancellablePromise<string> {
+    return $Call.ByID(1837763207);
+}

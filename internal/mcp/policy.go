@@ -142,19 +142,19 @@ func (l *Limiter) Allow() error {
 	return nil
 }
 
-// Change records a change on machineID and refuses it within a second of
-// the last one there. It runs after asking, so a declined change doesn't
-// hold up the next.
-func (l *Limiter) Change(machineID string) error {
+// Change reserves the next change slot on machineID and returns how long
+// to wait before making it: changes there go one per second. A change the
+// person allowed is slowed down, never refused.
+func (l *Limiter) Change(machineID string) time.Duration {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
-	if last, ok := l.changes[machineID]; ok && now.Sub(last) < changeGap {
-		return fmt.Errorf("%w: at most one change per second on a machine; wait %s and try again",
-			ErrRateLimited, roundUp(changeGap-now.Sub(last)))
+	at := now
+	if next := l.changes[machineID].Add(changeGap); next.After(now) {
+		at = next
 	}
-	l.changes[machineID] = now
-	return nil
+	l.changes[machineID] = at
+	return at.Sub(now)
 }
 
 func roundUp(d time.Duration) time.Duration {

@@ -1,10 +1,10 @@
 package settings
 
 import (
-	"reflect"
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
