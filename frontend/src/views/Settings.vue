@@ -33,6 +33,7 @@ import {
 } from '../lib/settings'
 import { appearance } from '../lib/theme-sync'
 import { showToast } from '../lib/toast'
+import { RouterLink } from 'vue-router'
 import { isMac, platform, secretStore, trayIcon } from '../lib/platform'
 
 const { overview } = useOverview()
@@ -464,9 +465,10 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
       <!-- Connection -->
       <div class="card c-conn" role="group" aria-labelledby="conn-title">
         <div class="card-head">
-          <h2 id="conn-title" class="card-title">Connection</h2>
+          <h2 id="conn-title" class="card-title">Connection ({{ platform().local }})</h2>
           <span :class="['badge', `b-${status.tone}`]"><span :class="['dot', `d-${status.tone}`]" aria-hidden="true" />{{ status.text }}</span>
         </div>
+        <p class="meta conn-note">The supervisord on {{ platform().local.toLowerCase() }}. Each server has its own connection, in <RouterLink to="/servers">Remote servers</RouterLink>.</p>
 
         <div class="row wide">
           <div class="what">
@@ -699,7 +701,8 @@ h1 { margin: 0; font-family: var(--display); font-optical-sizing: auto; font-siz
 .card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 10px; padding: 14px 18px 4px; }
 .row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 16px; row-gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); }
 .row.wide { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
-.card-title + .row, .card-head + .row { border-top: 0; }
+.card-title + .row, .card-head + .row, .conn-note + .row { border-top: 0; }
+.conn-note { margin: 0; padding: 0 18px 6px; }
 /* A narrow window stacks each row: the control goes under its label. */
 @container (max-width: 600px) {
   .row, .row.wide { grid-template-columns: minmax(0, 1fr); }

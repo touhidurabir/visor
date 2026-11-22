@@ -14,7 +14,7 @@ test.describe('settings', () => {
     await page.setViewportSize({ width: 1600, height: 1000 })
     await page.goto('/#/settings')
     await expect(page.getByRole('group', { name: 'General', exact: true })).toBeVisible()
-    const [gen, conn, notify, check] = [await box('General'), await box('Connection'), await box('Notifications'), await box('Checking and history')]
+    const [gen, conn, notify, check] = [await box('General'), await box('Connection (This computer)'), await box('Notifications'), await box('Checking and history')]
     expect(Math.abs(gen.y - conn.y)).toBeLessThan(2)
     expect(conn.x).toBeGreaterThan(gen.x + gen.width)
     expect(Math.abs(notify.x - gen.x)).toBeLessThan(2)
@@ -24,8 +24,8 @@ test.describe('settings', () => {
 
     // A narrower one: one column, in order.
     await page.setViewportSize({ width: 1000, height: 1000 })
-    await expect.poll(async () => (await box('Connection')).x).toBeLessThan((await box('General')).x + 2)
-    expect((await box('Connection')).y).toBeGreaterThan((await box('General')).y)
+    await expect.poll(async () => (await box('Connection (This computer)')).x).toBeLessThan((await box('General')).x + 2)
+    expect((await box('Connection (This computer)')).y).toBeGreaterThan((await box('General')).y)
   })
 
   test('General comes first, then Connection, Notifications, and Checking and history', async ({ page }) => {
@@ -35,7 +35,7 @@ test.describe('settings', () => {
     const names = await cards.evaluateAll((els) =>
       els.filter((e) => e.getAttribute('aria-labelledby')).map((e) => document.getElementById(e.getAttribute('aria-labelledby')!)?.textContent?.trim()),
     )
-    expect(names).toEqual(['General', 'Connection', 'Notifications', 'Checking and history'])
+    expect(names).toEqual(['General', 'Connection (This computer)', 'Notifications', 'Checking and history'])
     // The old separate cards are gone.
     for (const old of ['Polling', 'Crash loops', 'Issue history']) await expect(page.getByRole('group', { name: old, exact: true })).toHaveCount(0)
 
