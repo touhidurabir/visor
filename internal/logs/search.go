@@ -118,3 +118,33 @@ func clip(line string) string {
 	}
 	return strings.ToValidUTF8(line[:MaxMatchLength], "") + "…"
 }
+
+// ReadBack reads at most n bytes of a log that end at before (negative: the
+// end of the log), from a line start when the bytes hold one, and returns
+// them with the offset they start at (0: the start of the log). Pass that
+// offset as before to read further back.
+func ReadBack(ctx context.Context, c SearchClient, process string, s Stream, before, n int) (string, int, error) {
+	if before < 0 {
+		r, err := fetch(ctx, c, process, s, 0, 1)
+		if err != nil {
+			return "", 0, err
+		}
+		before = r.Offset
+	}
+	if before == 0 {
+		return "", 0, nil
+	}
+	text, start, err := read(ctx, c, process, s, max(before-n, 0), before)
+	if errors.Is(err, supervisor.ErrInternal) {
+		return "", 0, ErrNotText
+	}
+	if err != nil {
+		return "", 0, err
+	}
+	if start > 0 {
+		if i := strings.IndexByte(text, '\n'); i >= 0 && i+1 < len(text) {
+			text, start = text[i+1:], start+i+1
+		}
+	}
+	return text, start, nil
+}

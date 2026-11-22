@@ -137,10 +137,16 @@ func (r *Runtime) via(process string, t time.Time) string {
 }
 
 func (r *Runtime) coveringAct(process string, t time.Time, viaOnly bool) *visorAct {
+	// Copies, matched without r.mu: a match may read the runtime (expectFile).
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	acts := make([]visorAct, len(r.visorActs))
+	for i, a := range r.visorActs {
+		acts[i] = *a
+	}
+	r.mu.Unlock()
 	file := strings.HasPrefix(process, "file:")
-	for _, a := range r.visorActs {
+	for i := range acts {
+		a := &acts[i]
 		if t.Before(a.from) || t.After(a.until) || viaOnly && a.via == "" {
 			continue
 		}
