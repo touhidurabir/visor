@@ -397,6 +397,10 @@ func TestRemoteRetryReconnectsAtOnce(t *testing.T) {
 	f.rt.RetryNow() // while connected: no effect, and not kept for later
 	f.ssh.DropAll()
 	waitOverview(t, f.svc, 10*time.Second, "reconnecting", func(ov OverviewView) bool { return ov.Host.Conn == ConnReconnecting })
+	time.Sleep(300 * time.Millisecond) // the Retry made while connected must not have counted
+	if c := f.svc.Overview().Host.Conn; c != ConnReconnecting {
+		t.Fatalf("conn %q before Retry", c)
+	}
 	f.rt.RetryNow()
 	waitOverview(t, f.svc, 10*time.Second, "connected", func(ov OverviewView) bool { return ov.Host.Conn == ConnConnected })
 }

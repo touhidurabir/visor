@@ -135,8 +135,8 @@ func TestInboxIgnoresBrokenFile(t *testing.T) {
 
 // The host-down detail says what Visor does, not the headline again.
 func TestComposeHostDown(t *testing.T) {
-	m := Compose(issues.Issue{ID: "h", Kind: issues.KindHostDown, Message: "The SSH connection dropped. Visor keeps trying to reconnect."})
-	if m.Headline != "Can't reach the server over SSH" || m.Detail != "The SSH connection dropped. Visor keeps trying to reconnect." {
+	m := Compose(issues.Issue{ID: "h", Kind: issues.KindHostDown, Message: "Visor lost its SSH connection to the server."})
+	if m.Headline != "Can't reach the server over SSH" || m.Detail != "Visor lost its SSH connection to the server." {
 		t.Fatalf("Compose = %q / %q", m.Headline, m.Detail)
 	}
 }

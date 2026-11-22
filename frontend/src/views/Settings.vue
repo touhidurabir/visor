@@ -468,7 +468,7 @@ const notifyTypes: { key: Exclude<NotifyKey, 'enabled'>; label: string }[] = [
           <h2 id="conn-title" class="card-title">Connection ({{ platform().local }})</h2>
           <span :class="['badge', `b-${status.tone}`]"><span :class="['dot', `d-${status.tone}`]" aria-hidden="true" />{{ status.text }}</span>
         </div>
-        <p class="meta conn-note">The supervisord on {{ platform().local.toLowerCase() }}. Each server has its own connection, in <RouterLink to="/servers">Remote servers</RouterLink>.</p>
+        <p class="meta conn-note">The supervisord on {{ platform().local.replace(/^This/, 'this') }}. Each server has its own connection, in <RouterLink to="/servers">Remote servers</RouterLink>.</p>
 
         <div class="row wide">
           <div class="what">

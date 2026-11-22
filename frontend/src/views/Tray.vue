@@ -546,10 +546,9 @@ function closePopover() {
 }
 .sub.t-bad { font-weight: 600; }
 .acts-row { display: inline-flex; flex: none; gap: 6px; }
-.popover :deep(.btn:not(.primary):not(.quiet)) { border-color: var(--line2); background: var(--sunken); }
+.popover :deep(.btn:not(.primary):not(.quiet):not(:disabled)) { border-color: var(--line2); background: var(--sunken); }
 .popover :deep(.btn:not(.primary):not(.quiet):hover:not(:disabled)) { background: var(--hover); }
 .popover :deep(.btn) { border-radius: 9px; font-weight: 600; }
-.prow.bad .btn:hover:not(:disabled) { background: var(--raised); }
 /* The copies of a "name ×N" row, indented under it on a guide line. */
 .copies { margin: 0 0 4px 22px; padding-left: 8px; border-left: 1px solid var(--line); }
 .prow.copy { padding-top: 5px; padding-bottom: 5px; }
