@@ -503,6 +503,17 @@ func (s *RemoteService) Close(id string) error {
 	return err
 }
 
+// Retry makes a server tab that lost its connection try to reconnect now,
+// instead of at its next try (up to a minute away).
+func (s *RemoteService) Retry(id string) error {
+	t, err := s.hub.Tab(id)
+	if err != nil {
+		return err
+	}
+	t.RT.RetryNow()
+	return nil
+}
+
 // Report returns the latest capability report for a server (from Test,
 // Open or Recheck); ok is false when there is none yet.
 func (s *RemoteService) Report(id string) (ReportView, bool) {

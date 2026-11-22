@@ -91,6 +91,14 @@ export function Report(id: string): $CancellablePromise<[$models.ReportView, boo
 }
 
 /**
+ * Retry makes a server tab that lost its connection try to reconnect now,
+ * instead of at its next try (up to a minute away).
+ */
+export function Retry(id: string): $CancellablePromise<void> {
+    return $Call.ByID(904054187, id);
+}
+
+/**
  * Save validates and stores a server (a new one gets an id) and its
  * secrets. An open tab keeps its connection until it is reopened.
  */

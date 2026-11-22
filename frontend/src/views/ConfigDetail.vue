@@ -297,7 +297,7 @@ function download() {
           supervisord hasn’t loaded <span class="mono">{{ notLoaded.join(', ') }}</span> yet<template v-if="!procs.length">, so it runs nothing from this file</template>. Load adds
           {{ notLoaded.length === 1 ? 'it' : 'them' }}, as <span class="mono">supervisorctl update</span> would.
         </span>
-        <button v-if="!overview.Host?.Remote" type="button" class="btn sm" :disabled="busy" @click="load">Load</button>
+        <button v-if="!overview.Host?.ReadOnly" type="button" class="btn sm" :disabled="busy" @click="load">Load</button>
       </p>
       <p v-if="!procs.length && !notLoaded.length" class="muted">supervisord runs no process from this file. Apply it to load its programs.</p>
       <div v-else-if="procs.length" class="chips" role="group" aria-label="Processes in this config">

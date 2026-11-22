@@ -16,7 +16,9 @@ import (
 // TestLiveServerTab opens a real server (VISOR_SSH_TEST, an alias from
 // ~/.ssh/config) in a tab as Visor does, with Use sudo when VISOR_SSH_SUDO=1
 // (NOPASSWD, or VISOR_SSH_SUDO_PASSWORD). With VISOR_SSH_RESTART=<process>
-// it also restarts that process there: use it only on a test machine.
+// it also restarts that process there, and with VISOR_SSH_TEST_WRITE=1 it
+// adds visor-live-test.conf to the include folder, saves an edit (which
+// applies it) and removes it again: use both only on a test machine.
 func TestLiveServerTab(t *testing.T) {
 	alias := os.Getenv("VISOR_SSH_TEST")
 	if alias == "" {
@@ -61,6 +63,9 @@ func TestLiveServerTab(t *testing.T) {
 		for _, p := range c.Processes {
 			t.Logf("  %s %s pid %d", p.FullName, p.State, p.PID)
 		}
+	}
+	if os.Getenv("VISOR_SSH_TEST_WRITE") == "1" {
+		liveWrite(t, tab)
 	}
 	name := os.Getenv("VISOR_SSH_RESTART")
 	if name == "" {
@@ -154,4 +159,56 @@ func TestLiveActivity(t *testing.T) {
 			t.Logf("notified: %s · %s", m.Title, m.Body)
 		}
 	}
+}
+
+// liveWrite adds, edits and removes a config on the server through the tab.
+func liveWrite(t *testing.T, tab *Tab) {
+	fo := tab.Config.Folder()
+	t.Logf("include folder %s writable=%v as %s", fo.Dir, fo.Writable, fo.User)
+	if !fo.Writable {
+		t.Fatalf("the include folder isn't writable: %+v", fo)
+	}
+	const file = "visor-live-test.conf"
+	path := fo.Dir + "/" + file
+	wait := func(state string) {
+		t.Helper()
+		deadline := time.Now().Add(30 * time.Second)
+		for time.Now().Before(deadline) {
+			if p, _, ok := findProc(tab.RT.Overview(), "visor-live-test:visor-live-test"); ok && p.State == state {
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		t.Fatalf("visor-live-test never reached %s", state)
+	}
+	t.Cleanup(func() {
+		if _, err := tab.Config.Read(path); err == nil {
+			_, _ = tab.Server.RemoveFromSupervisor(path)
+		}
+	})
+	res, err := tab.Config.Create(file, "[program:visor-live-test]\ncommand=/bin/sleep 600\nautostart=true\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("created: %+v", res)
+	wait("RUNNING")
+	fv, err := tab.Config.Read(path)
+	if err != nil || !fv.Writable {
+		t.Fatalf("read: %+v %v", fv, err)
+	}
+	res, err = tab.Config.Save(path, strings.Replace(fv.Content, "sleep 600", "sleep 601", 1), fv.Hash)
+	if err != nil || len(res.Changed) != 1 {
+		t.Fatalf("save: %+v %v", res, err)
+	}
+	wait("RUNNING")
+	if bks, _ := tab.Config.Backups(path); len(bks) != 1 {
+		t.Fatalf("backups: %d", len(bks))
+	}
+	if _, err := tab.Server.RemoveFromSupervisor(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tab.Config.Read(path); err == nil {
+		t.Fatal("the file is still there")
+	}
+	t.Log("added, saved and removed " + path)
 }

@@ -58,9 +58,8 @@ export function neighbour(step: 1 | -1): string {
   return ids[(i + step + ids.length) % ids.length]
 }
 
-// Pages that belong to a tab, and their server-tab counterparts. Doctor and
-// Add new are this computer's; on a server they become the server report
-// and the dashboard (configs on servers are read only).
+// Pages that belong to a tab, and their server-tab counterparts. Doctor is
+// this computer's; on a server it becomes the server report.
 const SERVER_ROUTE: Record<string, string> = {
   dashboard: 'server-dashboard',
   config: 'server-config',
@@ -68,9 +67,9 @@ const SERVER_ROUTE: Record<string, string> = {
   'issues-log': 'server-issues-log',
   activity: 'server-activity',
   doctor: 'server-report',
-  new: 'server-dashboard',
-  'new-form': 'server-dashboard',
-  'new-import': 'server-dashboard',
+  new: 'server-new',
+  'new-form': 'server-new-form',
+  'new-import': 'server-new-import',
 }
 
 /**

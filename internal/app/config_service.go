@@ -3,7 +3,9 @@ package app
 import (
 	"errors"
 	"fmt"
+	"github.com/touhidurabir/visor/internal/remote"
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -95,7 +97,7 @@ func (s *ConfigService) Read(path string) (FileView, error) {
 	}
 	return FileView{
 		Path: path, Content: string(data), Hash: apply.Hash(data),
-		Writable: !s.rt.Remote() && apply.CheckWritable(path) == nil,
+		Writable: s.rt.CheckConfigWrite() == nil && s.rt.disk().CheckWritable(path) == nil,
 	}, nil
 }
 
@@ -180,19 +182,20 @@ func (s *ConfigService) save(path, content, hash string) (ApplyResultView, error
 	if _, err := s.rt.includeFile(path); err != nil {
 		return ApplyResultView{}, err
 	}
-	if cs := s.Validate(filepath.Base(path), content, path); validate.HasErrors(cs) {
-		return ApplyResultView{}, invalidError(cs)
-	}
-	// Without a connection nothing could be applied: refuse before writing.
+	// Without a connection nothing could be applied (and a server's checks
+	// can't look there): refuse first, with that reason.
 	if _, err := s.rt.conn(); err != nil {
 		return ApplyResultView{}, err
 	}
-	old, err := os.ReadFile(path)
+	if cs := s.Validate(filepath.Base(path), content, path); validate.HasErrors(cs) {
+		return ApplyResultView{}, invalidError(cs)
+	}
+	old, err := s.rt.files().ReadFile(path)
 	if err != nil {
 		return ApplyResultView{}, fmt.Errorf("read %s: %w", path, err)
 	}
-	b := s.rt.backups()
-	bk, err := apply.Write(path, []byte(content), hash, b)
+	b, d := s.rt.backups(), s.rt.disk()
+	bk, err := apply.Write(d, path, []byte(content), hash, b)
 	if err != nil {
 		return ApplyResultView{}, err
 	}
@@ -201,7 +204,7 @@ func (s *ConfigService) save(path, content, hash string) (ApplyResultView, error
 	loaded, _ := s.rt.loadedSnapshot(path)
 	res, err := s.applyWritten(path, old, loaded)
 	if refused(err) {
-		if rerr := apply.Revert(path, old, []byte(content), bk, b); rerr != nil {
+		if rerr := apply.Revert(d, path, old, []byte(content), bk, b); rerr != nil {
 			return res, fmt.Errorf("%w: %s. Visor could not put the previous version back (%v): the backup from %s has it",
 				ErrRejected, faultText(err), rerr, bk.At.Local().Format(time.DateTime))
 		}
@@ -342,8 +345,8 @@ func (s *ConfigService) Restore(path, backupID string) (ApplyResultView, error) 
 	if err != nil {
 		return ApplyResultView{}, err
 	}
-	cur, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
+	cur, err := s.rt.files().ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
 		return s.create(path, string(data))
 	}
 	if err != nil {
@@ -356,7 +359,7 @@ func (s *ConfigService) Restore(path, backupID string) (ApplyResultView, error) 
 // back, newest first (at most 20), with the backup Restore brings each back
 // from. Files outside the current include setting are left out.
 func (s *ConfigService) RemovedFiles() ([]RemovedView, error) {
-	list, err := s.rt.backups().Removed()
+	list, err := s.rt.backups().Removed(s.rt.disk())
 	if err != nil {
 		return nil, err
 	}
@@ -382,18 +385,19 @@ func (s *ConfigService) create(path, content string) (ApplyResultView, error) {
 	if err := s.rt.checkNotMain(path); err != nil {
 		return ApplyResultView{}, err
 	}
-	if cs := s.Validate(filepath.Base(path), content, ""); validate.HasErrors(cs) {
-		return ApplyResultView{}, invalidError(cs)
-	}
 	if _, err := s.rt.conn(); err != nil {
 		return ApplyResultView{}, err
 	}
-	if _, err := apply.Write(path, []byte(content), "", s.rt.backups()); err != nil {
+	if cs := s.Validate(filepath.Base(path), content, ""); validate.HasErrors(cs) {
+		return ApplyResultView{}, invalidError(cs)
+	}
+	d := s.rt.disk()
+	if _, err := apply.Write(d, path, []byte(content), "", s.rt.backups()); err != nil {
 		return ApplyResultView{}, err
 	}
 	res, err := s.applyWritten(path)
 	if refused(err) {
-		if rerr := apply.RevertCreate(path, []byte(content)); rerr != nil {
+		if rerr := apply.RevertCreate(d, path, []byte(content)); rerr != nil {
 			return res, fmt.Errorf("%w: %s. Visor could not remove the new file again (%v)", ErrRejected, faultText(err), rerr)
 		}
 		return res, fmt.Errorf("%w: %s. Visor removed the new file again; your config is still in the editor", ErrRejected, faultText(err))
@@ -438,19 +442,28 @@ type FolderView struct {
 	Writable bool
 	Missing  bool
 	Owner    string
-	// Remote: the folder is on a server, where configs are read only in
-	// this version (not a permission problem).
-	Remote bool
+	// Remote: the folder is on a server; User is who Visor's helper runs as
+	// there (root with Use sudo). ServerReadOnly: the server is set to Read
+	// only, so nothing is written whatever the permissions.
+	Remote         bool
+	User           string
+	ServerReadOnly bool
 }
 
 // Folder is the include folder's state for the read-only banner. With no
 // include folder there is nothing to say, so it reads as writable.
 func (s *ConfigService) Folder() FolderView {
 	dir, _ := s.rt.newFileHome()
-	if s.rt.Remote() {
-		return FolderView{Dir: dir, Remote: true}
+	if !s.rt.Remote() {
+		return folderView(dir, os.Stat, platform.DirWritable, ownerName)
 	}
-	return folderView(dir, os.Stat, platform.DirWritable, ownerName)
+	f, h := s.rt.serverFS()
+	v := folderView(dir, f.Stat, f.FolderWritable, ownerName)
+	v.Remote, v.User = true, h.User
+	if s.rt.CheckConfigWrite() != nil {
+		v.Writable, v.ServerReadOnly = false, true
+	}
+	return v
 }
 
 func folderView(dir string, stat func(string) (os.FileInfo, error), writable func(string) bool, owner func(os.FileInfo) string) FolderView {
@@ -460,8 +473,10 @@ func folderView(dir string, stat func(string) (os.FileInfo, error), writable fun
 	}
 	fi, err := stat(dir)
 	switch {
-	case err != nil:
+	case errors.Is(err, fs.ErrNotExist):
 		v.Writable, v.Missing = false, true
+	case err != nil && !remoteDown(err):
+		v.Writable = false
 	case !writable(dir):
 		v.Writable, v.Owner = false, owner(fi)
 	}
@@ -511,7 +526,7 @@ func (s *ConfigService) Create(fileName, content string) (ApplyResultView, error
 	if err := s.rt.checkNotMain(path); err != nil {
 		return ApplyResultView{}, err
 	}
-	if _, err := os.Lstat(path); err == nil {
+	if there, _ := s.rt.disk().Exists(path); there {
 		return ApplyResultView{}, fmt.Errorf("%s already exists in %s. Choose another file name: %w", fileName, dir, apply.ErrExists)
 	}
 	if err := s.rt.watch.set(path, true); err != nil {
@@ -550,17 +565,17 @@ func (s *ConfigService) CopyDraft(path string) (CopyDraftView, error) {
 	if ext != "" && filepath.Ext(name) != ext {
 		name = strings.TrimSuffix(name, filepath.Ext(name)) + ext
 	}
-	data, err := os.ReadFile(path)
+	data, err := s.rt.files().ReadFile(path)
 	if err != nil {
 		return CopyDraftView{}, fmt.Errorf("read %s: %w", path, err)
 	}
-	entries, err := os.ReadDir(dir)
+	entries, err := s.rt.files().Glob(filepath.Join(dir, "*"))
 	if err != nil {
 		return CopyDraftView{}, fmt.Errorf("read %s: %w", dir, err)
 	}
 	files := make([]string, 0, len(entries))
 	for _, e := range entries {
-		files = append(files, e.Name())
+		files = append(files, filepath.Base(e))
 	}
 	// The names the checks treat as taken (validateEnv), groups included.
 	env := s.rt.validateEnv("")
@@ -606,7 +621,14 @@ func (r *Runtime) validateEnv(selfPath string) validate.Env {
 	d := r.d
 	r.mu.Unlock()
 	inv, _ := config.LoadInventory(d)
-	return validate.Env{Inventory: inv, IncludeGlobs: d.IncludeGlobs, SelfPath: selfPath, Remote: r.Remote()}
+	env := validate.Env{Inventory: inv, IncludeGlobs: d.IncludeGlobs, SelfPath: selfPath, Remote: r.Remote()}
+	if env.Remote { // the checks look on the server, through the helper
+		f, h := r.serverFS()
+		env.Stat, env.LookPath, env.UserExists, env.Writable = f.Stat, r.lookOnServer, f.UserExists, f.FolderWritable
+		// Only root sees what supervisord (root) may write.
+		env.SkipWritable = h.User == "" || h.UID != 0
+	}
+	return env
 }
 
 func (r *Runtime) watcherOrNil() *config.Watcher {
@@ -643,13 +665,29 @@ func (r *Runtime) checkNotMain(path string) error {
 	main := r.d.ConfigPath
 	r.mu.Unlock()
 	same := sameFile
-	if r.Remote() { // the paths are on the server: compare them as written
-		same = func(a, b string) bool { return filepath.Clean(a) == filepath.Clean(b) }
+	if r.Remote() { // the paths are on the server: the same file there, links too
+		same = func(a, b string) bool { return sameOnServer(r.files(), a, b) }
 	}
 	if main != "" && same(path, main) {
 		return fmt.Errorf("%s: %w", path, ErrMainConfig)
 	}
 	return nil
+}
+
+// sameOnServer is sameFile on a server: the same device and inode (a
+// symlink or hard link to it), or, for a path not there yet, the same text.
+func sameOnServer(f config.FS, a, b string) bool {
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	fa, ea := f.Stat(a)
+	fb, eb := f.Stat(b)
+	if ea != nil || eb != nil {
+		return false
+	}
+	ra, oka := fa.Sys().(remote.FileInfo)
+	rb, okb := fb.Sys().(remote.FileInfo)
+	return oka && okb && ra.Dev == rb.Dev && ra.Ino == rb.Ino
 }
 
 // sameFile reports whether a and b are the same file once symlinks are
@@ -732,3 +770,7 @@ var saveCopy = func(name string, data []byte) (string, error) {
 	}
 	return dest, nil
 }
+
+// remoteDown reports a server Visor isn't connected to right now: the
+// folder's state is unknown, so the banner says nothing rather than guess.
+func remoteDown(err error) bool { return errors.Is(err, remote.ErrNotConnected) }

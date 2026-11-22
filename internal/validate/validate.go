@@ -67,14 +67,22 @@ type Env struct {
 	UserExists   func(string) bool
 	Stat         func(string) (fs.FileInfo, error)
 	Writable     func(dir string) bool
-	// Remote: the file is on a server, so checks that need the server's
-	// file system (folders, users, commands) are not run here: each says
-	// "not checked on servers yet" instead of a false result.
+	// Remote: the file is on a server; the functions above look there, and
+	// the fixes say "on the server" instead of "in Terminal".
 	Remote bool
+	// SkipWritable: whether supervisord could write a folder is unknown
+	// (on a server, Visor's helper doesn't run as root), so log folders are
+	// only checked to exist.
+	SkipWritable bool
 }
 
-// notOnServers is what a check that needs the server's disk says on a server.
-const notOnServers = "not checked on servers yet"
+// where is the machine, and where to run a command on it, for the messages.
+func (e Env) where() (machine, in string) {
+	if e.Remote {
+		return "the server", "on the server"
+	}
+	return "this Mac", "in Terminal"
+}
 
 func (e Env) withDefaults() Env {
 	if e.LookPath == nil {
@@ -285,8 +293,6 @@ func checkProgram(s config.Section, env Env, add adder) {
 		case !filepath.IsAbs(dir):
 			e(line, "directory", "directory must be an absolute path").
 				with("Give the full path, starting with /.", nil)
-		case env.Remote:
-			ok("directory", "%s: %s", dir, notOnServers)
 		default:
 			if fi, err := env.Stat(dir); err != nil {
 				w(line, "directory", "%s does not exist yet", dir).
@@ -307,11 +313,10 @@ func checkProgram(s config.Section, env Env, add adder) {
 		case u == "root":
 			w(line, "user", "%s runs as root", name).
 				with("Run it as a normal user unless it really needs root: anything it does, it does with full access.", nil)
-		case env.Remote:
-			ok("user", "user %s: %s", u, notOnServers)
 		case !env.UserExists(u):
-			e(line, "user", "user %s does not exist on this Mac, so supervisord would refuse this config", u).
-				with("Use a user that exists on this Mac, or remove the line to run it as the user supervisord runs as.", nil)
+			machine, _ := env.where()
+			e(line, "user", "user %s does not exist on %s, so supervisord would refuse this config", u, machine).
+				with("Use a user that exists on "+machine+", or remove the line to run it as the user supervisord runs as.", nil)
 		}
 	}
 
@@ -327,16 +332,19 @@ func checkProgram(s config.Section, env Env, add adder) {
 		if !filepath.IsAbs(v) || strings.Contains(d, "%(") {
 			continue
 		}
-		if env.Remote {
+		if fi, err := env.Stat(d); err != nil || !fi.IsDir() {
+			_, in := env.where()
+			mkdir := "mkdir -p "
+			if env.Remote {
+				mkdir = "sudo mkdir -p "
+			}
+			e(line, key, "log folder %s does not exist", d).
+				with("Create it ("+in+": "+mkdir+d+"), or point the log at a folder that exists.", nil)
+		} else if env.SkipWritable {
 			if !seen[d] {
 				seen[d] = true
-				ok(key, "log folder %s: %s", d, notOnServers)
+				ok(key, "log folder %s exists", d)
 			}
-			continue
-		}
-		if fi, err := env.Stat(d); err != nil || !fi.IsDir() {
-			e(line, key, "log folder %s does not exist", d).
-				with("Create it (in Terminal: mkdir -p "+d+"), or point the log at a folder that exists.", nil)
 		} else if !env.Writable(d) {
 			e(line, key, "log folder %s is not writable", d).
 				with("Point the log at a folder you can write to, or change that folder's permissions.", nil)
@@ -430,10 +438,7 @@ func checkCommand(cmd string, line int, dir string, hasDir bool, env Env,
 	if bin == "" || strings.Contains(bin, "%(") {
 		return
 	}
-	if env.Remote {
-		ok("command", "%s: %s", bin, notOnServers)
-		return
-	}
+	_, in := env.where()
 	if strings.Contains(bin, "/") && !filepath.IsAbs(bin) {
 		if !hasDir || !filepath.IsAbs(dir) {
 			return
@@ -443,16 +448,21 @@ func checkCommand(cmd string, line int, dir string, hasDir bool, env Env,
 	if filepath.IsAbs(bin) {
 		if _, err := env.Stat(bin); err != nil {
 			w(line, "command", "%s does not exist yet", bin).
-				with(fmt.Sprintf("Use the full path to a program that exists and can run. To find one, run which %s in Terminal.", filepath.Base(bin)), nil)
+				with(fmt.Sprintf("Use the full path to a program that exists and can run. To find one, run which %s %s.", filepath.Base(bin), in), nil)
 		} else if _, err := env.LookPath(bin); err != nil {
 			e(line, "command", "%s is not executable. Run chmod +x on it", bin).
-				with("In Terminal, run chmod +x "+bin+" so it can run.", nil)
+				with(strings.ToUpper(in[:1])+in[1:]+", run chmod +x "+bin+" so it can run.", nil)
 		} else {
 			ok("command", "%s exists and is executable", bin)
 		}
 		return
 	}
 	if p, err := env.LookPath(bin); err != nil {
+		if env.Remote {
+			w(line, "command", "Could not find %s on the server's PATH", bin).
+				with(fmt.Sprintf("supervisord searches only the system folders there: use the full path. On the server, which %s shows it.", bin), nil)
+			return
+		}
 		w(line, "command", "Could not find %s on your PATH", bin).
 			with(fmt.Sprintf("supervisord may not search the same folders as your Terminal: use the full path. In Terminal, which %s shows it.", bin), nil)
 	} else {

@@ -21,9 +21,9 @@ describe('tabGuard', () => {
     setCurrentTab('sabc')
     expect(tabGuard(route('issues'))).toEqual({ name: 'server-issues', params: { server: 'sabc' }, query: {}, hash: '' })
     expect(tabGuard(route('config', { path: '/etc/x.conf' }))).toMatchObject({ name: 'server-config', params: { path: '/etc/x.conf', server: 'sabc' } })
-    // Doctor and Add new are this computer's: a server gets its report and dashboard.
+    // Doctor is this computer's: a server gets its report. Add new is the server's own.
     expect(tabGuard(route('doctor'))).toMatchObject({ name: 'server-report' })
-    expect(tabGuard(route('new-form'))).toMatchObject({ name: 'server-dashboard' })
+    expect(tabGuard(route('new-form'))).toMatchObject({ name: 'server-new-form', params: { server: 'sabc' } })
     // Settings belongs to no tab.
     expect(tabGuard(route('settings'))).toBe(true)
   })

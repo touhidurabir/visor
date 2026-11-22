@@ -3,13 +3,17 @@ package app
 import (
 	"context"
 	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/touhidurabir/visor/internal/activity"
+	"github.com/touhidurabir/visor/internal/apply"
 	"github.com/touhidurabir/visor/internal/notify"
 	"github.com/touhidurabir/visor/internal/remote"
 	"github.com/touhidurabir/visor/internal/remote/remotetest"
@@ -96,29 +100,120 @@ func TestRemoteRuntimePollsAndActs(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if _, err := f.svc.ConfigDetail(filepath.Join(inst.Dir(), "conf.d", "sleeper.ini")); err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+}
+
+// M8: a server tab saves, adds, removes and restores configs through the
+// helper, with the backups on this computer in the server's state folder.
+func TestRemoteConfigEdits(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	f := startRemoteRuntime(t, inst, nil)
+	waitRunning(t, f.svc, "sleeper:sleeper")
 	cs := NewConfigService(f.rt)
+	if _, ok := f.rt.disk().(remote.BridgeFS); !ok {
+		t.Fatalf("a server tab writes through %T, not the server", f.rt.disk())
+	}
 	path := filepath.Join(inst.Dir(), "conf.d", "sleeper.ini")
 	fv, err := cs.Read(path)
-	if err != nil || fv.Writable || fv.Content == "" {
+	if err != nil || !fv.Writable || fv.Content == "" {
 		t.Fatalf("read: %+v %v", fv, err)
 	}
-	if _, err := cs.Save(path, fv.Content+"\n", fv.Hash); !errors.Is(err, ErrRemoteReadOnly) {
+	// A link to supervisord.conf in the include folder is still the main
+	// config: never written, also on a server.
+	link := filepath.Join(inst.Dir(), "conf.d", "main.ini")
+	if err := os.Symlink(inst.ConfigPath(), link); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.rt.checkNotMain(link); !errors.Is(err, ErrMainConfig) {
+		t.Fatalf("link to the main config: %v", err)
+	}
+	_ = os.Remove(link)
+	// The checks look on the server.
+	var found, missing bool
+	for _, c := range cs.Validate("x.ini", "[program:x]\ncommand=/bin/sh -c true\ndirectory=/nonexistent-visor\n", "") {
+		found = found || strings.Contains(c.Message, "/bin/sh exists and is executable")
+		missing = missing || strings.Contains(c.Message, "/nonexistent-visor does not exist yet")
+	}
+	if !found || !missing {
+		t.Fatalf("checks on the server: found %v missing %v", found, missing)
+	}
+	res, err := cs.Save(path, fv.Content+"priority=997\n", fv.Hash)
+	if err != nil || !slices.Contains(res.Changed, "sleeper") {
+		t.Fatalf("save: %+v %v", res, err)
+	}
+	if got, _ := os.ReadFile(path); !strings.Contains(string(got), "priority=997") {
+		t.Fatalf("file on the server: %q", got)
+	}
+	if _, err := cs.Save(path, fv.Content, fv.Hash); !errors.Is(err, apply.ErrChangedOnDisk) {
+		t.Fatalf("save over a newer file: %v", err)
+	}
+	bks, err := cs.Backups(path)
+	if err != nil || len(bks) != 1 || bks[0].Content != fv.Content {
+		t.Fatalf("backups: %+v %v", bks, err)
+	}
+	if !strings.HasPrefix(f.rt.backups().Dir, f.rt.opts.StateDir) || !strings.Contains(f.rt.opts.StateDir, f.server.ID) {
+		t.Fatalf("backups at %s, not in the server's folder", f.rt.backups().Dir)
+	}
+	waitRunning(t, f.svc, "sleeper:sleeper")
+
+	res, err = cs.Create("extra.ini", "[program:extra]\ncommand=sleep 3600\n")
+	if err != nil || !slices.Contains(res.Added, "extra") {
+		t.Fatalf("create: %+v %v", res, err)
+	}
+	waitRunning(t, f.svc, "extra:extra")
+	extra := filepath.Join(inst.Dir(), "conf.d", "extra.ini")
+	if _, err := cs.Create("extra.ini", "[program:extra2]\ncommand=sleep 1\n"); !errors.Is(err, apply.ErrExists) {
+		t.Fatalf("create over a file: %v", err)
+	}
+	if _, err := f.svc.RemoveFromSupervisor(extra); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(extra); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal("removed file still on the server")
+	}
+	gone, err := cs.RemovedFiles()
+	if err != nil || len(gone) != 1 || gone[0].Path != extra {
+		t.Fatalf("removed: %+v %v", gone, err)
+	}
+	if _, err := cs.Restore(extra, gone[0].BackupID); err != nil {
+		t.Fatal(err)
+	}
+	waitRunning(t, f.svc, "extra:extra")
+}
+
+// A folder the helper's user can't write: the file reads as not writable
+// and a save is refused before anything changes.
+func TestRemoteConfigNotWritable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes anything")
+	}
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	f := startRemoteRuntime(t, inst, nil)
+	waitRunning(t, f.svc, "sleeper:sleeper")
+	dir := filepath.Join(inst.Dir(), "conf.d")
+	path := filepath.Join(dir, "sleeper.ini")
+	if err := os.Chmod(path, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755); _ = os.Chmod(path, 0o644) })
+	cs := NewConfigService(f.rt)
+	fv, err := cs.Read(path)
+	if err != nil || fv.Writable {
+		t.Fatalf("read: %+v %v", fv, err)
+	}
+	if _, err := cs.Save(path, fv.Content+"priority=997\n", fv.Hash); !errors.Is(err, apply.ErrNotWritable) {
 		t.Fatalf("save: %v", err)
 	}
-	if _, err := cs.ApplyFile(path); !errors.Is(err, ErrRemoteReadOnly) {
-		t.Fatalf("apply: %v", err)
+	if bks, _ := cs.Backups(path); len(bks) != 0 {
+		t.Fatal("a refused save left a backup")
 	}
-	if _, err := cs.LoadFile(path); !errors.Is(err, ErrRemoteReadOnly) {
-		t.Fatalf("load: %v", err)
-	}
-	if _, err := cs.Create("x.ini", "[program:x]\ncommand=sleep 1\n"); !errors.Is(err, ErrRemoteReadOnly) {
-		t.Fatalf("create: %v", err)
-	}
-	if _, err := f.svc.RemoveFromSupervisor(path); !errors.Is(err, ErrRemoteReadOnly) {
-		t.Fatalf("remove: %v", err)
-	}
-	if _, err := f.svc.ConfigDetail(path); err != nil {
-		t.Fatalf("detail: %v", err)
+	if fo := cs.Folder(); fo.Writable || fo.Dir != dir {
+		t.Fatalf("folder: %+v", fo)
 	}
 }
 
@@ -130,6 +225,11 @@ func TestRemoteRuntimeReadOnlyServer(t *testing.T) {
 	if !ov.Host.ReadOnly {
 		t.Fatal("host should say read only")
 	}
+	cs := NewConfigService(f.rt)
+	path := filepath.Join(inst.Dir(), "conf.d", "sleeper.ini")
+	if fv, err := cs.Read(path); err != nil || fv.Writable {
+		t.Fatalf("read on a Read only server: %+v %v", fv, err)
+	}
 	for name, do := range map[string]func() error{
 		"stop":    func() error { return f.svc.Stop("sleeper:sleeper") },
 		"restart": func() error { return f.svc.Restart("sleeper:sleeper") },
@@ -137,6 +237,38 @@ func TestRemoteRuntimeReadOnlyServer(t *testing.T) {
 		"signal":  func() error { return f.svc.Signal("sleeper:sleeper", "HUP") },
 		"clear":   func() error { return f.svc.ClearLogs("sleeper:sleeper") },
 		"daemon":  f.svc.RestartDaemon,
+		"save": func() error {
+			_, err := cs.Save(path, "x", "hash")
+			return err
+		},
+		"create": func() error {
+			_, err := cs.Create("x.ini", "[program:x]\ncommand=sleep 1\n")
+			return err
+		},
+		"apply": func() error {
+			_, err := cs.ApplyFile(path)
+			return err
+		},
+		"remove": func() error {
+			_, err := f.svc.RemoveFromSupervisor(path)
+			return err
+		},
+		"load": func() error {
+			_, err := cs.LoadFile(path)
+			return err
+		},
+		"restore": func() error {
+			_, err := cs.Restore(path, "2026-01-01T00-00-00.000000000Z")
+			return err
+		},
+		"import": func() error {
+			_, err := cs.Import([]ImportItem{{FileName: "x.ini", Content: "[program:x]\ncommand=sleep 1\n"}}, false)
+			return err
+		},
+		"apply all": func() error {
+			_, err := f.svc.ApplyChanges(nil)
+			return err
+		},
 	} {
 		if err := do(); !errors.Is(err, ErrServerReadOnly) {
 			t.Errorf("%s: %v", name, err)
@@ -253,6 +385,24 @@ func TestRemoteReconnectsAfterADrop(t *testing.T) {
 	if len(f.ssh.UnixDials()) <= before {
 		t.Fatal("no new forwarded connection")
 	}
+}
+
+// Retry tries at once instead of waiting out the backoff (here an hour).
+func TestRemoteRetryReconnectsAtOnce(t *testing.T) {
+	fastReconnect(t)
+	reconnectFirst, reconnectMax = time.Hour, time.Hour
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	f := startRemoteRuntime(t, inst, nil)
+	waitRunning(t, f.svc, "sleeper:sleeper")
+	f.rt.RetryNow() // while connected: no effect, and not kept for later
+	f.ssh.DropAll()
+	waitOverview(t, f.svc, 10*time.Second, "reconnecting", func(ov OverviewView) bool { return ov.Host.Conn == ConnReconnecting })
+	time.Sleep(300 * time.Millisecond) // the Retry made while connected must not have counted
+	if c := f.svc.Overview().Host.Conn; c != ConnReconnecting {
+		t.Fatalf("conn %q before Retry", c)
+	}
+	f.rt.RetryNow()
+	waitOverview(t, f.svc, 10*time.Second, "connected", func(ov OverviewView) bool { return ov.Host.Conn == ConnConnected })
 }
 
 func TestRemoteHostDownOpensItsOwnIssue(t *testing.T) {

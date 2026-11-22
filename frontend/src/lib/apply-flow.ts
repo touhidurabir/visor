@@ -1,6 +1,7 @@
 // The apply flow shared by the banner, the menus and the tray popover: show
 // what supervisord will add, restart or remove, ask, apply, then report. The
 // text is pure (and tested); useApplyFlow holds the state around the calls.
+import { isCancelled, onProduction, withConsentOnce } from './production'
 import { ref } from 'vue'
 import { type ApplyResultView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { ConfigService, ServerService } from './api'
@@ -30,6 +31,26 @@ export function previewMessage(d: DiffLike): string {
   if (list(d.Changed).length) lines.push(`Changed: ${list(d.Changed).join(', ')}. They restart with the new settings.`)
   if (list(d.Removed).length) lines.push(`Removed: ${list(d.Removed).join(', ')}. They stop and go.`)
   return lines.join('\n')
+}
+
+/**
+ * For the save preview: the [group:x] groups (processes from more than one
+ * program). supervisord replaces a changed group as a whole, so a change to
+ * one of its programs restarts all its processes, as `supervisorctl update`
+ * does. Empty when there are none.
+ */
+export function groupRestartNote(ps: { Group: string; Program: string }[] | null | undefined): string {
+  const by = new Map<string, { n: number; programs: Set<string> }>()
+  for (const p of ps ?? []) {
+    const g = by.get(p.Group) ?? { n: 0, programs: new Set<string>() }
+    g.n++
+    g.programs.add(p.Program)
+    by.set(p.Group, g)
+  }
+  const shared = [...by].filter(([, g]) => g.programs.size > 1)
+  if (!shared.length) return ''
+  const names = shared.map(([name, g]) => `${name} (${g.n} processes)`).join(', ')
+  return `In a group, supervisord restarts every process when any of its programs changes, as supervisorctl update does: ${names}.`
 }
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
@@ -104,7 +125,7 @@ export function useApplyFlow(onDone: () => void = () => {}) {
       const message = previewMessage(diff) || `${label} has no changes supervisord can see yet. Applying re-reads it and updates its processes.`
       const shown = [...list(diff.Added), ...list(diff.Changed), ...list(diff.Removed)]
       go = async () => finish('Applied', await run(shown))
-      pending.value = { title: `Apply changes to ${label}?`, message, confirmLabel: 'Apply changes', danger: false }
+      pending.value = { title: `Apply changes to ${label}${onProduction()}?`, message, confirmLabel: 'Apply changes', danger: false }
     })
   }
 
@@ -131,6 +152,7 @@ export function useApplyFlow(onDone: () => void = () => {}) {
           if (!last) throw new Error('Visor can’t find the backup of that file.')
           finish(`Restored ${fileName}`, await ConfigService.Restore(path, last.ID))
         } catch (e) {
+          if (isCancelled(e)) return // a production question answered No: the report stays
           // Keep Undo, so it can be tried again once the cause is fixed.
           report.value = { title: saveErrorText(e, fileName), errors: [], failed: true, undo }
         }
@@ -143,7 +165,8 @@ export function useApplyFlow(onDone: () => void = () => {}) {
     const run = go
     pending.value = null
     go = null
-    if (run) void guarded(run)
+    // Its confirm asked: a production server doesn't ask again.
+    if (run) void withConsentOnce(() => guarded(run))
   }
   function cancel() {
     pending.value = null

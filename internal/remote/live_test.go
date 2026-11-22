@@ -2,10 +2,13 @@ package remote_test
 
 import (
 	"context"
+	"errors"
 	"os"
+	"strings"
 	"path/filepath"
 	"testing"
 
+	"github.com/touhidurabir/visor/internal/apply"
 	"github.com/touhidurabir/visor/internal/config"
 	"github.com/touhidurabir/visor/internal/remote"
 	"github.com/touhidurabir/visor/internal/supervisor"
@@ -15,7 +18,9 @@ import (
 // from ~/.ssh/config) and only reads: it lists processes and the include
 // files. VISOR_SSH_SUDO=1 also runs the bridge with sudo (password from
 // VISOR_SSH_SUDO_PASSWORD, or none for NOPASSWD). Nothing is written on the
-// server, and ~/.ssh/known_hosts is only read.
+// server, and ~/.ssh/known_hosts is only read, unless VISOR_SSH_TEST_WRITE=1:
+// then each mode writes, replaces and deletes a file in a temp folder it
+// makes (and removes) on the server.
 func TestLiveSSH(t *testing.T) {
 	alias := os.Getenv("VISOR_SSH_TEST")
 	if alias == "" {
@@ -77,6 +82,41 @@ func TestLiveSSH(t *testing.T) {
 			if b, err := a.Files.Bridge(ctx); err == nil {
 				t.Logf("bridge user %s, python %s", b.Hello().User, b.Hello().Python)
 			}
+			if os.Getenv("VISOR_SSH_TEST_WRITE") == "1" {
+				liveWrite(t, c, remote.BridgeFS{T: files})
+			}
 		})
 	}
+}
+
+// liveWrite replaces a file the SSH user owns through f (as root with sudo)
+// and checks it keeps its owner and mode, then deletes it.
+func liveWrite(t *testing.T, c *remote.Conn, f remote.BridgeFS) {
+	ctx := context.Background()
+	out, err := c.Run(ctx, "d=$(mktemp -d) && printf 'v1\\n' > $d/a.conf && chmod 640 $d/a.conf && echo $d", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := strings.TrimSpace(string(out))
+	t.Cleanup(func() { _, _ = c.Run(ctx, "rm -rf "+dir, nil) })
+	p := dir + "/a.conf"
+	b := apply.Backups{Dir: t.TempDir()}
+	if _, err := apply.Write(f, p, []byte("v2\n"), apply.Hash([]byte("v1\n")), b); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := apply.Write(f, p, []byte("v3\n"), apply.Hash([]byte("v1\n")), b); !errors.Is(err, apply.ErrChangedOnDisk) {
+		t.Fatalf("stale hash: %v", err)
+	}
+	st, err := c.Run(ctx, "stat -c '%U %a' "+p+" && whoami && cat "+p, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Fields(string(st))
+	if len(lines) != 4 || lines[0] != lines[2] || lines[1] != "640" || lines[3] != "v2" {
+		t.Fatalf("after the replace (owner mode login content): %q", st)
+	}
+	if err := apply.RevertCreate(f, p, []byte("v2\n")); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("wrote, replaced (owner %s, mode 640 kept) and deleted %s", lines[0], p)
 }

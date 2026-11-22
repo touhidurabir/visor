@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // The lens mark, the wordmark and the notification bell; the tab's server
 // (this computer, or a server with its colour) with its health and failing
-// count, Dashboard, Issues and, on this computer, Add new; and Remote
-// servers, Doctor (on a server, its report) and Settings at the bottom. Servers open as tabs above
+// count, Dashboard, Issues and, on this computer, Add new; and Doctor (on a
+// server, its report), Remote servers and Settings at the bottom. Servers open as tabs above
 // (TabBar). Appearance lives in Settings.
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
@@ -17,7 +17,7 @@ import { baseName, tabHref } from '../lib/tabs'
 // remote/color: the tab is a server's (its colour leads its name).
 // blocked: a server Visor can't reach (its report says why): Dashboard and
 // Issues are greyed until it can.
-const props = defineProps<{ name: string; health: string; failing: number; openIssues: number; connection: string | null; remote?: boolean; color?: string; blocked?: boolean }>()
+const props = defineProps<{ name: string; health: string; failing: number; openIssues: number; connection: string | null; remote?: boolean; readOnly?: boolean; color?: string; blocked?: boolean }>()
 
 // Shortcut hints, as Visor's menu bar shows them on macOS (⌘N, ⌘,) and
 // AppShell carries them out on Linux (Ctrl+N, Ctrl+,).
@@ -86,7 +86,7 @@ const dot = computed(() => {
           </svg>
           Activity
         </RouterLink>
-        <RouterLink v-if="!remote" to="/new" :class="['nav', on('new')]" :aria-keyshortcuts="KEYS.newConfig.aria">
+        <RouterLink v-if="!readOnly" :to="remote ? tabHref('/new') : '/new'" :class="['nav', on('new')]" :aria-keyshortcuts="KEYS.newConfig.aria">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
             <path d="M12 5v14" /><path d="M5 12h14" />
           </svg>
@@ -97,17 +97,17 @@ const dot = computed(() => {
     </div>
 
     <div class="section bottom">
-      <RouterLink to="/servers" :class="['nav', on('servers')]">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="3" y="4" width="18" height="7" rx="1.5" /><rect x="3" y="13" width="18" height="7" rx="1.5" /><path d="M7 7.5h.01M7 16.5h.01" />
-        </svg>
-        Remote servers
-      </RouterLink>
       <RouterLink :to="remote ? tabHref('/report') : '/doctor'" :class="['nav', on('doctor')]">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M3 12h4l3-8 4 16 3-8h4" />
         </svg>
         {{ remote ? 'Server report' : 'Doctor' }}
+      </RouterLink>
+      <RouterLink to="/servers" :class="['nav', on('servers')]">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="7" rx="1.5" /><rect x="3" y="13" width="18" height="7" rx="1.5" /><path d="M7 7.5h.01M7 16.5h.01" />
+        </svg>
+        Remote servers
       </RouterLink>
       <RouterLink to="/settings" :class="['nav', on('settings')]" :aria-keyshortcuts="KEYS.settings.aria">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">

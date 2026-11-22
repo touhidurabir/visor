@@ -333,25 +333,52 @@ func TestChecksSayHowToFix(t *testing.T) {
 	}
 }
 
-func TestRemoteSkipsDiskChecks(t *testing.T) {
+func TestRemoteChecksAskTheServer(t *testing.T) {
 	content := "[program:w]\ncommand=/srv/app/bin/worker\ndirectory=/srv/app\nuser=www-data\nstdout_logfile=/var/log/app/w.log\n"
-	env := Env{Remote: true,
-		Stat:       func(string) (fs.FileInfo, error) { t.Fatal("stat on a server file"); return nil, nil },
-		LookPath:   func(string) (string, error) { t.Fatal("lookpath"); return "", nil },
-		UserExists: func(string) bool { t.Fatal("user lookup"); return false },
-		Writable:   func(string) bool { t.Fatal("writable"); return false },
+	asked := map[string]bool{}
+	env := Env{Remote: true, SkipWritable: true,
+		Stat: func(p string) (fs.FileInfo, error) {
+			asked["stat "+p] = true
+			return nil, fs.ErrNotExist
+		},
+		LookPath:   func(string) (string, error) { return "", fs.ErrNotExist },
+		UserExists: func(u string) bool { asked["user "+u] = true; return false },
+		Writable:   func(string) bool { t.Fatal("writable checked although skipped"); return false },
 	}
 	checks := File("w.conf", content, env)
-	n := 0
+	for _, k := range []string{"stat /srv/app", "stat /srv/app/bin/worker", "user www-data", "stat /var/log/app"} {
+		if !asked[k] {
+			t.Errorf("not asked: %s", k)
+		}
+	}
+	text := ""
 	for _, c := range checks {
-		if c.Level == Error || c.Level == Warning {
-			t.Errorf("%+v", c)
-		}
-		if strings.Contains(c.Message, "not checked on servers yet") {
-			n++
+		text += c.Message + " | " + c.Fix + "\n"
+		if strings.Contains(c.Message+c.Fix, "Terminal") || strings.Contains(c.Message+c.Fix, "Mac") {
+			t.Errorf("local wording on a server: %+v", c)
 		}
 	}
-	if n != 4 {
-		t.Fatalf("want 4 skipped checks, got %d: %+v", n, checks)
+	for _, want := range []string{"user www-data does not exist on the server", "on the server: sudo mkdir -p /var/log/app", "/srv/app does not exist yet"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q in\n%s", want, text)
+		}
 	}
+	// As root, a log folder that exists is checked for writing; not as root.
+	env.Stat = func(string) (fs.FileInfo, error) { return dirInfo{}, nil }
+	if cs := File("w.conf", content, env); !hasMessage(cs, "log folder /var/log/app exists") {
+		t.Errorf("skipped writable: %+v", cs)
+	}
+}
+
+type dirInfo struct{ fs.FileInfo }
+
+func (dirInfo) IsDir() bool { return true }
+
+func hasMessage(cs []Check, msg string) bool {
+	for _, c := range cs {
+		if c.Message == msg {
+			return true
+		}
+	}
+	return false
 }

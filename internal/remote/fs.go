@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"path"
 	"time"
@@ -18,10 +19,16 @@ type BridgeFS struct {
 
 var _ config.FS = BridgeFS{}
 
+// ErrNotConnected: the server's tab isn't connected right now.
+var ErrNotConnected = errors.New("not connected to the server")
+
 func (f BridgeFS) bridge() (*Bridge, context.Context, context.CancelFunc, error) {
 	d := f.Timeout
 	if d == 0 {
 		d = 15 * time.Second
+	}
+	if f.T == nil {
+		return nil, nil, nil, ErrNotConnected
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), d)
 	b, err := f.T.Bridge(ctx)

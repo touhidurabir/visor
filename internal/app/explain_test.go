@@ -147,7 +147,7 @@ func (f statFS) ReadFile(string) ([]byte, error) { return nil, fs.ErrNotExist }
 func (f statFS) Glob(string) ([]string, error)   { return nil, nil }
 func (f statFS) Stat(name string) (fs.FileInfo, error) {
 	if f[name] {
-		return fstest.MapFS{"f": {}}.Stat("f")
+		return fstest.MapFS{"f": {Mode: 0o755}}.Stat("f")
 	}
 	return nil, fs.ErrNotExist
 }
@@ -160,5 +160,8 @@ func TestLookOnServerSearchesTheServersPath(t *testing.T) {
 	}
 	if _, err := r.lookOnServer("node"); err == nil {
 		t.Fatal("node found on a server that hasn't it")
+	}
+	if p, err := r.lookOnServer("/usr/bin/php"); err != nil || p != "/usr/bin/php" {
+		t.Fatalf("a full path: %q %v", p, err)
 	}
 }

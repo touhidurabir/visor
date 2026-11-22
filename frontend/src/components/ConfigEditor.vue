@@ -30,7 +30,9 @@ import ExplainPanel from './ExplainPanel.vue'
 import IniEditor from './IniEditor.vue'
 import RestoreDialog from './RestoreDialog.vue'
 import SaveBar from './SaveBar.vue'
-import { currentTab, LOCAL } from '../lib/tabs'
+import { currentTab, LOCAL, tabHref } from '../lib/tabs'
+import { onProduction, withConsentOnce } from '../lib/production'
+import { groupRestartNote } from '../lib/apply-flow'
 
 // line (from ?line=N) is the line to show when the editor opens. processes
 // are the file's processes from the live overview, for each card's state.
@@ -54,14 +56,13 @@ const checkFailed = ref<string | null>(null)
 const checkedText = ref<string | null>(null)
 const loadedDiff = ref<LoadedDiffView | null>(null)
 const loadedDiffError = ref<string | null>(null)
-const checkingLoaded = ref(false)
 // What Visor knows from asking supervisord (LoadedDiff asks it first).
 const loadedStatus = computed(() => {
   const v = loadedDiff.value
   if (!v) return ''
   if (props.serverReadOnly) return 'This server is Read only, so Visor doesn’t ask supervisord whether it already runs this file. If it was applied another way, this may be out of date.'
   if (v.CheckError) return `Couldn’t check with supervisord: ${v.CheckError}`
-  if (v.Confirmed) return remote.value ? 'Checked with supervisord: it hasn’t loaded these changes yet.' : 'Checked with supervisord: it hasn’t loaded these changes yet. Apply them to load them.'
+  if (v.Confirmed) return 'Checked with supervisord: it hasn’t loaded these changes yet. Apply them to load them.'
   return 'Visor checks with supervisord while this file shows as changed.'
 })
 
@@ -78,9 +79,10 @@ const errorCount = computed(() => explained.value?.SaveErrors ?? 0)
 const marks = computed(() => explainMarks(explained.value))
 const saveDiff = computed(() => diffLines(file.value?.Content ?? '', text.value))
 const saveStats = computed(() => diffStats(saveDiff.value))
+const groupNote = computed(() => groupRestartNote(props.processes))
 const cantSave = computed(() => {
   if (busy.value) return 'Wait for the current action to finish.'
-  if (!writable.value) return remote.value ? 'Configs on servers are read only for now.' : 'Visor can’t write this file.'
+  if (!writable.value) return props.serverReadOnly ? 'This server is set to Read only.' : remote.value ? 'Visor can’t write this file on the server.' : 'Visor can’t write this file.'
   if (diskNewer.value) return 'The file changed on disk. Choose what to do with your edits first.'
   if (!dirty.value) return 'There is nothing to save yet.'
   if (checkedText.value === text.value && errorCount.value) return saveReason(explained.value) || fixToSave(errorCount.value)
@@ -90,7 +92,7 @@ const bar = computed<{ tone: 'ok' | 'bad' | 'warn' | 'idle'; status: string }>((
   if (busy.value === 'save') return { tone: 'idle', status: 'Saving…' }
   if (busy.value === 'restore') return { tone: 'idle', status: 'Restoring…' }
   if (busy.value === 'apply') return { tone: 'idle', status: 'Applying…' }
-  if (!writable.value) return { tone: 'warn', status: remote.value ? 'Read only: configs on servers can’t be changed yet.' : 'Read-only: Visor can’t write this file.' }
+  if (!writable.value) return { tone: 'warn', status: props.serverReadOnly ? 'Read only: this server is set to Read only.' : 'Read-only: Visor can’t write this file.' }
   if (diskNewer.value) return { tone: 'warn', status: 'Edited elsewhere: choose what to do with your edits first.' }
   if (dirty.value && checkedText.value === text.value && errorCount.value) return { tone: 'bad', status: `${cantSave.value}.` }
   if (dirty.value) return { tone: 'warn', status: 'Unsaved changes' }
@@ -158,7 +160,6 @@ async function loadLoadedDiff() {
     loadedDiff.value = null
     return
   }
-  checkingLoaded.value = true
   try {
     const v = await ConfigService.LoadedDiff(props.path)
     if (gone || seq !== loadedSeq) return
@@ -167,8 +168,6 @@ async function loadLoadedDiff() {
   } catch (e) {
     if (gone || seq !== loadedSeq) return
     loadedDiffError.value = describeError(e)
-  } finally {
-    if (seq === loadedSeq) checkingLoaded.value = false
   }
 }
 void loadLoadedDiff()
@@ -254,7 +253,8 @@ async function confirmSave() {
   failure.value = null
   result.value = null
   try {
-    const res = await ConfigService.Save(props.path, text.value, f.Hash)
+    // The preview asked: a production server doesn't ask again.
+    const res = await withConsentOnce(() => ConfigService.Save(props.path, text.value, f.Hash))
     dropDraft(props.path)
     await load()
     reportResult('Saved and applied', res, `Saved and applied ${props.fileName}.`)
@@ -311,7 +311,7 @@ async function confirmRestore(id: string) {
   failure.value = null
   result.value = null
   try {
-    const res = await ConfigService.Restore(props.path, id)
+    const res = await withConsentOnce(() => ConfigService.Restore(props.path, id)) // its dialog asked
     dropDraft(props.path)
     await load()
     const when = b ? historyTime(new Date(b.At).getTime(), Date.now()) : 'the backup'
@@ -398,9 +398,16 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
     <p v-else-if="!file" class="muted">Loading…</p>
     <div v-else class="grid">
       <div class="col">
-        <div v-if="!writable && remote" class="banner warn" role="status">
-          <strong>Configs on servers are read only for now.</strong>
-          <span>This version of Visor shows them and runs their processes, but can’t save, add, remove or restore them, with Use sudo too. Editing configs on servers comes in the next version.</span>
+        <div v-if="!writable && serverReadOnly" class="banner warn" role="status">
+          <strong>This server is set to Read only.</strong>
+          <span>Visor shows its configs but changes nothing. Turn off Read only in the server’s settings to edit them.</span>
+        </div>
+        <div v-else-if="!writable && remote" class="banner warn" role="status">
+          <strong>Visor can’t write this file on the server.</strong>
+          <span>
+            The SSH user can’t change it or its folder, so the editor is read-only.
+            <RouterLink :to="tabHref('/report')">The server report</RouterLink> says how to allow it: turn on Use sudo, or let the user write the folder.
+          </span>
         </div>
         <div v-else-if="!writable" class="banner warn" role="status">
           <strong>Visor can’t write this file.</strong>
@@ -468,11 +475,8 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
             />
           </template>
           <div>
-            <button v-if="!remote" type="button" class="btn primary" :disabled="!!busy || dirty" :title="dirty ? 'Save or discard your edits first' : undefined" @click="applyDisk">
+            <button v-if="!serverReadOnly" type="button" class="btn primary" :disabled="!!busy || dirty" :title="dirty ? 'Save or discard your edits first' : undefined" @click="applyDisk">
               {{ busy === 'apply' ? 'Applying…' : 'Apply changes' }}
-            </button>
-            <button v-else-if="!serverReadOnly" type="button" class="btn" :disabled="checkingLoaded" @click="loadLoadedDiff">
-              {{ checkingLoaded ? 'Checking…' : 'Check with supervisord' }}
             </button>
           </div>
         </section>
@@ -503,7 +507,7 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
       </button>
     </SaveBar>
 
-    <DialogShell v-if="preview" title="Review the change" wide @close="preview = false">
+    <DialogShell v-if="preview" :title="`Review the change${onProduction()}`" wide @close="preview = false">
       <p class="lead">
         <strong>{{ fileName }}</strong>: {{ saveStats.added }} {{ saveStats.added === 1 ? 'line' : 'lines' }} added, {{ saveStats.removed }}
         {{ saveStats.removed === 1 ? 'line' : 'lines' }} removed.
@@ -512,6 +516,7 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
       <p class="muted">
         Visor saves a backup first, then applies this file only. Programs whose settings changed restart; everything else keeps running.
       </p>
+      <p v-if="groupNote" class="muted" data-testid="group-note">{{ groupNote }}</p>
       <template #actions>
         <button type="button" class="btn" @click="preview = false">Cancel</button>
         <button type="button" class="btn primary" data-autofocus @click="confirmSave">Save &amp; apply</button>

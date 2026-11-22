@@ -83,7 +83,7 @@ const prog = "[program:mailer]\ncommand=php artisan queue:work\n"
 func TestWriteNewFile(t *testing.T) {
 	f := newFixture(t)
 	p := filepath.Join(f.conf, "mailer.ini")
-	bk, err := Write(p, []byte(prog), "", f.bk)
+	bk, err := Write(Local, p, []byte(prog), "", f.bk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestWriteNewFile(t *testing.T) {
 func TestWriteNewFileExists(t *testing.T) {
 	f := newFixture(t)
 	p := f.file(t, "mailer.ini", "theirs\n", 0o644)
-	_, err := Write(p, []byte(prog), "", f.bk)
+	_, err := Write(Local, p, []byte(prog), "", f.bk)
 	if !errors.Is(err, ErrExists) {
 		t.Fatalf("err = %v, want ErrExists", err)
 	}
@@ -134,7 +134,7 @@ func TestSaveRejectsStaleHash(t *testing.T) {
 	if err := os.WriteFile(p, []byte(prog+"numprocs=2\n"), 0o644); err != nil { // someone else's edit
 		t.Fatal(err)
 	}
-	_, err := Write(p, []byte(prog+"autostart=false\n"), opened, f.bk)
+	_, err := Write(Local, p, []byte(prog+"autostart=false\n"), opened, f.bk)
 	if !errors.Is(err, ErrChangedOnDisk) {
 		t.Fatalf("err = %v, want ErrChangedOnDisk", err)
 	}
@@ -153,7 +153,7 @@ func TestSaveRejectsStaleHash(t *testing.T) {
 	if err := os.Remove(p); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Write(p, []byte(prog), opened, f.bk); !errors.Is(err, ErrChangedOnDisk) {
+	if _, err := Write(Local, p, []byte(prog), opened, f.bk); !errors.Is(err, ErrChangedOnDisk) {
 		t.Fatalf("deleted file: err = %v, want ErrChangedOnDisk", err)
 	}
 	if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
@@ -165,7 +165,7 @@ func TestWriteBacksUpFirst(t *testing.T) {
 	f := newFixture(t)
 	p := f.file(t, "mailer.ini", prog, 0o644)
 	next := prog + "numprocs=2\nprocess_name=%(program_name)s_%(process_num)02d\n"
-	bk, err := Write(p, []byte(next), Hash([]byte(prog)), f.bk)
+	bk, err := Write(Local, p, []byte(next), Hash([]byte(prog)), f.bk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestWriteBacksUpFirst(t *testing.T) {
 func TestWriteKeepsMode(t *testing.T) {
 	f := newFixture(t)
 	p := f.file(t, "mailer.ini", prog, 0o640)
-	if _, err := Write(p, []byte(prog+"autostart=false\n"), Hash([]byte(prog)), f.bk); err != nil {
+	if _, err := Write(Local, p, []byte(prog+"autostart=false\n"), Hash([]byte(prog)), f.bk); err != nil {
 		t.Fatal(err)
 	}
 	fi, err := os.Stat(p)
@@ -240,7 +240,7 @@ func TestWriteThroughSymlink(t *testing.T) {
 	if err := os.Symlink(real, link); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Write(link, []byte(prog+"autostart=false\n"), Hash([]byte(prog)), f.bk); err != nil {
+	if _, err := Write(Local, link, []byte(prog+"autostart=false\n"), Hash([]byte(prog)), f.bk); err != nil {
 		t.Fatal(err)
 	}
 	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
@@ -266,11 +266,11 @@ func TestSaveReadOnlyDirFails(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(f.conf, 0o700) })
 
-	_, err := Write(p, []byte(prog+"autostart=false\n"), Hash([]byte(prog)), f.bk)
+	_, err := Write(Local, p, []byte(prog+"autostart=false\n"), Hash([]byte(prog)), f.bk)
 	if !errors.Is(err, ErrNotWritable) {
 		t.Fatalf("existing file: err = %v, want ErrNotWritable", err)
 	}
-	_, err = Write(filepath.Join(f.conf, "new.ini"), []byte(prog), "", f.bk)
+	_, err = Write(Local, filepath.Join(f.conf, "new.ini"), []byte(prog), "", f.bk)
 	if !errors.Is(err, ErrNotWritable) {
 		t.Fatalf("new file: err = %v, want ErrNotWritable", err)
 	}
@@ -286,7 +286,7 @@ func TestSaveReadOnlyDirFails(t *testing.T) {
 	if err := CheckRemovable(p); !errors.Is(err, ErrNotWritable) {
 		t.Errorf("CheckRemovable: err = %v, want ErrNotWritable", err)
 	}
-	if _, err := Remove(p, f.bk); !errors.Is(err, ErrNotWritable) {
+	if _, err := Remove(Local, p, f.bk); !errors.Is(err, ErrNotWritable) {
 		t.Fatalf("Remove: err = %v, want ErrNotWritable", err)
 	}
 	if got := read(t, p); got != prog {
@@ -305,7 +305,7 @@ func TestWriteReadOnlyFileFails(t *testing.T) {
 	}
 	f := newFixture(t)
 	p := f.file(t, "mailer.ini", prog, 0o444)
-	_, err := Write(p, []byte(prog+"autostart=false\n"), Hash([]byte(prog)), f.bk)
+	_, err := Write(Local, p, []byte(prog+"autostart=false\n"), Hash([]byte(prog)), f.bk)
 	if !errors.Is(err, ErrNotWritable) {
 		t.Fatalf("err = %v, want ErrNotWritable", err)
 	}
@@ -326,7 +326,7 @@ func TestRemoveMovesToBackups(t *testing.T) {
 	if err := CheckRemovable(p); err != nil {
 		t.Fatalf("CheckRemovable: %v", err)
 	}
-	bk, err := Remove(p, f.bk)
+	bk, err := Remove(Local, p, f.bk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,13 +344,13 @@ func TestRemoveMovesToBackups(t *testing.T) {
 		t.Errorf("Read = %q, %v", got, err)
 	}
 	// Writing it back is a new file again.
-	if _, err := Write(p, []byte(prog), "", f.bk); err != nil {
+	if _, err := Write(Local, p, []byte(prog), "", f.bk); err != nil {
 		t.Fatalf("restore: %v", err)
 	}
 	if err := CheckRemovable(filepath.Join(f.conf, "missing.ini")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("CheckRemovable of a missing file: err = %v, want ErrNotExist", err)
 	}
-	if _, err := Remove(filepath.Join(f.conf, "missing.ini"), f.bk); !errors.Is(err, os.ErrNotExist) {
+	if _, err := Remove(Local, filepath.Join(f.conf, "missing.ini"), f.bk); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("Remove of a missing file: err = %v, want ErrNotExist", err)
 	}
 }
@@ -362,7 +362,7 @@ func TestBackupsListNewestFirst(t *testing.T) {
 	var made []Backup
 	for i, next := range []string{"v2\n", "v3\n", "v4\n"} {
 		old := []string{"v1\n", "v2\n", "v3\n"}[i]
-		bk, err := Write(p, []byte(next), Hash([]byte(old)), f.bk)
+		bk, err := Write(Local, p, []byte(next), Hash([]byte(old)), f.bk)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -428,10 +428,10 @@ func TestReadRejectsForeignBackup(t *testing.T) {
 
 func TestWriteRejectsRelativePath(t *testing.T) {
 	f := newFixture(t)
-	if _, err := Write("mailer.ini", []byte(prog), "", f.bk); err == nil {
+	if _, err := Write(Local, "mailer.ini", []byte(prog), "", f.bk); err == nil {
 		t.Error("Write accepted a relative path")
 	}
-	if _, err := Remove("mailer.ini", f.bk); err == nil {
+	if _, err := Remove(Local, "mailer.ini", f.bk); err == nil {
 		t.Error("Remove accepted a relative path")
 	}
 }

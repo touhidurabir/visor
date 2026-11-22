@@ -91,7 +91,7 @@ const connection = computed(() => connectionBadge(connectionProblem(overview.val
   <div class="frame">
     <TabBar />
     <div class="shell" data-file-drop-target>
-      <Sidebar :name="name" :health="health" :failing="failing" :open-issues="openIssues" :connection="connection" :remote="remote" :color="color" :blocked="blocked" />
+      <Sidebar :name="name" :health="health" :failing="failing" :open-issues="openIssues" :connection="connection" :remote="remote" :read-only="!!overview?.Host?.ReadOnly" :color="color" :blocked="blocked" />
       <main class="content"><slot /></main>
     </div>
     <ServerForm v-if="serverForm" :key="`${serverForm.server?.Server.id}-${serverForm.report?.AtMs ?? 0}`" :editing="serverForm.server" :report="serverForm.report" @close="serverForm = null" />

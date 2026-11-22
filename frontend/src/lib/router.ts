@@ -35,6 +35,9 @@ export const routes: RouteRecordRaw[] = [
   { path: '/s/:server/issues/log', name: 'server-issues-log', component: Issues, meta: { title: 'Issues' } },
   { path: '/s/:server/activity', name: 'server-activity', component: Activity, meta: { title: 'Activity' } },
   { path: '/s/:server/report', name: 'server-report', component: ServerReport, meta: { title: 'Server report' } },
+  { path: '/s/:server/new', name: 'server-new', component: AddRaw, meta: { title: 'Add new' } },
+  { path: '/s/:server/new/form', name: 'server-new-form', component: AddForm, meta: { title: 'Add new' } },
+  { path: '/s/:server/new/import', name: 'server-new-import', component: AddImport, meta: { title: 'Add new' } },
   { path: '/:rest(.*)*', redirect: '/' },
 ]
 

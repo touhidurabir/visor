@@ -358,11 +358,25 @@ func (r *Runtime) linePaths(l describe.Line, prog config.Program, here string, p
 // shortcut: an environment=PATH=… in the config isn't followed; read it when someone needs it.
 var serverPath = []string{"/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"}
 
-// lookOnServer finds a bare command name on the server, as lookPath does here.
+// lookOnServer finds a command on the server, as lookPath does here: a
+// path, or a bare name in serverPath, that is a file anyone may run.
 func (r *Runtime) lookOnServer(name string) (string, error) {
+	f := r.files()
+	runs := func(p string) error {
+		fi, err := f.Stat(p)
+		switch {
+		case err != nil:
+			return err
+		case fi.IsDir() || fi.Mode().Perm()&0o111 == 0:
+			return fs.ErrPermission
+		}
+		return nil
+	}
+	if strings.Contains(name, "/") {
+		return name, runs(name)
+	}
 	for _, dir := range serverPath {
-		p := dir + "/" + name
-		if fi, err := r.files().Stat(p); err == nil && !fi.IsDir() {
+		if p := dir + "/" + name; runs(p) == nil {
 			return p, nil
 		}
 	}

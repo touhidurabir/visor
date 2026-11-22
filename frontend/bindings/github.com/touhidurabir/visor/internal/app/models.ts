@@ -325,10 +325,13 @@ export interface FolderView {
     "Owner": string;
 
     /**
-     * Remote: the folder is on a server, where configs are read only in
-     * this version (not a permission problem).
+     * Remote: the folder is on a server; User is who Visor's helper runs as
+     * there (root with Use sudo). ServerReadOnly: the server is set to Read
+     * only, so nothing is written whatever the permissions.
      */
     "Remote": boolean;
+    "User": string;
+    "ServerReadOnly": boolean;
 }
 
 /**

@@ -8,13 +8,18 @@ import { currentTab } from './tabs'
 type Rest<F> = F extends (server: string, ...args: infer A) => infer R ? (...args: A) => R : never
 export type Bound<T> = { [K in keyof T]: Rest<T[K]> }
 
-/** bind returns api with the tab's id (from tab()) put first in every call. */
-export function bind<T extends object>(api: T, tab: () => string = () => currentTab.value): Bound<T> {
+const NONE = new Set<string>()
+
+/**
+ * bind returns api with the tab's id (from tab()) put first in every call;
+ * the calls named in guarded ask first on production servers.
+ */
+export function bind<T extends object>(api: T, tab: () => string = () => currentTab.value, guarded: Set<string> = GUARDED): Bound<T> {
   const out: Record<string, unknown> = {}
   for (const [name, fn] of Object.entries(api)) {
     if (typeof fn !== 'function') continue
     const call = fn as (...a: unknown[]) => unknown
-    out[name] = GUARDED.has(name)
+    out[name] = guarded.has(name)
       ? // Production servers ask first (lib/production.ts).
         async (...args: unknown[]) => {
           const id = tab()
@@ -26,12 +31,13 @@ export function bind<T extends object>(api: T, tab: () => string = () => current
   return out as Bound<T>
 }
 
-// Only ServerService has calls that production servers guard.
+// Only ServerService and ConfigService have calls production servers guard
+// (LogService.Save only saves a copy of a log).
 export const ServerService = bind(ServerAPI)
 export const ConfigService = bind(ConfigAPI)
-export const IssueService = bind(IssueAPI)
-export const LogService = bind(LogAPI)
-export const InboxService = bind(InboxAPI)
+export const IssueService = bind(IssueAPI, undefined, NONE)
+export const LogService = bind(LogAPI, undefined, NONE)
+export const InboxService = bind(InboxAPI, undefined, NONE)
 
 /**
  * useApi is the services for the tab on screen when a view sets up, kept for
@@ -48,8 +54,8 @@ export function forTab(id: string) {
   return {
     ServerService: bind(ServerAPI, tab),
     ConfigService: bind(ConfigAPI, tab),
-    IssueService: bind(IssueAPI, tab),
-    LogService: bind(LogAPI, tab),
-    InboxService: bind(InboxAPI, tab),
+    IssueService: bind(IssueAPI, tab, NONE),
+    LogService: bind(LogAPI, tab, NONE),
+    InboxService: bind(InboxAPI, tab, NONE),
   }
 }

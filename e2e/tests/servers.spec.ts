@@ -1,5 +1,6 @@
+import { existsSync, readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { collectErrors, openApp, processAction, words } from './helpers'
+import { collectErrors, configRow, openApp, processAction, removeConfig, words } from './helpers'
 
 // A server tab against the e2e SSH server (bin/visor-e2e-ssh on
 // 127.0.0.1:8767, started by serve.sh) in front of the sandbox supervisord.
@@ -10,6 +11,29 @@ const NAME = 'e2e box'
 
 function tabs(page: Page) {
   return page.getByRole('tablist', { name: 'Servers' })
+}
+
+/** Opens the server's tab (left open by an earlier step, or from +). */
+async function serverTab(page: Page) {
+  await openApp(page, '/')
+  const tab = tabs(page).getByRole('tab', { name: new RegExp(NAME) })
+  await tab.waitFor({ timeout: 5_000 }).catch(() => {}) // once the tabs load
+  if (!(await tab.count())) {
+    await page.getByRole('button', { name: 'Open a server' }).click()
+    await page.getByRole('menuitem', { name: new RegExp(NAME) }).click()
+  }
+  await tab.click()
+  await expect(page.getByRole('link', { name: 'reports.ini', exact: true })).toBeVisible({ timeout: 20_000 })
+  return tab
+}
+
+const REPORTS = '/tmp/visor-e2e/conf.d/reports.ini'
+
+/** Replaces the whole text of a config's editor. */
+async function setText(page: Page, file: string, text: string) {
+  await page.getByRole('textbox', { name: `Editor for ${file}` }).click()
+  await page.keyboard.press('ControlOrMeta+a')
+  await page.keyboard.insertText(text)
 }
 
 async function openAdd(page: Page) {
@@ -85,10 +109,10 @@ test.describe('server tabs', () => {
     await expect(tab).toContainText('DEV')
     await expect(page).toHaveURL(/#\/s\/s[0-9a-f]{10}/)
     await expect(page.getByRole('link', { name: 'reports.ini', exact: true })).toBeVisible({ timeout: 20_000 })
-    // A server tab: its report, no Add new.
+    // A server tab: its report, and its own Add new.
     const nav = page.getByRole('navigation', { name: NAME })
     await expect(nav.getByRole('link', { name: 'Server report' })).toBeVisible()
-    await expect(nav.getByRole('link', { name: /Add new/ })).toHaveCount(0)
+    await expect(nav.getByRole('link', { name: /Add new/ })).toBeVisible()
     expect(errors).toEqual([])
   })
 
@@ -170,45 +194,59 @@ test.describe('server tabs', () => {
     await expect(tab).toHaveAttribute('aria-selected', 'true', { timeout: 20_000 })
   })
 
-  test('configs on a server are read only: the page says so and offers Download', async ({ page }) => {
-    await openApp(page, '/')
-    const tab = tabs(page).getByRole('tab', { name: new RegExp(NAME) })
-    await tab.waitFor({ timeout: 5_000 }).catch(() => {}) // open from the last test, once the tabs load
-    if (!(await tab.count())) {
-      await page.getByRole('button', { name: 'Open a server' }).click()
-      await page.getByRole('menuitem', { name: new RegExp(NAME) }).click()
-    }
-    await tab.click()
+  test('a server tab edits a config through the server, keeps the backup here, and restores it', async ({ page }) => {
+    const original = readFileSync(REPORTS, 'utf8')
+    await serverTab(page)
     await page.getByRole('link', { name: 'reports.ini', exact: true }).click()
     await expect(page).toHaveURL(/#\/s\/s[0-9a-f]{10}\/config\//)
-    await expect(page.getByText('can’t change configs on servers')).toBeVisible()
-    await expect(page.getByRole('link', { name: 'How to allow editing' })).toHaveCount(0)
+    await expect(page.getByTestId('read-only-banner')).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Download a copy' })).toBeVisible()
     await expect(page.getByRole('button', { name: words.reveal })).toHaveCount(0)
 
-    // Read only still selects like any text: a click focuses the file,
-    // select-all takes only the file, and typing changes nothing.
     await page.getByRole('tab', { name: 'Config' }).click()
-    const editor = page.getByTestId('ini-editor')
-    const content = editor.locator('.cm-content')
-    const before = await content.textContent()
-    await content.click()
-    await expect(content).toBeFocused()
-    await page.keyboard.press('ControlOrMeta+a')
-    const inside = await editor.evaluate((el) => {
-      const s = getSelection()
-      return !!s && !s.isCollapsed && el.contains(s.anchorNode) && el.contains(s.focusNode)
-    })
-    expect(inside).toBe(true)
-    await page.keyboard.type('x')
-    expect(await content.textContent()).toBe(before)
+    await setText(page, 'reports.ini', `; edited from a server tab\n${original}`)
+    await page.getByRole('button', { name: 'Save & apply' }).click()
+    await page.getByRole('dialog', { name: 'Review the change' }).getByRole('button', { name: 'Save & apply' }).click()
+    await expect(page.getByRole('region', { name: 'Saved and applied' })).toContainText('Nothing needed to change')
+    expect(readFileSync(REPORTS, 'utf8')).toBe(`; edited from a server tab\n${original}`)
 
-    await tab.click() // back to its dashboard
+    await page.getByRole('button', { name: 'Restore a backup…' }).click()
+    await page.getByRole('dialog', { name: /Restore a backup/ }).getByRole('button', { name: 'Restore this version' }).click()
+    await expect(page.getByRole('region', { name: 'Restored and applied' })).toBeVisible()
+    expect(readFileSync(REPORTS, 'utf8')).toBe(original)
+
+    // Remove says the file goes from the server and the copy stays here.
     await page.getByRole('navigation', { name: NAME }).getByRole('link', { name: 'Dashboard' }).click()
     await page.getByRole('button', { name: 'Actions for reports.ini' }).click()
     await expect(page.getByRole('menuitem', { name: /^Download a copy/ })).toBeVisible()
-    await expect(page.getByRole('menuitem', { name: /^Remove from supervisor/ })).toBeDisabled()
-    await page.keyboard.press('Escape')
+    await page.getByRole('menuitem', { name: /^Remove from supervisor/ }).click()
+    const ask = page.getByRole('alertdialog')
+    await expect(ask).toContainText('deletes the file on the server')
+    await ask.getByRole('button', { name: 'Cancel' }).click()
+  })
+
+  test('Add new on a server writes the file there; Remove takes it out again', async ({ page }) => {
+    const file = '/tmp/visor-e2e/conf.d/e2e-remote.ini'
+    await openApp(page, '/')
+    await removeConfig(page, file) // a failed earlier attempt
+    await serverTab(page)
+    await page.getByRole('navigation', { name: NAME }).getByRole('link', { name: /Add new/ }).click()
+    await expect(page).toHaveURL(/#\/s\/s[0-9a-f]{10}\/new/)
+    await page.getByRole('textbox', { name: 'Config contents' }).click()
+    await page.keyboard.press('ControlOrMeta+a')
+    await page.keyboard.insertText('[program:e2e-remote]\ncommand=/bin/sleep 600\ndirectory=/tmp\n')
+    await page.getByLabel('File name').fill('e2e-remote.ini')
+    // The checks look on the server: /bin/sleep and /tmp are there.
+    await expect(page.getByRole('region', { name: 'What this config does' })).toContainText('Runs it inside /tmp.')
+    await page.getByTestId('save-new').click()
+    await expect(page.getByRole('region', { name: 'Saved and applied' })).toBeVisible({ timeout: 20_000 })
+    expect(existsSync(file)).toBe(true)
+
+    await page.getByRole('navigation', { name: NAME }).getByRole('link', { name: 'Dashboard' }).click()
+    await configRow(page, 'e2e-remote.ini').getByRole('button', { name: 'Actions for e2e-remote.ini' }).click()
+    await page.getByRole('menuitem', { name: /^Remove from supervisor/ }).click()
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Remove from supervisor' }).click()
+    await expect.poll(() => existsSync(file), { timeout: 20_000 }).toBe(false)
   })
 
   test('a production server asks before Restart, naming the server', async ({ page }) => {
@@ -230,6 +268,17 @@ test.describe('server tabs', () => {
     await expect(ask).toContainText('tagged Production')
     await ask.getByRole('button', { name: 'Cancel' }).click()
     await expect(ask).toBeHidden()
+
+    // A config change applies: the save preview names the server, and its
+    // answer is the only one asked.
+    await page.getByRole('link', { name: 'reports.ini', exact: true }).click()
+    await page.getByRole('tab', { name: 'Config' }).click()
+    await setText(page, 'reports.ini', `; prod\n${readFileSync(REPORTS, 'utf8')}`)
+    await page.getByRole('button', { name: 'Save & apply' }).click()
+    const preview = page.getByRole('dialog', { name: `Review the change on ${NAME}` })
+    await expect(preview).toBeVisible()
+    await preview.getByRole('button', { name: 'Cancel' }).click()
+    expect(readFileSync(REPORTS, 'utf8')).not.toContain('; prod')
   })
 
   test('a Read only server shows no actions', async ({ page }) => {
@@ -248,6 +297,31 @@ test.describe('server tabs', () => {
     await expect(page.getByRole('menuitem', { name: /^Restart/ })).toHaveCount(0)
     await expect(page.getByRole('menuitem', { name: /^View logs/ })).toBeVisible()
     await page.keyboard.press('Escape')
+    await expect(page.getByRole('navigation', { name: NAME }).getByRole('link', { name: /Add new/ })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Actions for reports.ini' }).click()
+    await expect(page.getByRole('menuitem', { name: /^Download a copy/ })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: /^Remove from supervisor/ })).toHaveCount(0)
+    await page.keyboard.press('Escape')
+
+    // Its configs are read only, and still select like any text: a click
+    // focuses the file, select-all takes only the file, typing changes nothing.
+    await page.getByRole('link', { name: 'reports.ini', exact: true }).click()
+    await expect(page.getByTestId('read-only-banner')).toContainText('this server is set to Read only')
+    await page.getByRole('tab', { name: 'Config' }).click()
+    await expect(page.getByText('This server is set to Read only.').first()).toBeVisible()
+    const editor = page.getByTestId('ini-editor')
+    const content = editor.locator('.cm-content')
+    const before = await content.textContent()
+    await content.click()
+    await expect(content).toBeFocused()
+    await page.keyboard.press('ControlOrMeta+a')
+    const inside = await editor.evaluate((el) => {
+      const s = getSelection()
+      return !!s && !s.isCollapsed && el.contains(s.anchorNode) && el.contains(s.focusNode)
+    })
+    expect(inside).toBe(true)
+    await page.keyboard.type('x')
+    expect(await content.textContent()).toBe(before)
   })
 
   test('the popover has a section for the open server; every section starts folded', async ({ page }) => {

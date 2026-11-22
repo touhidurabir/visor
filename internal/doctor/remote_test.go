@@ -27,7 +27,7 @@ func TestRemoteReportAllGood(t *testing.T) {
 		}
 	}
 	if status(rows, "sudo").Status != RowInfo || status(rows, "write").Status != RowInfo {
-		t.Error("sudo off and writable are info")
+		t.Error("sudo off and no include check are info")
 	}
 	if !strings.Contains(status(rows, "read").Detail, "7 files") {
 		t.Error(status(rows, "read").Detail)
@@ -77,5 +77,49 @@ func TestRemoteReportStopsEarly(t *testing.T) {
 	rows = RemoteReport(RemoteFacts{HostKeyChanged: true, KnownHostsFix: "ssh-keygen -R h"})
 	if status(rows, "ssh").Fix[0].Command != "ssh-keygen -R h" {
 		t.Fatalf("%+v", rows)
+	}
+}
+
+func TestRemoteReportWriteRow(t *testing.T) {
+	base := RemoteFacts{Login: "deploy@h:22", HostKey: "SHA256:x", BridgeUser: "deploy",
+		ConfigPath: "/etc/supervisor/supervisord.conf", Via: "forward", Socket: "unix:/run/supervisor.sock",
+		IncludeDir: "/etc/supervisor/conf.d", IncludeChecked: true, Version: "4.2.5"}
+
+	f := base
+	f.IncludeWritable = true
+	if r := status(RemoteReport(f), "write"); r.Status != RowOK || !strings.Contains(r.Detail, "deploy can add and change configs") {
+		t.Errorf("writable: %+v", r)
+	}
+
+	f = base
+	f.IncludeGroup = "root"
+	r := status(RemoteReport(f), "write")
+	if r.Status != RowWarning || !strings.Contains(r.Detail, "deploy can't write /etc/supervisor/conf.d") {
+		t.Fatalf("not writable: %+v", r)
+	}
+	var cmds []string
+	for _, s := range r.Fix {
+		cmds = append(cmds, s.Command)
+	}
+	all := strings.Join(cmds, "\n")
+	if !strings.Contains(r.Fix[0].Text, "Use sudo") || !strings.Contains(all, "usermod -aG supervisor deploy") ||
+		!strings.Contains(all, "chgrp -R supervisor /etc/supervisor/conf.d && sudo chmod -R g+w") {
+		t.Fatalf("fix: %+v", r.Fix)
+	}
+	if Blocked(RemoteReport(f)) {
+		t.Error("a read-only include folder must not block the tab")
+	}
+
+	// Already in the folder's group: only the chmod, no reconnect.
+	f.IncludeGroup, f.Groups = "deploy", []string{"deploy", "www-data"}
+	r = status(RemoteReport(f), "write")
+	if len(r.Fix) != 2 || !strings.Contains(r.Fix[1].Command, "chgrp -R deploy") {
+		t.Fatalf("member fix: %+v", r.Fix)
+	}
+
+	f = base
+	f.IncludeMissing = true
+	if r := status(RemoteReport(f), "write"); r.Status != RowWarning || !strings.Contains(r.Fix[0].Command, "mkdir -p") {
+		t.Errorf("missing: %+v", r)
 	}
 }

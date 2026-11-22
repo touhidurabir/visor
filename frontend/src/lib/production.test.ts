@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { guard, isCancelled, productionAsk, withConsent } from './production'
+import { guard, isCancelled, onProduction, productionAsk, withConsent, withConsentOnce } from './production'
 import { serverTabs, setCurrentTab } from './tabs'
 
 const flush = () => new Promise((r) => setTimeout(r, 0))
@@ -20,6 +20,30 @@ describe('production guard', () => {
     expect(productionAsk.value?.title).toBe('Restart web:web on cpcsl prod?')
     productionAsk.value!.answer(true)
     await expect(p).resolves.toBeUndefined()
+  })
+  it('asks before a config change applies (M8), and a dialog that asked names the server', async () => {
+    const p = guard('sprod', 'Save', ['/etc/supervisor/conf.d/horizon.conf', 'x', 'hash'])
+    await flush()
+    expect(productionAsk.value?.title).toBe('Save horizon.conf on cpcsl prod?')
+    productionAsk.value!.answer(true)
+    await p
+    setCurrentTab('sprod')
+    expect(onProduction()).toBe(' on cpcsl prod')
+    setCurrentTab('sdev')
+    expect(onProduction()).toBe('')
+  })
+  it('withConsentOnce covers its own call only, not others while it runs', async () => {
+    let finish: () => void = () => {}
+    const slow = withConsentOnce(() => guard('sprod', 'Save', ['/x/a.conf']).then(() => new Promise<void>((r) => (finish = r))), 'sprod')
+    await flush()
+    expect(productionAsk.value).toBeNull()
+    const other = guard('sprod', 'Stop', ['web:web'])
+    await flush()
+    expect(productionAsk.value?.title).toBe('Stop web:web on cpcsl prod?')
+    productionAsk.value!.answer(false)
+    await expect(other).rejects.toSatisfy(isCancelled)
+    finish()
+    await slow
   })
   it('a no stops the call quietly', async () => {
     const p = guard('sprod', 'StopAll', [])

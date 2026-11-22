@@ -62,7 +62,7 @@ func assertResult(t *testing.T, got Result, added, changed, removed []string) {
 func TestReloadAddsNewProgram(t *testing.T) {
 	inst, b, ctx := harness(t, supervisortest.Sleeper)
 	c := inst.Client()
-	if _, err := Write(confPath(inst, "fresh"), programIni(inst, "fresh", "sleep 3600"), "", b); err != nil {
+	if _, err := Write(Local, confPath(inst, "fresh"), programIni(inst, "fresh", "sleep 3600"), "", b); err != nil {
 		t.Fatal(err)
 	}
 	res, err := Reload(ctx, c, nil)
@@ -85,7 +85,7 @@ func TestReloadChangedRestartsOnlyThatGroup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Write(p, programIni(inst, "worker", "sleep 3601"), Hash(old), b); err != nil {
+	if _, err := Write(Local, p, programIni(inst, "worker", "sleep 3601"), Hash(old), b); err != nil {
 		t.Fatal(err)
 	}
 	res, err := Reload(ctx, c, nil)
@@ -120,7 +120,7 @@ func TestReloadWaitsForSlowStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Write(p, append(old, "priority=500\n"...), Hash(old), b); err != nil {
+	if _, err := Write(Local, p, append(old, "priority=500\n"...), Hash(old), b); err != nil {
 		t.Fatal(err)
 	}
 	res, err := Reload(ctx, c, nil)
@@ -138,7 +138,7 @@ func TestReloadRemoved(t *testing.T) {
 	c := inst.Client()
 	inst.WaitFor(t, "worker", supervisor.StateRunning)
 	sleeperPID := pidOf(t, ctx, c, "sleeper")
-	if _, err := Remove(confPath(inst, "worker"), b); err != nil {
+	if _, err := Remove(Local, confPath(inst, "worker"), b); err != nil {
 		t.Fatal(err)
 	}
 	res, err := Reload(ctx, c, nil)
@@ -156,7 +156,7 @@ func TestReloadOnlyLimits(t *testing.T) {
 	inst, b, ctx := harness(t, supervisortest.Sleeper)
 	c := inst.Client()
 	for _, n := range []string{"alpha", "beta"} {
-		if _, err := Write(confPath(inst, n), programIni(inst, n, "sleep 3600"), "", b); err != nil {
+		if _, err := Write(Local, confPath(inst, n), programIni(inst, n, "sleep 3600"), "", b); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -198,7 +198,7 @@ func TestRemoveFromSupervisorStaysRemoved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bk, err := Remove(p, b)
+	bk, err := Remove(Local, p, b)
 	if err != nil {
 		t.Fatal(err)
 	}
