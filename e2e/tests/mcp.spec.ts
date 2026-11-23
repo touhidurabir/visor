@@ -17,6 +17,16 @@ async function setLevel(page: Page, label: string) {
 }
 
 test.describe('MCP server', () => {
+  test('a wide window pairs the settings cards; a narrow one stacks them', async ({ page }) => {
+    const top = async (name: string) => (await page.getByRole('group', { name }).boundingBox())!.y
+    await page.setViewportSize({ width: 1900, height: 1100 })
+    await openApp(page, '/mcp')
+    expect(await top('Connecting')).toBe(await top('Configuration'))
+    expect(await top('Privacy')).toBe(await top('Access'))
+    await page.setViewportSize({ width: 1000, height: 900 })
+    await expect.poll(() => top('Connecting')).toBeGreaterThan(await top('Configuration'))
+  })
+
   test('the page starts Off; turning it on shows Running and commands with the token', async ({ page }) => {
     const errors = collectErrors(page)
     await openApp(page, '/')
