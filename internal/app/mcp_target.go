@@ -94,6 +94,13 @@ func (g *tabTarget) Status() (any, error) {
 		}
 	}
 	out["failing"], out["changedOnDisk"] = fail, changed
+	if m, ok := g.t.RT.machineSize(); ok {
+		size := map[string]any{"cpuCores": m.Cores}
+		if m.MemBytes > 0 {
+			size["memoryBytes"] = m.MemBytes
+		}
+		out["machineSize"] = size
+	}
 	if len(notLoaded) > 0 {
 		out["notLoaded"] = notLoaded
 	}

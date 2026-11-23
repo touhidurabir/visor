@@ -26,6 +26,13 @@ type Totals struct {
 	Procs int
 }
 
+// Machine is a computer's size: its CPU cores and total memory in bytes
+// (0 when unknown).
+type Machine struct {
+	Cores    int
+	MemBytes uint64
+}
+
 // Sampler measures the trees rooted at pids. A pid it can't measure is
 // left out of the map.
 type Sampler interface {

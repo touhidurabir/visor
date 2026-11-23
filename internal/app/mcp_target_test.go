@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -387,5 +388,50 @@ func TestMCPTargetUsage(t *testing.T) {
 	}
 	if _, err := tg.Usage(mcp.UsageIn{Process: "nope"}); err == nil || !strings.Contains(err.Error(), "nope") {
 		t.Fatalf("an unknown process: %v", err)
+	}
+}
+
+// get_status gives the machine's size, so an AI tool can weigh
+// get_resource_usage against it.
+func TestMCPStatusMachineSize(t *testing.T) {
+	if usage.Local() == nil {
+		t.Skip("no local sampler on this OS")
+	}
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	tg, svc := targetFor(t, inst)
+	waitRunning(t, svc, "sleeper:sleeper")
+	st, err := tg.Status()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := decode[struct {
+		Size *struct {
+			Cores       int    `json:"cpuCores"`
+			MemoryBytes uint64 `json:"memoryBytes"`
+		} `json:"machineSize"`
+	}](t, st)
+	if got.Size == nil || got.Size.Cores != runtime.NumCPU() || got.Size.MemoryBytes == 0 {
+		t.Fatalf("machine size: %s", js(t, st))
+	}
+}
+
+// On a server the size comes through the bridge (no meminfo on this Mac's
+// stand-in server, so only the cores).
+func TestMCPStatusMachineSizeOnAServer(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	f := startRemoteRuntime(t, inst, nil)
+	waitRunning(t, f.svc, "sleeper:sleeper")
+	tg := &tabTarget{t: newTab(f.rt, func(string, any) {}, ""), name: "vm"}
+	st, err := tg.Status()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := decode[struct {
+		Size *struct {
+			Cores int `json:"cpuCores"`
+		} `json:"machineSize"`
+	}](t, st)
+	if got.Size == nil || got.Size.Cores < 1 {
+		t.Fatalf("machine size on a server: %s", js(t, st))
 	}
 }

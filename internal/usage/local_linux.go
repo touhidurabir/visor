@@ -3,6 +3,7 @@ package usage
 import (
 	"context"
 	"os"
+	"runtime"
 	"time"
 )
 
@@ -19,4 +20,14 @@ func Local() Sampler {
 		}
 		return t.Trees(pids), nil
 	})
+}
+
+// LocalMachine is this computer's core count and total memory.
+func LocalMachine() (Machine, error) {
+	b, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return Machine{}, err
+	}
+	mem, _ := ParseMemTotal(b)
+	return Machine{Cores: runtime.NumCPU(), MemBytes: mem}, nil
 }

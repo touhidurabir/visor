@@ -13,7 +13,7 @@
 #   M usage (json {pids}).
 # To Visor: H hello (json), o opened, D data, X closed, r file, t tail,
 #   s stat (json), g glob (json list), p pong, w/c/u/a done, l (json bool),
-#   m usage (json {hz, page, pids: {pid: [cpu ticks, rss pages, procs]}}),
+#   m usage (json {hz, page, cores, mem, pids: {pid: [cpu ticks, rss pages, procs]}}),
 #   e error (json {errno, code, msg}; code ECHANGED: the file is no longer
 #   what Visor read).
 import base64
@@ -290,6 +290,19 @@ def usage(pids):
     # how many processes. Without /proc (or with hidepid) it answers less.
     root = os.environ.get("VISOR_BRIDGE_PROC", "/proc")
     out = {"hz": os.sysconf("SC_CLK_TCK"), "page": os.sysconf("SC_PAGE_SIZE"), "pids": {}}
+    # The machine's size: online cores, and MemTotal (kB) from meminfo.
+    out["cores"] = os.sysconf("SC_NPROCESSORS_ONLN")
+    out["mem"] = 0
+    try:
+        with open(os.path.join(root, "meminfo"), "rb") as f:
+            for line in f.read().decode("ascii", "replace").splitlines():
+                if line.startswith("MemTotal:"):
+                    out["mem"] = int(line.split()[1]) * 1024
+                    break
+    except (IOError, OSError, ValueError, IndexError):
+        pass
+    if not pids:
+        return out
     try:
         names = os.listdir(root)
     except OSError:

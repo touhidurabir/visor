@@ -222,6 +222,9 @@ type Runtime struct {
 	// usage is every process's last hour of CPU and memory; it outlives
 	// reconnects.
 	usage *usage.History
+	// size is the machine's cores and memory once read (machineSize).
+	sizeMu sync.Mutex
+	size   usage.Machine
 }
 
 // NewRuntime returns a Runtime that does nothing until Start.

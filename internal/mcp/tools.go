@@ -128,7 +128,7 @@ var entries = []entry{
 			})
 		},
 	},
-	read("get_status", "Get status", "supervisord's state, version and uptime, process counts, health, the failing processes, the open issue count, and whether config files changed on disk but aren't applied yet. Start here.",
+	read("get_status", "Get status", "supervisord's state, version and uptime, process counts, health, the failing processes, the open issue count, whether config files changed on disk but aren't applied yet, and the machine's CPU cores and total memory (to weigh get_resource_usage against). Start here.",
 		func(t Target, _ ServerIn, _ bool) (any, error) { return t.Status() }),
 	read("list_processes", "List processes", "Every process: name, group, state, PID, uptime or time since it stopped, last exit status, config file and description. Filter by state, config or name.",
 		func(t Target, in ProcessesIn, _ bool) (any, error) { return t.Processes(in) }),

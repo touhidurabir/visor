@@ -111,3 +111,26 @@ func (r *Runtime) Usage(path string) ([]UsageView, error) {
 	}
 	return nil, fmt.Errorf("no config file %s on this tab", path)
 }
+
+// machineSize is this connection's cores and total memory, read once and
+// kept (read again while unknown); false when it can't be read.
+func (r *Runtime) machineSize() (usage.Machine, bool) {
+	r.sizeMu.Lock()
+	defer r.sizeMu.Unlock()
+	if r.size.Cores > 0 {
+		return r.size, true
+	}
+	var m usage.Machine
+	var err error
+	if r.opts.Remote != nil {
+		fs, _ := r.serverFS()
+		m, err = fs.Machine()
+	} else {
+		m, err = usage.LocalMachine()
+	}
+	if err != nil || m.Cores < 1 {
+		return usage.Machine{}, false
+	}
+	r.size = m
+	return m, true
+}

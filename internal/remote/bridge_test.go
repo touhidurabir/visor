@@ -328,3 +328,30 @@ func TestBridgeUsage(t *testing.T) {
 		t.Fatalf("no /proc: %+v %v", got, err)
 	}
 }
+
+// The machine's size: cores from Python, total memory from /proc/meminfo
+// (0 without it, as on macOS).
+func TestBridgeMachine(t *testing.T) {
+	needPython(t)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "meminfo"), []byte("MemTotal:        4028100 kB\nMemFree: 1 kB\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	for _, tc := range []struct {
+		root string
+		mem  uint64
+	}{{root, 4028100 * 1024}, {filepath.Join(root, "none"), 0}} {
+		c, _ := connect(t, []string{"VISOR_BRIDGE_PROC=" + tc.root})
+		tr := &remote.BridgeTransport{Conn: c}
+		b, err := tr.Bridge(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m, err := b.Machine(ctx)
+		tr.Close()
+		if err != nil || m.Cores < 1 || m.MemBytes != tc.mem {
+			t.Fatalf("%s: machine %+v %v, want cores and %d bytes", tc.root, m, err, tc.mem)
+		}
+	}
+}

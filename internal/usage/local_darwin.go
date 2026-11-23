@@ -25,6 +25,7 @@ import "C"
 
 import (
 	"context"
+	"runtime"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -65,4 +66,13 @@ func Local() Sampler {
 		}
 		return t.Trees(pids), nil
 	})
+}
+
+// LocalMachine is this computer's core count and total memory.
+func LocalMachine() (Machine, error) {
+	mem, err := unix.SysctlUint64("hw.memsize")
+	if err != nil {
+		return Machine{}, err
+	}
+	return Machine{Cores: runtime.NumCPU(), MemBytes: mem}, nil
 }

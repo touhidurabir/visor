@@ -71,3 +71,15 @@ func TestReadProc(t *testing.T) {
 		t.Fatal("a missing root read")
 	}
 }
+
+func TestParseMemTotal(t *testing.T) {
+	got, ok := ParseMemTotal([]byte("MemTotal:       16303512 kB\nMemFree:         1024 kB\n"))
+	if !ok || got != 16303512*1024 {
+		t.Fatalf("MemTotal: %d %v", got, ok)
+	}
+	for _, bad := range []string{"", "MemFree: 1 kB\n", "MemTotal: lots kB\n"} {
+		if got, ok := ParseMemTotal([]byte(bad)); ok {
+			t.Fatalf("%q parsed as %d", bad, got)
+		}
+	}
+}

@@ -68,3 +68,15 @@ func ReadProc(root string, tick time.Duration, page uint64) (Table, error) {
 	}
 	return t, nil
 }
+
+// ParseMemTotal reads MemTotal, in bytes, from /proc/meminfo's text.
+func ParseMemTotal(meminfo []byte) (uint64, bool) {
+	for _, line := range strings.Split(string(meminfo), "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 2 && f[0] == "MemTotal:" {
+			kb, err := strconv.ParseUint(f[1], 10, 64)
+			return kb * 1024, err == nil
+		}
+	}
+	return 0, false
+}

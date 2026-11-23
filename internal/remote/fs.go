@@ -101,6 +101,16 @@ func (f BridgeFS) Usage(pids []int) (map[int]usage.Totals, error) {
 	return b.Usage(ctx, pids)
 }
 
+// Machine is the server's core count and total memory.
+func (f BridgeFS) Machine() (usage.Machine, error) {
+	b, ctx, cancel, err := f.bridge()
+	if err != nil {
+		return usage.Machine{}, err
+	}
+	defer cancel()
+	return b.Machine(ctx)
+}
+
 // statInfo is a FileInfo as an fs.FileInfo.
 type statInfo struct{ f FileInfo }
 

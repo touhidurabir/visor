@@ -5,6 +5,7 @@ package usage
 import (
 	"context"
 	"os/exec"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -72,5 +73,15 @@ func BenchmarkLocal(b *testing.B) {
 		if _, err := s.Sample(context.Background(), pids); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func TestLocalMachine(t *testing.T) {
+	m, err := LocalMachine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Cores != runtime.NumCPU() || m.MemBytes < 256<<20 {
+		t.Fatalf("machine %+v, want %d cores and some memory", m, runtime.NumCPU())
 	}
 }

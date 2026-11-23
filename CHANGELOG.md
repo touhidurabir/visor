@@ -9,7 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 Each process shows how much CPU and memory it uses, now and over the last hour, on this computer and on servers.
 - The dashboard has a **Usage** column, "4.1 % · 182 MB": CPU (100 % is one core) and resident memory, each counting the process with the children it starts (horizon's workers, the program behind an `sh -c`). Wide windows add a sparkline of the last 10 minutes of CPU. "…" means the CPU figure comes with the next sample; "–" means not running, or not measurable (on macOS, another user's process).
 - A config's Overview has a **Resources** card: each process's CPU and memory now, the hour's peak and average, and a one-hour chart of either, with a gap where it wasn't running.
-- AI tools get `get_resource_usage` over MCP ("which worker is eating memory?").
+- AI tools get `get_resource_usage` over MCP ("which worker is eating memory?"), and `get_status` gives the machine's CPU cores and total memory to weigh it against ("is this server short on memory?").
 - Visor samples every 10 seconds and keeps an hour in memory; nothing is written to disk. On servers it reads `/proc` through the helper it already runs, in one round trip; nothing is installed.
 
 ### MCP server for AI tools
