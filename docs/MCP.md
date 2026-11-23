@@ -104,7 +104,7 @@ When a change needs your answer, Visor comes forward with the question, for exam
 | `get_status` | supervisord's state, version and uptime, process counts, health, the failing processes, the open issue count, configs changed on disk but not applied, and the machine's CPU cores and total memory. Start here. |
 | `list_processes` | Every process: name, group, state, PID, uptime or time since it stopped, last exit status, config file and description. Filter by state, config or name. |
 | `get_process` | One process in depth: state, last error, recent state history, its open issues and its program settings. |
-| `get_resource_usage` | CPU (100 % is one core) and memory of each running process with the children it starts, now and over the last hour (peak and average), sampled every 10 seconds. |
+| `get_resource_usage` | CPU (100 % is one core) and memory of each running process with the children it starts, now and over the last hour (peak and average), sampled every 10 seconds. A worker started through Docker shows the Docker client's figures, not the container's. |
 | `read_logs` | The end of a process's stdout or stderr log, 100 lines by default and at most 500, paged with a cursor. `errors_only` keeps error lines and the stack traces under them. |
 | `search_logs` | Lines matching text in a process's log, newest first, with line numbers. The last megabyte by default; `whole_file` only when Visor's Settings allow it. |
 | `read_supervisord_log` | The end of supervisord's own log: why it stopped, failed to start, or gave up on a process. |

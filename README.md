@@ -88,6 +88,7 @@ Things to know:
 - Keep Visor in Applications. If you run it from the disk image or Downloads, macOS moves it to a temporary place, and Launch at login won't turn on.
 - On Wayland (Ubuntu's and Fedora's default), the desktop decides where the popover opens, so it can't sit under the tray icon.
 - Linux panels don't show text beside a tray icon, so the unread count is drawn on the icon (1–9, then 9+).
+- **Workers started through Docker** (`docker run` or `docker compose` in the program's command) show the Docker client's CPU and memory, not the container's. The container's processes belong to Docker, not to supervisord, so Visor can't see them. Use `docker stats` for those.
 
 ## Getting started
 
