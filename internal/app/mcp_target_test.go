@@ -435,3 +435,19 @@ func TestMCPStatusMachineSizeOnAServer(t *testing.T) {
 		t.Fatalf("machine size on a server: %s", js(t, st))
 	}
 }
+
+// Editing a server may point it at another machine: its size is read again.
+func TestSetServerForgetsTheMachineSize(t *testing.T) {
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	f := startRemoteRuntime(t, inst, nil)
+	f.rt.sizeMu.Lock()
+	f.rt.size = usage.Machine{Cores: 99, MemBytes: 1}
+	f.rt.sizeMu.Unlock()
+	s, _ := f.rt.remoteServer()
+	f.rt.SetServer(s)
+	f.rt.sizeMu.Lock()
+	defer f.rt.sizeMu.Unlock()
+	if f.rt.size.Cores != 0 {
+		t.Fatalf("size kept after an edit: %+v", f.rt.size)
+	}
+}

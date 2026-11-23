@@ -81,6 +81,7 @@ test.describe('MCP server', () => {
     await openApp(page, '/mcp')
     const old = await mcpToken(page)
     await expect(page.getByTestId('mcp-regen-hint')).toContainText('copy the new command or config below into your other AI tools')
+    await expect(page.getByRole('button', { name: 'Regenerate…' })).toHaveAccessibleDescription(/After a new token/)
     await page.getByRole('button', { name: 'Regenerate…' }).click()
     await page.getByRole('alertdialog').getByRole('button', { name: 'Make a new token' }).click()
     await expect.poll(() => mcpToken(page)).not.toBe(old)

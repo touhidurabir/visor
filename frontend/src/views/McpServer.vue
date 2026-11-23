@@ -184,9 +184,9 @@ onUnmounted(() => offs.forEach((off) => off()))
               <input id="mcp-token" class="input mono token" :type="showToken ? 'text' : 'password'" :value="token" readonly />
               <button type="button" class="btn sm" :aria-pressed="showToken" @click="showToken = !showToken">{{ showToken ? 'Hide' : 'Show' }}</button>
               <button type="button" class="btn sm" @click="copyToken">Copy</button>
-              <button type="button" class="btn sm" :disabled="busy" @click="confirm = 'regenerate'">Regenerate…</button>
+              <button type="button" class="btn sm" :disabled="busy" aria-describedby="mcp-regen-hint" @click="confirm = 'regenerate'">Regenerate…</button>
             </div>
-            <span class="hint regen" data-testid="mcp-regen-hint">
+            <span id="mcp-regen-hint" class="hint regen" data-testid="mcp-regen-hint">
               After a new token, {{ view.HasClaude ? 'click Add to Claude Code again and copy' : 'copy' }} the new command or config below into your other AI tools.
             </span>
           </div>
@@ -322,7 +322,7 @@ onUnmounted(() => offs.forEach((off) => off()))
 
 <style scoped>
 .page { display: flex; flex-direction: column; gap: 18px; container-type: inline-size; }
-header { max-width: 980px; }
+header, .alert { max-width: 980px; }
 .cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; max-width: 980px; }
 /* Wide windows: settings in pairs, the two tables across the whole width. */
 @container (min-width: 1200px) {

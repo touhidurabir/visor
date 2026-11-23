@@ -113,17 +113,20 @@ func (r *Runtime) Usage(path string) ([]UsageView, error) {
 }
 
 // machineSize is this connection's cores and total memory, read once and
-// kept (read again while unknown); false when it can't be read.
+// kept (read again while unknown, and after the server is edited); false
+// when it can't be read. The read happens outside the lock, and a server
+// gets 3 s, so a stalled link doesn't hold get_status for long.
 func (r *Runtime) machineSize() (usage.Machine, bool) {
 	r.sizeMu.Lock()
-	defer r.sizeMu.Unlock()
-	if r.size.Cores > 0 {
-		return r.size, true
+	m := r.size
+	r.sizeMu.Unlock()
+	if m.Cores > 0 {
+		return m, true
 	}
-	var m usage.Machine
 	var err error
 	if r.opts.Remote != nil {
 		fs, _ := r.serverFS()
+		fs.Timeout = machineSizeWait
 		m, err = fs.Machine()
 	} else {
 		m, err = usage.LocalMachine()
@@ -131,6 +134,11 @@ func (r *Runtime) machineSize() (usage.Machine, bool) {
 	if err != nil || m.Cores < 1 {
 		return usage.Machine{}, false
 	}
+	r.sizeMu.Lock()
 	r.size = m
+	r.sizeMu.Unlock()
 	return m, true
 }
+
+// machineSizeWait is how long get_status waits for a server's size.
+const machineSizeWait = 3 * time.Second

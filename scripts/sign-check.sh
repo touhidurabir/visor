@@ -53,7 +53,8 @@ case "$1" in
     fi
     mkdir -p "$DIR/state-real"
     echo "Visor runs against your real supervisord: start, stop and Save & apply are real."
-    echo "Its own state is in $DIR/state-real."
+    echo "Its own state is in $DIR/state-real. Shared with your installed Visor: Keychain secrets"
+    echo "(the MCP token, supervisord's password) and Launch at login."
     exec open -n --env "VISOR_STATE_DIR=$DIR/state-real" "$APP"
     ;;
   *) usage ;;

@@ -291,8 +291,13 @@ def usage(pids):
     root = os.environ.get("VISOR_BRIDGE_PROC", "/proc")
     out = {"hz": os.sysconf("SC_CLK_TCK"), "page": os.sysconf("SC_PAGE_SIZE"), "pids": {}}
     # The machine's size: online cores, and MemTotal (kB) from meminfo.
-    out["cores"] = os.sysconf("SC_NPROCESSORS_ONLN")
+    # Online cores ignore CPU affinity, unlike Go's runtime.NumCPU here.
+    out["cores"] = 0
     out["mem"] = 0
+    try:
+        out["cores"] = os.sysconf("SC_NPROCESSORS_ONLN")
+    except (ValueError, OSError):
+        pass
     try:
         with open(os.path.join(root, "meminfo"), "rb") as f:
             for line in f.read().decode("ascii", "replace").splitlines():

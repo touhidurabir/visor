@@ -128,6 +128,7 @@ Then open the build in one of two ways:
 | Start, stop, Save & apply | act on sample processes | act on **your real processes** |
 | Visor's state folder | `/tmp/visor-signcheck/state` | `/tmp/visor-signcheck/state-real` |
 | Your real Visor's state (`~/Library/Application Support/Visor`) | not touched | not touched |
+| Keychain secrets (MCP token, passwords) and Launch at login | shared with your installed Visor | shared with your installed Visor |
 
 ### Against the sandbox: `open`
 
@@ -160,8 +161,15 @@ starting the sandbox.
   saved servers, backups) goes to `/tmp/visor-signcheck/state-real`. Your real
   Visor's state isn't read or changed. Because that folder starts empty, the
   first launch looks like a first run: no saved servers, MCP off.
-- **What is shared.** Keychain entries are keyed by the config path, so a
-  password saved here is the same entry your everyday Visor uses.
+- **What is shared with your installed Visor.** Every test build shares
+  these with it (`open` too), because they're keyed by the app, not by the
+  state folder:
+  - **Keychain secrets.** supervisord's password is keyed by the config
+    path, so with `open-real` it's the same entry your everyday Visor uses.
+    The MCP token is one entry for every build: **Regenerate** here
+    disconnects the AI tools set up for your installed Visor.
+  - **Launch at login.** Turning it on here replaces your installed Visor's
+    login item with this build's.
 
 Before you start:
 
