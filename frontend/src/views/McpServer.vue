@@ -179,11 +179,16 @@ onUnmounted(() => offs.forEach((off) => off()))
             <label class="name" for="mcp-token">Access token</label>
             <span class="hint">AI tools send it with every request. A new one disconnects them until you add it again.</span>
           </div>
-          <div class="ctl">
-            <input id="mcp-token" class="input mono token" :type="showToken ? 'text' : 'password'" :value="token" readonly />
-            <button type="button" class="btn sm" :aria-pressed="showToken" @click="showToken = !showToken">{{ showToken ? 'Hide' : 'Show' }}</button>
-            <button type="button" class="btn sm" @click="copyToken">Copy</button>
-            <button type="button" class="btn sm" :disabled="busy" @click="confirm = 'regenerate'">Regenerate…</button>
+          <div class="ctl-col">
+            <div class="ctl">
+              <input id="mcp-token" class="input mono token" :type="showToken ? 'text' : 'password'" :value="token" readonly />
+              <button type="button" class="btn sm" :aria-pressed="showToken" @click="showToken = !showToken">{{ showToken ? 'Hide' : 'Show' }}</button>
+              <button type="button" class="btn sm" @click="copyToken">Copy</button>
+              <button type="button" class="btn sm" :disabled="busy" @click="confirm = 'regenerate'">Regenerate…</button>
+            </div>
+            <span class="hint regen" data-testid="mcp-regen-hint">
+              After a new token, {{ view.HasClaude ? 'click Add to Claude Code again and copy' : 'copy' }} the new command or config below into your other AI tools.
+            </span>
           </div>
         </div>
       </div>
@@ -333,6 +338,8 @@ h1 { margin: 0; }
 .what { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .name { font-weight: 600; }
 .hint { color: var(--ink3); font-size: 12.5px; }
+.ctl-col { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 0; }
+.regen { max-width: 440px; text-align: right; }
 .ctl { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
 .mono { font-family: var(--mono); font-size: 12.5px; }
 .num-port { width: 90px; }
@@ -368,5 +375,7 @@ h1 { margin: 0; }
 @media (max-width: 640px) {
   .row { grid-template-columns: minmax(0, 1fr); }
   .ctl { justify-content: flex-start; }
+  .ctl-col { align-items: flex-start; }
+  .regen { text-align: left; }
 }
 </style>

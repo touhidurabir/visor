@@ -70,6 +70,7 @@ test.describe('MCP server', () => {
   test('Regenerate makes a new token and the old one stops working', async ({ page }) => {
     await openApp(page, '/mcp')
     const old = await mcpToken(page)
+    await expect(page.getByTestId('mcp-regen-hint')).toContainText('copy the new command or config below into your other AI tools')
     await page.getByRole('button', { name: 'Regenerate…' }).click()
     await page.getByRole('alertdialog').getByRole('button', { name: 'Make a new token' }).click()
     await expect.poll(() => mcpToken(page)).not.toBe(old)
