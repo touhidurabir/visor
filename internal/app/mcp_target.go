@@ -133,6 +133,42 @@ func (g *tabTarget) find(name string) (ProcessView, ConfigView, error) {
 	return ProcessView{}, ConfigView{}, fmt.Errorf("no process named %q on %s: list_processes shows them", name, g.name)
 }
 
+// Usage is each process's CPU and memory now and over the hour; null for
+// an unknown value.
+func (g *tabTarget) Usage(in mcp.UsageIn) (any, error) {
+	if err := g.live(); err != nil {
+		return nil, err
+	}
+	var procs []ProcessView
+	if in.Process != "" {
+		p, _, err := g.find(in.Process)
+		if err != nil {
+			return nil, err
+		}
+		procs = []ProcessView{p}
+	} else {
+		for _, c := range g.t.Server.Overview().Configs {
+			procs = append(procs, c.Processes...)
+		}
+	}
+	known := func(v float64) any {
+		if v < 0 {
+			return nil
+		}
+		return v
+	}
+	out := make([]map[string]any, 0, len(procs))
+	for _, p := range procs {
+		s := g.t.RT.usage.Summary(p.FullName)
+		out = append(out, map[string]any{
+			"name": p.FullName, "state": p.State,
+			"cpu_percent": known(p.CPU), "memory_bytes": known(float64(p.MemBytes)), "processes": p.Procs,
+			"hour": map[string]any{"peak_cpu_percent": s.PeakCPU, "avg_cpu_percent": s.AvgCPU, "peak_memory_bytes": s.PeakRSS, "avg_memory_bytes": s.AvgRSS},
+		})
+	}
+	return map[string]any{"processes": out, "sample_every_s": usageEvery.Seconds()}, nil
+}
+
 func (g *tabTarget) Process(in mcp.ProcessIn) (any, error) {
 	if err := g.live(); err != nil {
 		return nil, err

@@ -40,7 +40,7 @@ test.describe('MCP server', () => {
     await page.getByRole('tab', { name: /JSON/ }).click()
     await expect(snippets).toContainText('"mcpServers"')
 
-    await expect(page.getByTestId('mcp-tools').locator('tbody td.mono')).toHaveCount(25)
+    await expect(page.getByTestId('mcp-tools').locator('tbody td.mono')).toHaveCount(26)
     await expect(access(page).getByLabel(`Access for ${LOCAL}`)).toHaveValue('control')
     expect(errors).toEqual([])
   })

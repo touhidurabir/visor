@@ -60,6 +60,7 @@ type Target interface {
 	Status() (any, error)
 	Processes(ProcessesIn) (any, error)
 	Process(ProcessIn) (any, error)
+	Usage(UsageIn) (any, error)
 	Logs(LogsIn) (any, error)
 	SearchLogs(SearchIn) (any, error)
 	SupervisordLog(SupervisordLogIn) (any, error)
@@ -103,6 +104,11 @@ type ProcessesIn struct {
 type ProcessIn struct {
 	Server string `json:"server,omitempty" jsonschema:"the server's name or id from list_servers; leave it out for this computer"`
 	Name   string `json:"name" jsonschema:"the process as supervisord names it: group:name, or name when the group has the same name"`
+}
+
+type UsageIn struct {
+	Server  string `json:"server,omitempty" jsonschema:"the server's name or id from list_servers; leave it out for this computer"`
+	Process string `json:"process,omitempty" jsonschema:"one process: group:name, or name; leave it out for every process"`
 }
 
 type LogsIn struct {
@@ -199,6 +205,7 @@ type RestoreIn struct {
 func (i ServerIn) server() string         { return i.Server }
 func (i ProcessesIn) server() string      { return i.Server }
 func (i ProcessIn) server() string        { return i.Server }
+func (i UsageIn) server() string          { return i.Server }
 func (i LogsIn) server() string           { return i.Server }
 func (i SearchIn) server() string         { return i.Server }
 func (i SupervisordLogIn) server() string { return i.Server }

@@ -134,6 +134,8 @@ var entries = []entry{
 		func(t Target, in ProcessesIn, _ bool) (any, error) { return t.Processes(in) }),
 	read("get_process", "Get a process", "One process in depth: state, last error, recent state history, its open issues, and its program settings (environment values hidden unless allowed).",
 		func(t Target, in ProcessIn, _ bool) (any, error) { return t.Process(in) }),
+	read("get_resource_usage", "Get CPU and memory", "CPU (100 % is one core) and resident memory of each running process with the children it starts, now and over the last hour (peak and average), sampled every 10 seconds. Answers which process uses the most CPU or memory. Unknown values are null: a stopped process, or one the OS won't measure.",
+		func(t Target, in UsageIn, _ bool) (any, error) { return t.Usage(in) }),
 	read("read_logs", "Read logs", "The end of a process's stdout or stderr log, 100 lines by default and at most 500. Use the returned cursor as before to page back; atStart means the start of the log was reached. errors_only keeps error lines and the stack traces under them.",
 		func(t Target, in LogsIn, _ bool) (any, error) { return t.Logs(in) }),
 	read("search_logs", "Search logs", "Lines matching text (ignoring case) in a process's log, newest first, with line numbers. By default the last megabyte; page back with the returned cursor. whole_file only when Visor's Settings allow searching whole log files.",

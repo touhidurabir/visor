@@ -11,6 +11,7 @@ import (
 	"github.com/touhidurabir/visor/internal/mcp"
 	"github.com/touhidurabir/visor/internal/settings"
 	"github.com/touhidurabir/visor/internal/supervisor/supervisortest"
+	"github.com/touhidurabir/visor/internal/usage"
 )
 
 // logger writes an info line, an error with a trace line, then sleeps; its
@@ -351,5 +352,40 @@ func TestMCPPendingOnAReadOnlyServer(t *testing.T) {
 	out, err := tg.PendingChanges(mcp.OptPathIn{})
 	if err != nil || !strings.Contains(js(t, out), "Read only") {
 		t.Fatalf("pending on a Read only server: %v %s", err, js(t, out))
+	}
+}
+
+func TestMCPTargetUsage(t *testing.T) {
+	if usage.Local() == nil {
+		t.Skip("no local sampler on this OS")
+	}
+	fastUsage(t)
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	tg, svc := targetFor(t, inst)
+	waitRunning(t, svc, "sleeper:sleeper")
+	waitOverview(t, svc, 5*time.Second, "a sample", func(ov OverviewView) bool {
+		p, _, ok := findProc(ov, "sleeper:sleeper")
+		return ok && p.MemBytes > 0
+	})
+	res, err := tg.Usage(mcp.UsageIn{Process: "sleeper"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := decode[struct {
+		Processes []struct {
+			Name        string
+			MemoryBytes int64 `json:"memory_bytes"`
+			Processes   int
+			Hour        struct {
+				PeakMemoryBytes int64 `json:"peak_memory_bytes"`
+			}
+		}
+		SampleEveryS float64 `json:"sample_every_s"`
+	}](t, res)
+	if len(u.Processes) != 1 || u.Processes[0].Name != "sleeper:sleeper" || u.Processes[0].MemoryBytes <= 0 || u.Processes[0].Processes < 1 || u.Processes[0].Hour.PeakMemoryBytes <= 0 {
+		t.Fatalf("usage %+v", u)
+	}
+	if _, err := tg.Usage(mcp.UsageIn{Process: "nope"}); err == nil || !strings.Contains(err.Error(), "nope") {
+		t.Fatalf("an unknown process: %v", err)
 	}
 }
