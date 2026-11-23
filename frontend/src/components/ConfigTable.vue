@@ -134,7 +134,7 @@ defineExpose({ focusProcess })
             </div>
             <span><StateText :state="p.State" :status="p.Status" /></span>
             <span class="use" :data-usage="p.FullName" :title="usageText(p)" :aria-label="usageText(p)">
-              <svg v-if="(p.Spark ?? []).length > 1" class="spark" width="48" height="14" viewBox="0 0 48 14" aria-hidden="true"><polyline :points="sparkPath(p.Spark ?? [], 48, 14)" /></svg>
+              <svg v-if="usageLabel(p).known && (p.Spark ?? []).length > 1" class="spark" width="48" height="14" viewBox="0 0 48 14" aria-hidden="true"><polyline :points="sparkPath(p.Spark ?? [], 48, 14)" /></svg>
               <template v-if="usageLabel(p).known"
                 ><span class="fig">{{ usageLabel(p).cpu }}</span><span class="sep" aria-hidden="true">·</span><span class="fig">{{ usageLabel(p).mem }}</span></template
               >
@@ -171,11 +171,12 @@ defineExpose({ focusProcess })
 
 <style scoped>
 .frame { border: 1px solid var(--line); border-radius: 10px; background: var(--raised); overflow-x: auto; container-type: inline-size; }
-/* Name gets at least 200 px; the rest are fixed (+ 5 gaps and the padding). */
-.grid { min-width: 824px; }
+/* Name gets at least 180 px; the rest are fixed (+ 5 gaps and the padding),
+   so the table fits the default 1000 px window. */
+.grid { min-width: 742px; }
 .row {
   display: grid;
-  grid-template-columns: minmax(200px, 1fr) 120px 150px 110px 80px 72px;
+  grid-template-columns: minmax(180px, 1fr) 120px 118px 96px 64px 72px;
   align-items: center;
   column-gap: 12px;
   padding: 0 16px;
@@ -223,7 +224,7 @@ a.pname:hover { text-decoration: underline; }
 .spark { display: none; flex: none; }
 .spark polyline { fill: none; stroke: var(--accent); stroke-width: 1.3; stroke-linejoin: round; }
 @container (min-width: 900px) {
-  .row { grid-template-columns: minmax(200px, 1fr) 120px 204px 110px 80px 72px; }
+  .row { grid-template-columns: minmax(200px, 1fr) 120px 172px 110px 80px 72px; }
   .spark { display: block; }
 }
 </style>

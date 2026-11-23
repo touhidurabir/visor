@@ -5,6 +5,7 @@ describe('fmtCpu', () => {
   it('formats a share of one core', () => {
     expect(fmtCpu(-1)).toBe('–')
     expect(fmtCpu(0)).toBe('0 %')
+    expect(fmtCpu(0.02)).toBe('0 %')
     expect(fmtCpu(4.14)).toBe('4.1 %')
     expect(fmtCpu(97.44)).toBe('97.4 %')
     expect(fmtCpu(120.3)).toBe('120 %')

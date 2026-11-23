@@ -30,6 +30,7 @@ import { configRoute } from '../lib/links'
 import { showToast } from '../lib/toast'
 import { revealLabel } from '../lib/platform'
 import ReadOnlyBanner from '../components/ReadOnlyBanner.vue'
+import ResourcesCard from '../components/ResourcesCard.vue'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -366,6 +367,7 @@ function download() {
             @open-log="openLog"
             @view-log="viewLog"
           />
+          <ResourcesCard v-if="procs.length" :path="config.Path" />
         </div>
 
         <template v-else-if="tab === 'logs'">

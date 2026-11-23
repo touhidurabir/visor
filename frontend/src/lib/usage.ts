@@ -4,7 +4,7 @@
 /** "4.1 %", "120 %" (100 % is one core), "–" when unknown. */
 export function fmtCpu(v: number): string {
   if (v < 0) return '–'
-  if (v === 0) return '0 %'
+  if (v < 0.05) return '0 %'
   return `${v >= 100 ? Math.round(v) : v.toFixed(1)} %`
 }
 
