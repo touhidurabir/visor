@@ -82,6 +82,22 @@ func TestLiveSSH(t *testing.T) {
 			if b, err := a.Files.Bridge(ctx); err == nil {
 				t.Logf("bridge user %s, python %s", b.Hello().User, b.Hello().Python)
 			}
+			var pids []int
+			for _, p := range procs {
+				if p.PID > 0 {
+					pids = append(pids, p.PID)
+				}
+			}
+			use, err := remote.BridgeFS{T: files}.Usage(pids)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(pids) > 0 && len(use) == 0 {
+				t.Fatalf("no usage for %v", pids)
+			}
+			for pid, u := range use {
+				t.Logf("  usage %d: cpu %s, rss %d MB, %d processes", pid, u.CPU, u.RSS>>20, u.Procs)
+			}
 			if os.Getenv("VISOR_SSH_TEST_WRITE") == "1" {
 				liveWrite(t, c, remote.BridgeFS{T: files})
 			}
