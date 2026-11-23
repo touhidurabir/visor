@@ -59,3 +59,18 @@ func TestLocalCPU(t *testing.T) {
 		t.Fatalf("a busy loop uses %.1f %% CPU", c)
 	}
 }
+
+// BenchmarkLocal is one sample of 50 trees over this machine's whole process
+// table: Visor's cost is this every 10 s.
+func BenchmarkLocal(b *testing.B) {
+	pids := make([]int, 50)
+	for i := range pids {
+		pids[i] = 1 + i
+	}
+	s := Local()
+	for b.Loop() {
+		if _, err := s.Sample(context.Background(), pids); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
