@@ -9,7 +9,7 @@ Thanks for helping. Bug reports, ideas and pull requests are all welcome.
 
 ## Setting up
 
-You need macOS 13 or later, Go 1.27.3 (the official installer from go.dev), Node (see `.nvmrc`), supervisord (`brew install supervisor`) and the Wails v3 CLI:
+You need macOS 13 or later, or Linux with GTK 4 and WebKitGTK 6.0 (see the [README](README.md#development)). You also need Go 1.27.3 (the official installer from go.dev), Node (see `.nvmrc`), supervisord (`brew install supervisor`, or your distro's package) and the Wails v3 CLI:
 
 ```sh
 go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
@@ -25,7 +25,12 @@ The other scripts (the sandbox, the packaged app for notifications and launch at
 - `internal/supervisor`: XML-RPC client for supervisord (Visor never shells out to `supervisorctl`).
 - `internal/config`, `internal/validate`, `internal/describe`, `internal/apply`: reading, checking, explaining and safely writing program configs.
 - `internal/monitor`, `internal/issues`, `internal/notify`, `internal/logs`: watching processes, tracking failures, notifications and log tails.
-- `internal/doctor`, `internal/platform`: the setup checks and macOS helpers.
+- `internal/activity`: who changed what (Visor, outside Visor, an AI tool).
+- `internal/doctor`, `internal/platform`, `internal/trayicon`: the setup checks, the macOS and Linux helpers, and the tray icon.
+- `internal/remote`: servers over SSH: the tunnel to supervisord's socket, host keys, the capability report, and the Python helper (`bridge.py`) for files, sudo and process figures.
+- `internal/usage`: CPU and memory per process tree, and an hour of history.
+- `internal/mcp`: the MCP server's tools and access rules ([docs/MCP.md](docs/MCP.md)).
+- `internal/settings`: settings, saved servers and MCP access.
 - `internal/app`: the only package that talks to Wails; it exposes the others to the UI.
 - `frontend/`: the Vue 3 + TypeScript UI.
 
