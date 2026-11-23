@@ -22,6 +22,12 @@ export interface ActivityFilter {
   process: string
 }
 
+/** byLabel says who made a change: an AI tool through MCP, Visor, or someone outside it. */
+export function byLabel(e: ActivityEventView): string {
+  if (e.Via) return `via ${e.Via}`
+  return e.ByVisor ? 'By Visor' : 'Outside Visor'
+}
+
 export function matches(e: ActivityEventView, f: ActivityFilter): boolean {
   if (f.who === 'outside' && e.ByVisor) return false
   if (f.who === 'visor' && !e.ByVisor) return false

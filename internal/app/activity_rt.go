@@ -24,6 +24,7 @@ type ActivityEventView struct {
 	Process  string
 	Config   string
 	ByVisor  bool
+	Via      string // the AI tool, for a change made through MCP
 	Text     string // "web:web restarted"
 	FileName string
 }
@@ -37,7 +38,7 @@ type ActivityView struct {
 func toActivityView(e activity.Event) ActivityEventView {
 	v := ActivityEventView{
 		ID: e.ID, AtMs: e.At.UnixMilli(), Kind: string(e.Kind), Group: e.Kind.Group(),
-		Process: e.Process, Config: e.Config, ByVisor: e.ByVisor, Text: e.Text(),
+		Process: e.Process, Config: e.Config, ByVisor: e.ByVisor, Via: e.Via, Text: e.Text(),
 	}
 	if e.Config != "" {
 		v.FileName = baseName(e.Config)
@@ -59,6 +60,7 @@ func baseName(p string) string {
 type visorAct struct {
 	e           expectation
 	files       bool // config files Visor writes, moves or removes
+	via         string
 	from, until time.Time
 }
 
@@ -105,26 +107,59 @@ func (r *Runtime) addAct(a *visorAct, during, after time.Duration) func() {
 	}
 }
 
+// markVia marks what e covers (and config files, when files) as changed
+// through MCP by client, from now until visorWindow after done. The
+// action itself still records it as Visor's.
+func (r *Runtime) markVia(client string, e expectation, files bool) (done func()) {
+	return r.addAct(&visorAct{e: e, files: files, via: client}, time.Hour, visorWindow+remoteFileCheck)
+}
+
+// expectFile covers the processes of a config file: its groups now, and
+// whatever the file holds after a change.
+func (r *Runtime) expectFile(path string) expectation {
+	groups, _ := r.groupsInFile(path)
+	g := expectGroups(groups...)
+	return expectation{match: func(p string) bool { return g.match(p) || r.configOf(p) == path }}
+}
+
 // byVisor reports whether one of Visor's own actions covers process ("" is
 // supervisord itself) at t.
 func (r *Runtime) byVisor(process string, t time.Time) bool {
+	return r.coveringAct(process, t, false) != nil
+}
+
+// via names the AI tool whose MCP call covers process at t, or "".
+func (r *Runtime) via(process string, t time.Time) string {
+	if a := r.coveringAct(process, t, true); a != nil {
+		return a.via
+	}
+	return ""
+}
+
+func (r *Runtime) coveringAct(process string, t time.Time, viaOnly bool) *visorAct {
+	// Copies, matched without r.mu: a match may read the runtime (expectFile).
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	acts := make([]visorAct, len(r.visorActs))
+	for i, a := range r.visorActs {
+		acts[i] = *a
+	}
+	r.mu.Unlock()
 	file := strings.HasPrefix(process, "file:")
-	for _, a := range r.visorActs {
-		if t.Before(a.from) || t.After(a.until) {
+	for i := range acts {
+		a := &acts[i]
+		if t.Before(a.from) || t.After(a.until) || viaOnly && a.via == "" {
 			continue
 		}
 		switch {
 		case file:
 			if a.files {
-				return true
+				return a
 			}
 		case a.e.daemon, process != "" && a.e.match != nil && a.e.match(process):
-			return true
+			return a
 		}
 	}
-	return false
+	return nil
 }
 
 // openActivity opens the activity log in the state folder. Caller holds life.
@@ -169,7 +204,7 @@ func (r *Runtime) recordActivity(u monitor.Update, d config.Discovery, changes c
 		}
 	}
 	in := activity.Input{
-		Update: u, Changes: changes, Checked: checked, ConfigOf: r.configOf, ByVisor: r.byVisor,
+		Update: u, Changes: changes, Checked: checked, ConfigOf: r.configOf, ByVisor: r.byVisor, Via: r.via,
 		Crashed: func(p string) bool { return crashed[p] },
 	}
 	reconnected := false

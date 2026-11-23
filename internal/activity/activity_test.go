@@ -232,3 +232,29 @@ func TestStore(t *testing.T) {
 		t.Fatalf("after retention: %+v", got)
 	}
 }
+
+func TestVia(t *testing.T) {
+	d := started()
+	in := upd(0, monitor.Event{Kind: monitor.Restarted, Process: "a:a", From: supervisor.StateRunning, To: supervisor.StateRunning},
+		monitor.Event{Kind: monitor.Restarted, Process: "b:b", From: supervisor.StateRunning, To: supervisor.StateRunning})
+	in.ByVisor = func(string, time.Time) bool { return true }
+	in.Via = func(p string, _ time.Time) string {
+		if p == "a:a" {
+			return "Claude Code"
+		}
+		return ""
+	}
+	out := d.Next(in)
+	if out[0].Via != "Claude Code" || out[1].Via != "" {
+		t.Fatalf("%+v", out)
+	}
+
+	// A held stop that merges with a start keeps the stop's via.
+	in = upd(time.Second, change("c:c", supervisor.StateRunning, supervisor.StateStopped))
+	in.Via = func(string, time.Time) string { return "Codex" }
+	d.Next(in)
+	out = d.Next(upd(2*time.Second, change("c:c", supervisor.StateStopped, supervisor.StateStarting)))
+	if len(out) != 1 || out[0].Kind != ProcessRestarted || out[0].Via != "Codex" {
+		t.Fatalf("merged restart: %+v", out)
+	}
+}

@@ -8,6 +8,7 @@ import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import AppMark from './AppMark.vue'
 import NotificationBell from './NotificationBell.vue'
+import { followMcp, mcpStatus } from '../lib/mcp'
 import { shortcutAria, shortcutHint } from '../lib/shortcuts'
 import { baseName, tabHref } from '../lib/tabs'
 
@@ -35,9 +36,12 @@ const sections: Record<string, string[]> = {
   activity: ['activity'],
   new: ['new', 'new-form', 'new-import'],
   servers: ['servers'],
+  mcp: ['mcp'],
   doctor: ['doctor', 'report'],
   settings: ['settings'],
 }
+followMcp()
+const mcpRunning = computed(() => mcpStatus.value === 'running')
 const on = (key: string) => ({ on: sections[key].includes(baseName(route.name)) })
 
 const dot = computed(() => {
@@ -102,6 +106,13 @@ const dot = computed(() => {
           <path d="M3 12h4l3-8 4 16 3-8h4" />
         </svg>
         {{ remote ? 'Server report' : 'Doctor' }}
+      </RouterLink>
+      <RouterLink to="/mcp" :class="['nav', on('mcp')]">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M8 3v4M16 3v4" /><rect x="5" y="7" width="14" height="6" rx="2" /><path d="M12 13v3a4 4 0 0 1-4 4" />
+        </svg>
+        MCP server
+        <span v-if="mcpRunning" class="dot d-ok run" aria-hidden="true" /><span v-if="mcpRunning" class="sr-only">(running)</span>
       </RouterLink>
       <RouterLink to="/servers" :class="['nav', on('servers')]">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -171,6 +182,7 @@ const dot = computed(() => {
 .nav.dim:not(.on) { color: var(--ink3); }
 .nav.on { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
 .nav .kbd { margin-left: auto; font-weight: 400; }
+.nav .run { margin-left: auto; }
 .count {
   margin-left: auto;
   min-width: 20px;

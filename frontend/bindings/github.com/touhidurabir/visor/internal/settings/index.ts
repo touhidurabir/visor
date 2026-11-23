@@ -4,6 +4,8 @@
 export type {
     ActivityMutes,
     CrashLoopRules,
+    MCPAccess,
+    MCPSettings,
     NotifyPrefs,
     Server,
     Settings

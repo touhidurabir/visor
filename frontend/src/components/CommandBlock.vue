@@ -1,12 +1,13 @@
 <script setup lang="ts">
 // A command or config lines to copy, in the log colours, with a Copy button
-// (as Doctor shows its fixes). Without `copy` it is just the text.
+// (as Doctor shows its fixes). Without `copy` it is just the text. `shown`,
+// when set, is displayed instead of text (a token hidden), and text is copied.
 import { ref } from 'vue'
 import { copyText } from '../lib/clipboard'
 import { errorMessage } from '../lib/overview'
 import { showToast } from '../lib/toast'
 
-const props = withDefaults(defineProps<{ text: string; copy?: boolean }>(), { copy: true })
+const props = withDefaults(defineProps<{ text: string; copy?: boolean; shown?: string }>(), { copy: true })
 const copied = ref(false)
 
 async function doCopy() {
@@ -22,7 +23,7 @@ async function doCopy() {
 
 <template>
   <div class="cmd">
-    <code class="pre">{{ text }}</code>
+    <code class="pre">{{ shown ?? text }}</code>
     <button v-if="copy" type="button" class="btn copy" @click="doCopy">{{ copied ? 'Copied' : 'Copy' }}</button>
   </div>
 </template>

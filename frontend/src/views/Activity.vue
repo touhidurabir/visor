@@ -5,7 +5,7 @@
 // you; each kind can be muted (Settings, or the server's Notifications).
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { byDay, clock, KIND_GROUPS, matches, useActivity, type ActivityFilter } from '../lib/activity'
+import { byDay, byLabel, clock, KIND_GROUPS, matches, useActivity, type ActivityFilter } from '../lib/activity'
 import { configRoute } from '../lib/links'
 import { useOverview } from '../lib/overview'
 import { currentTab, LOCAL } from '../lib/tabs'
@@ -73,7 +73,7 @@ function open(e: { Config: string; Process: string }) {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path :d="ICON[e.Group]" /></svg>
           </span>
           <span class="what"><strong>{{ e.Text }}</strong><span v-if="e.FileName && e.Process" class="meta">{{ e.FileName }}</span></span>
-          <span :class="['badge', e.ByVisor ? 'b-idle' : 'b-accent']">{{ e.ByVisor ? 'By Visor' : 'Outside Visor' }}</span>
+          <span :class="['badge', e.ByVisor ? 'b-idle' : 'b-accent']" :data-via="e.Via || undefined">{{ byLabel(e) }}</span>
           <span class="link-cell"><button v-if="e.Config" type="button" class="link" @click="open(e)">Open config</button></span>
         </div>
       </div>

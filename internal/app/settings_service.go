@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -141,7 +142,21 @@ func (s *SettingsService) Save(in settings.Settings) (SettingsView, error) {
 	in.ConfigPath, in.Username, in.RetentionDays = cur.ConfigPath, cur.Username, cur.RetentionDays
 	in.Appearance = cur.Appearance
 	in.Onboarded = cur.Onboarded // only FinishSetup changes it
+	in.MCP = cur.MCP             // only the MCP page changes it (updateMCP)
 	return s.saveAndTell(in)
+}
+
+// updateMCP changes the MCP settings and saves them.
+func (s *SettingsService) updateMCP(fn func(*settings.MCPSettings)) (settings.Settings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := s.rt.Settings()
+	if next.MCP.Access != nil {
+		next.MCP.Access = maps.Clone(next.MCP.Access)
+	}
+	fn(&next.MCP)
+	v, err := s.saveAndTell(next)
+	return v.Settings, err
 }
 
 // FinishSetup records that first-run setup (Doctor) is done, with the

@@ -14,6 +14,7 @@ import { shortcutOf } from '../lib/shortcuts'
 import { closeServer, hostKeyPrompt, refreshTabs, serverForm, switchTab } from '../lib/servers'
 import { currentTab, LOCAL, neighbour, rememberPath } from '../lib/tabs'
 import HostKeyDialog from './HostKeyDialog.vue'
+import McpAsk from './McpAsk.vue'
 import ProductionPrompt from './ProductionPrompt.vue'
 import ServerForm from './ServerForm.vue'
 import Sidebar from './Sidebar.vue'
@@ -96,6 +97,7 @@ const connection = computed(() => connectionBadge(connectionProblem(overview.val
     </div>
     <ServerForm v-if="serverForm" :key="`${serverForm.server?.Server.id}-${serverForm.report?.AtMs ?? 0}`" :editing="serverForm.server" :report="serverForm.report" @close="serverForm = null" />
     <ProductionPrompt />
+    <McpAsk />
     <HostKeyDialog v-if="hostKeyPrompt" :view="hostKeyPrompt.view" :server="hostKeyPrompt.server" @trusted="hostKeyPrompt?.then()" @close="hostKeyPrompt = null" />
     <ToastHost />
   </div>

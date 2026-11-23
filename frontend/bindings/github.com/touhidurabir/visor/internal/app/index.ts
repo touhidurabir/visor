@@ -7,6 +7,7 @@ import * as InboxAPI from "./inboxapi.js";
 import * as IssueAPI from "./issueapi.js";
 import * as LogAPI from "./logapi.js";
 import * as LoginItemService from "./loginitemservice.js";
+import * as McpService from "./mcpservice.js";
 import * as NotifyService from "./notifyservice.js";
 import * as RemoteService from "./remoteservice.js";
 import * as ServerAPI from "./serverapi.js";
@@ -20,6 +21,7 @@ export {
     IssueAPI,
     LogAPI,
     LoginItemService,
+    McpService,
     NotifyService,
     RemoteService,
     ServerAPI,
@@ -64,6 +66,8 @@ export type {
     MainLogLineView,
     MainLogQuery,
     MainLogResult,
+    McpMachineView,
+    McpView,
     NotLoadedView,
     NotificationView,
     NotificationsView,

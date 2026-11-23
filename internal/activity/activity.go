@@ -57,7 +57,10 @@ type Event struct {
 	Process string    `json:"process,omitempty"` // group:name
 	Config  string    `json:"config,omitempty"`  // the config file it is about
 	ByVisor bool      `json:"byVisor"`
-	Detail  string    `json:"detail,omitempty"`
+	// Via is the AI tool that made the change through MCP ("Claude Code"),
+	// or "" when it was the person in Visor or outside Visor.
+	Via    string `json:"via,omitempty"`
+	Detail string `json:"detail,omitempty"`
 }
 
 // Text is the event as a sentence fragment: "web:web restarted".
@@ -104,6 +107,8 @@ type Input struct {
 	// ByVisor reports whether this Visor's own action covers the process
 	// ("" is supervisord itself; "file:<path>" a config file) at time t.
 	ByVisor func(process string, t time.Time) bool
+	// Via names the AI tool whose MCP call covers the process at t, or "".
+	Via func(process string, t time.Time) string
 	// Crashed reports a process the issue tracker found crashing in this
 	// update: its restart is supervisord's autorestart, not a change.
 	Crashed func(process string) bool
@@ -151,15 +156,18 @@ func (d *Deriver) Next(in Input) []Event {
 	var out []Event
 	mk := func(k Kind, process, conf string, at time.Time) Event {
 		e := Event{ID: d.id(at), At: at, Kind: k, Process: process, Config: conf}
+		p := process
+		switch k.Group() {
+		case "daemon":
+			p = ""
+		case "files":
+			p = "file:" + conf
+		}
 		if in.ByVisor != nil {
-			p := process
-			switch k.Group() {
-			case "daemon":
-				p = ""
-			case "files":
-				p = "file:" + conf
-			}
 			e.ByVisor = in.ByVisor(p, at)
+		}
+		if in.Via != nil {
+			e.Via = in.Via(p, at)
 		}
 		return e
 	}
@@ -245,6 +253,9 @@ func (d *Deriver) Next(in Input) []Event {
 						delete(d.held, ev.Process)
 						r := mk(ProcessRestarted, ev.Process, conf, at)
 						r.ByVisor = r.ByVisor || stop.ByVisor
+						if r.Via == "" {
+							r.Via = stop.Via
+						}
 						out = append(out, r)
 						continue
 					}

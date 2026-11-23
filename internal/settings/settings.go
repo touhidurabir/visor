@@ -59,6 +59,31 @@ type Settings struct {
 	// Visor asks supervisord whether it already runs it (applied outside
 	// Visor, by supervisorctl update or a deploy script).
 	ConfigRecheck time.Duration `json:"configRecheck"`
+	// MCP is the MCP server for AI agents (M9).
+	MCP MCPSettings `json:"mcp"`
+}
+
+// DefaultMCPPort is the MCP server's port unless the person picks another.
+const DefaultMCPPort = 4567
+
+// MCPSettings configure Visor's MCP server.
+type MCPSettings struct {
+	// Enabled starts the server on 127.0.0.1:Port. Off by default.
+	Enabled bool `json:"enabled"`
+	Port    int  `json:"port"`
+	// Access is the level and asking per machine: "local" for this
+	// computer, else a server id. A missing entry uses the default (this
+	// computer Control, servers Off).
+	Access map[string]MCPAccess `json:"access,omitempty"`
+	// AllowEnv lets AI agents read environment= values in configs.
+	AllowEnv bool `json:"allowEnv"`
+}
+
+// MCPAccess is one machine's MCP level ("off", "read", "control" or
+// "configs") and whether changes there ask in Visor first.
+type MCPAccess struct {
+	Level string `json:"level"`
+	Ask   bool   `json:"ask"`
 }
 
 // ActivityMutes turn off notifications for changes made outside Visor, per
@@ -104,6 +129,7 @@ func Defaults() Settings {
 		MenuBarCount:  true,
 		MaxServers:    DefaultMaxServers,
 		ConfigRecheck: time.Minute,
+		MCP:           MCPSettings{Port: DefaultMCPPort},
 	}
 }
 
@@ -116,6 +142,9 @@ func (s Settings) Clamp() Settings {
 	case AppearanceLight, AppearanceDark:
 	default:
 		s.Appearance = AppearanceSystem
+	}
+	if s.MCP.Port < 1024 || s.MCP.Port > 65535 {
+		s.MCP.Port = DefaultMCPPort
 	}
 	s.PollInterval = min(max(s.PollInterval, MinPollInterval), MaxPollInterval)
 	s.RetentionDays = min(max(s.RetentionDays, MinRetentionDays), MaxRetentionDays)
