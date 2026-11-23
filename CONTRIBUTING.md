@@ -55,4 +55,4 @@ Every change under `internal/` comes with tests. UI changes come with an end-to-
 - Add a line to `CHANGELOG.md` under `## [Unreleased]`.
 - Never point tests or dev runs at a real supervisord or its configs.
 
-By contributing you agree that your work is released under the [MIT licence](LICENSE).
+By contributing you agree that your work is released under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-or-later), like the rest of Visor.

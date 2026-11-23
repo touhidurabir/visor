@@ -16,7 +16,7 @@ description: |
   them, tails their logs, and adds and edits program configs safely.
 vendor: "Touhidur Rahman"
 homepage: "https://getvisor.dev"
-license: "MIT"
+license: "AGPL-3.0-or-later"
 
 contents:
   - src: "./bin/visor"
