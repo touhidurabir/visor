@@ -237,7 +237,7 @@ function download() {
 </script>
 
 <template>
-  <div :class="['page', { fill: tab === 'logs' && !!config }]">
+  <div :class="['page', { fill: tab === 'logs' && !!config, grow: tab === 'config' && !!config }]">
     <nav class="crumbs" aria-label="Breadcrumb">
       <RouterLink to="/">{{ placeName(overview) }}</RouterLink> / {{ config?.FileName ?? path.split('/').pop() }}
     </nav>
@@ -336,7 +336,7 @@ function download() {
         </button>
       </div>
 
-      <div :id="`panel-${tab}`" :class="['panel', { fill: tab === 'logs' }]" role="tabpanel" :aria-labelledby="`tab-${tab}`">
+      <div :id="`panel-${tab}`" :class="['panel', { fill: tab === 'logs', grow: tab === 'config' }]" role="tabpanel" :aria-labelledby="`tab-${tab}`">
         <div v-if="detailError" class="alert detail-error" role="alert">
           <span>Couldn’t read this config’s details. {{ detailError }}</span>
           <button type="button" class="btn" @click="loadDetail">Retry</button>
@@ -423,6 +423,9 @@ function download() {
 /* The Logs tab: the log pane takes the rest of the window and scrolls itself. */
 .page.fill { height: 100%; min-height: 560px; }
 .panel.fill { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; }
+/* The Config tab: at least the window's height, so the save bar sits at the bottom of a short file. */
+.page.grow { min-height: 100%; }
+.panel.grow { display: flex; flex: 1 0 auto; flex-direction: column; }
 .crumbs { color: var(--ink3); font-size: 12.5px; }
 .crumbs a { color: var(--accent-text); text-decoration: none; }
 .crumbs a:hover { text-decoration: underline; }

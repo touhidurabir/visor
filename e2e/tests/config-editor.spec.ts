@@ -32,6 +32,14 @@ async function setText(page: Page, text: string) {
 }
 
 test.describe('config editor', () => {
+  test('the save bar sits on the window’s bottom edge, however short the file', async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 2400 })
+    await openEditor(page)
+    const box = await page.getByTestId('save-bar').boundingBox()
+    expect(box).not.toBeNull()
+    expect(Math.round(box!.y + box!.height)).toBe(2400)
+  })
+
   test('Copy puts the config on the clipboard', async ({ page }) => {
     // Record what the page writes: WebKit gives tests no clipboard to read.
     await page.addInitScript(() => {

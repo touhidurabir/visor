@@ -554,7 +554,7 @@ const resultTitle = computed(() => (result.value?.res.Errors?.length ? `${result
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; align-items: start; }
 .col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .col + .col { gap: 16px; }
-.editor-tab { display: flex; flex-direction: column; gap: 16px; }
+.editor-tab { display: flex; flex: 1 0 auto; flex-direction: column; gap: 16px; }
 .muted { margin: 0; color: var(--text-muted); }
 .note { margin: 0; color: var(--text-muted); }
 .lead { margin: 0; line-height: 1.45; }
