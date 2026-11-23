@@ -87,5 +87,6 @@ export type {
     SettingsView,
     StartFailure,
     StatsView,
-    TransitionView
+    TransitionView,
+    UsageView
 } from "./models.js";

@@ -17,6 +17,16 @@ async function setLevel(page: Page, label: string) {
 }
 
 test.describe('MCP server', () => {
+  test('a wide window pairs the settings cards; a narrow one stacks them', async ({ page }) => {
+    const top = async (name: string) => (await page.getByRole('group', { name }).boundingBox())!.y
+    await page.setViewportSize({ width: 1900, height: 1100 })
+    await openApp(page, '/mcp')
+    expect(await top('Connecting')).toBe(await top('Configuration'))
+    expect(await top('Privacy')).toBe(await top('Access'))
+    await page.setViewportSize({ width: 1000, height: 900 })
+    await expect.poll(() => top('Connecting')).toBeGreaterThan(await top('Configuration'))
+  })
+
   test('the page starts Off; turning it on shows Running and commands with the token', async ({ page }) => {
     const errors = collectErrors(page)
     await openApp(page, '/')
@@ -40,7 +50,7 @@ test.describe('MCP server', () => {
     await page.getByRole('tab', { name: /JSON/ }).click()
     await expect(snippets).toContainText('"mcpServers"')
 
-    await expect(page.getByTestId('mcp-tools').locator('tbody td.mono')).toHaveCount(25)
+    await expect(page.getByTestId('mcp-tools').locator('tbody td.mono')).toHaveCount(26)
     await expect(access(page).getByLabel(`Access for ${LOCAL}`)).toHaveValue('control')
     expect(errors).toEqual([])
   })
@@ -70,6 +80,8 @@ test.describe('MCP server', () => {
   test('Regenerate makes a new token and the old one stops working', async ({ page }) => {
     await openApp(page, '/mcp')
     const old = await mcpToken(page)
+    await expect(page.getByTestId('mcp-regen-hint')).toContainText('copy the new command or config below into your other AI tools')
+    await expect(page.getByRole('button', { name: 'Regenerate…' })).toHaveAccessibleDescription(/After a new token/)
     await page.getByRole('button', { name: 'Regenerate…' }).click()
     await page.getByRole('alertdialog').getByRole('button', { name: 'Make a new token' }).click()
     await expect.poll(() => mcpToken(page)).not.toBe(old)

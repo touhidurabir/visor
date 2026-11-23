@@ -59,6 +59,22 @@ func TestLiveServerTab(t *testing.T) {
 		t.Fatalf("not reachable: %s", ov.Server.Error)
 	}
 	t.Logf("open in %v via %s as %s: supervisord %s, %d processes in %d configs", time.Since(t0).Round(time.Millisecond), ov.Host.Via, ov.Host.Address, ov.Server.Version, ov.Stats.Processes, len(ov.Configs))
+	// CPU and memory through the bridge: the first sample comes right after
+	// the first poll, so memory shows within a few seconds.
+	measured := false
+	for deadline := time.Now().Add(10 * time.Second); !measured && time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+		for _, c := range tab.RT.Overview().Configs {
+			for _, p := range c.Processes {
+				if p.MemBytes > 0 {
+					measured = true
+					t.Logf("usage %s: cpu %.1f %%, %d KB, %d processes", p.FullName, p.CPU, p.MemBytes>>10, p.Procs)
+				}
+			}
+		}
+	}
+	if ov.Stats.Running > 0 && !measured {
+		t.Error("no running process was measured on the server")
+	}
 	for _, c := range ov.Configs {
 		for _, p := range c.Processes {
 			t.Logf("  %s %s pid %d", p.FullName, p.State, p.PID)

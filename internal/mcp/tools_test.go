@@ -81,6 +81,7 @@ func (t *fakeTarget) Processes(in ProcessesIn) (any, error) {
 	return t.b.log(t.m, "Processes", "", in.State)
 }
 func (t *fakeTarget) Process(in ProcessIn) (any, error) { return t.b.log(t.m, "Process", "", in.Name) }
+func (t *fakeTarget) Usage(in UsageIn) (any, error)     { return t.b.log(t.m, "Usage", "", in.Process) }
 func (t *fakeTarget) Logs(in LogsIn) (any, error)       { return t.b.log(t.m, "Logs", "", in.Process) }
 func (t *fakeTarget) SearchLogs(in SearchIn) (any, error) {
 	return t.b.log(t.m, "SearchLogs", "", in.Query)
@@ -179,7 +180,7 @@ func call(t *testing.T, cs *sdk.ClientSession, tool string, args map[string]any)
 
 func TestToolTable(t *testing.T) {
 	want := []string{
-		"list_servers", "get_status", "list_processes", "get_process", "read_logs", "search_logs",
+		"list_servers", "get_status", "list_processes", "get_process", "get_resource_usage", "read_logs", "search_logs",
 		"read_supervisord_log", "list_issues", "get_activity", "list_configs", "read_config",
 		"check_config", "get_pending_changes", "draft_program", "list_backups", "diagnose",
 		"start", "stop", "restart", "signal_process", "apply_changes",
@@ -195,9 +196,9 @@ func TestToolTable(t *testing.T) {
 		}
 		wantLevel := Read
 		switch {
-		case i >= 21:
+		case i >= 22:
 			wantLevel = Configs
-		case i >= 16:
+		case i >= 17:
 			wantLevel = Control
 		}
 		if ti.Level != wantLevel {
@@ -227,7 +228,7 @@ func TestToolTable(t *testing.T) {
 		if *a.OpenWorldHint {
 			t.Errorf("%s: openWorldHint true", tl.Name)
 		}
-		read := slicesIndex(want, tl.Name) < 16
+		read := slicesIndex(want, tl.Name) < 17
 		if a.ReadOnlyHint != read {
 			t.Errorf("%s: readOnlyHint = %v", tl.Name, a.ReadOnlyHint)
 		}

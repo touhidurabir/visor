@@ -22,6 +22,7 @@ import (
 	"github.com/touhidurabir/visor/internal/notify"
 	"github.com/touhidurabir/visor/internal/settings"
 	"github.com/touhidurabir/visor/internal/supervisor"
+	"github.com/touhidurabir/visor/internal/usage"
 )
 
 // Events sent to the frontend.
@@ -126,6 +127,9 @@ type RuntimeOptions struct {
 	// Remote, when set, makes this Runtime manage supervisord on a server
 	// (StateDir is then that server's folder). nil is this computer.
 	Remote *RemoteSource
+	// Usage measures CPU and memory in place of this computer or the
+	// server's bridge (tests). nil picks by Remote.
+	Usage usage.Sampler
 }
 
 // remoteFileCheck is how often a server's config files are re-read: each
@@ -214,6 +218,13 @@ type Runtime struct {
 	sendWait time.Duration
 	// inbox is Visor's own notification list, with read state.
 	inbox *notify.Inbox
+
+	// usage is every process's last hour of CPU and memory; it outlives
+	// reconnects.
+	usage *usage.History
+	// size is the machine's cores and memory once read (machineSize).
+	sizeMu sync.Mutex
+	size   usage.Machine
 }
 
 // NewRuntime returns a Runtime that does nothing until Start.
@@ -233,6 +244,7 @@ func NewRuntime(o RuntimeOptions) *Runtime {
 		opts: o, prefs: prefs, watch: newWatchStore(o.StateDir), ctx: context.Background(),
 		limiter: notify.NewLimiter(notifyWindow), sendWait: stopSendWait,
 		inbox: notify.OpenInbox(o.StateDir, time.Now),
+		usage: usage.NewHistory(usagePoints),
 	}
 }
 
@@ -524,6 +536,10 @@ func (r *Runtime) connect() {
 	r.mu.Unlock()
 
 	updates, unsubscribe := mon.Subscribe()
+	if s := r.usageSampler(); s != nil {
+		r.wg.Add(1)
+		go r.sampleUsage(ctx, first, s)
+	}
 	if link != nil {
 		r.wg.Add(1)
 		go r.watchLink(ctx, link, r.opts.Remote)
@@ -861,6 +877,7 @@ func (r *Runtime) Overview() OverviewView {
 		err:        r.connErr,
 
 		failedPolls: r.failedPolls,
+		usage:       r.usage,
 	}
 	if in.configPath == "" {
 		in.configPath = r.configPathOf(r.prefs)

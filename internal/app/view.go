@@ -13,6 +13,7 @@ import (
 	"github.com/touhidurabir/visor/internal/issues"
 	"github.com/touhidurabir/visor/internal/monitor"
 	"github.com/touhidurabir/visor/internal/supervisor"
+	"github.com/touhidurabir/visor/internal/usage"
 )
 
 // NoConfigFile names the group of processes that no include file defines
@@ -99,6 +100,17 @@ type ProcessView struct {
 	NowMs       int64
 	Since       string
 	Detail      string
+	// CPU is a percentage of one core and MemBytes resident memory, each
+	// with the process's children and -1 when unknown (not running, not
+	// measurable, or CPU before a second sample). Procs is how many
+	// processes they count; Spark is the last 10 minutes of CPU.
+	CPU      float64
+	MemBytes int64
+	Procs    int
+	Spark    []float64
+	// Unmeasurable: the latest sample couldn't measure this process
+	// (another user's, or hidden on the server), as opposed to not yet.
+	Unmeasurable bool
 }
 
 // IssueView is one issue. Status is "open", "resolved_auto",
@@ -202,6 +214,8 @@ func toProcessView(p supervisor.ProcessInfo) ProcessView {
 		StartMs:     ms(p.Start),
 		StopMs:      ms(p.Stop),
 		NowMs:       ms(p.Now),
+		CPU:         -1,
+		MemBytes:    -1,
 	}
 }
 
@@ -246,6 +260,7 @@ type overviewInput struct {
 	// failedPolls counts consecutive unreachable polls up to snap.
 	failedPolls int
 	host        HostView
+	usage       *usage.History // nil: no figures
 }
 
 // buildOverview turns the latest snapshot, inventory and issues into the
@@ -306,6 +321,11 @@ func buildOverview(in overviewInput) OverviewView {
 			path, ok = in.inv.FileForGroup(p.Group)
 		}
 		v.Program = prog.Name
+		if in.usage != nil {
+			cur, procs, st := in.usage.Of(v.FullName, v.PID)
+			v.CPU, v.MemBytes, v.Procs, v.Unmeasurable = cur.CPU, cur.RSS, procs, st == usage.Refused
+			v.Spark = in.usage.Spark(v.FullName, sparkPoints)
+		}
 		expected := expectedExit(in.inv, v.FullName, p.ExitStatus)
 		v.Since, v.Detail = sinceAndDetail(p, expected, openByProc[v.FullName], in.now)
 

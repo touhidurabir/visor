@@ -10,6 +10,7 @@ import (
 	"github.com/touhidurabir/visor/internal/platform"
 	"github.com/touhidurabir/visor/internal/remote"
 	"github.com/touhidurabir/visor/internal/settings"
+	"github.com/touhidurabir/visor/internal/usage"
 )
 
 // LocalID is the id of this computer's tab.
@@ -224,6 +225,9 @@ func (r *Runtime) SetServer(s settings.Server) {
 	r.mu.Lock()
 	r.server = &s
 	r.mu.Unlock()
+	r.sizeMu.Lock()
+	r.size = usage.Machine{} // the edit may point at another machine
+	r.sizeMu.Unlock()
 	r.emitOverview()
 }
 

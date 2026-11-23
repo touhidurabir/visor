@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/touhidurabir/visor/internal/config"
+	"github.com/touhidurabir/visor/internal/usage"
 )
 
 // BridgeFS reads a server's files through the bridge (config.FS), as the
@@ -88,6 +89,26 @@ func (f BridgeFS) Tail(name string, max int) ([]byte, error) {
 	}
 	defer cancel()
 	return b.Tail(ctx, name, max)
+}
+
+// Usage measures the server's process trees rooted at pids.
+func (f BridgeFS) Usage(pids []int) (map[int]usage.Totals, error) {
+	b, ctx, cancel, err := f.bridge()
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	return b.Usage(ctx, pids)
+}
+
+// Machine is the server's core count and total memory.
+func (f BridgeFS) Machine() (usage.Machine, error) {
+	b, ctx, cancel, err := f.bridge()
+	if err != nil {
+		return usage.Machine{}, err
+	}
+	defer cancel()
+	return b.Machine(ctx)
 }
 
 // statInfo is a FileInfo as an fs.FileInfo.

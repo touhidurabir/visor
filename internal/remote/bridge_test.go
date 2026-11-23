@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/touhidurabir/visor/internal/remote/remotetest"
 	"github.com/touhidurabir/visor/internal/supervisor"
 	"github.com/touhidurabir/visor/internal/supervisor/supervisortest"
+	"github.com/touhidurabir/visor/internal/usage"
 )
 
 // fakeSudo writes a sudo stand-in that checks the password from stdin (like
@@ -260,5 +262,96 @@ func TestBridgeNoPython(t *testing.T) {
 	_, err := remote.StartBridge(context.Background(), c, remote.BridgeOptions{})
 	if !errors.Is(err, remote.ErrNoPython) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// procStat writes a fake /proc/<pid>/stat: parent ppid, ticks of CPU split
+// over utime and cstime, rss in pages.
+func procStat(t *testing.T, root string, pid, ppid, ticks, rss int) {
+	t.Helper()
+	f := []string{strconv.Itoa(pid), "(php artisan (w))", "S", strconv.Itoa(ppid)}
+	for i := 5; i <= 52; i++ {
+		v := 0
+		switch i {
+		case 14:
+			v = ticks - ticks/2
+		case 17:
+			v = ticks / 2
+		case 24:
+			v = rss
+		}
+		f = append(f, strconv.Itoa(v))
+	}
+	d := filepath.Join(root, strconv.Itoa(pid))
+	if err := os.MkdirAll(d, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d, "stat"), []byte(strings.Join(f, " ")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBridgeUsage(t *testing.T) {
+	needPython(t)
+	root := t.TempDir()
+	procStat(t, root, 10, 1, 300, 10)
+	procStat(t, root, 11, 10, 50, 20)
+	procStat(t, root, 12, 11, 50, 30)
+	procStat(t, root, 20, 1, 9999, 9999)
+	c, _ := connect(t, []string{"VISOR_BRIDGE_PROC=" + root})
+	tr := &remote.BridgeTransport{Conn: c}
+	defer tr.Close()
+	ctx := context.Background()
+	b, err := tr.Bridge(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := b.Usage(ctx, []int{10, 77})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := uint64(os.Getpagesize())
+	want := usage.Totals{CPU: 4 * time.Second, RSS: 60 * page, Procs: 3}
+	if len(got) != 1 || got[10] != want {
+		t.Fatalf("usage %+v, want 10: %+v", got, want)
+	}
+
+	// No /proc (macOS, or hidden): nothing measured, no error.
+	c2, _ := connect(t, []string{"VISOR_BRIDGE_PROC=" + filepath.Join(root, "none")})
+	tr2 := &remote.BridgeTransport{Conn: c2}
+	defer tr2.Close()
+	b2, err := tr2.Bridge(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := b2.Usage(ctx, []int{10}); err != nil || len(got) != 0 {
+		t.Fatalf("no /proc: %+v %v", got, err)
+	}
+}
+
+// The machine's size: cores from Python, total memory from /proc/meminfo
+// (0 without it, as on macOS).
+func TestBridgeMachine(t *testing.T) {
+	needPython(t)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "meminfo"), []byte("MemTotal:        4028100 kB\nMemFree: 1 kB\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	for _, tc := range []struct {
+		root string
+		mem  uint64
+	}{{root, 4028100 * 1024}, {filepath.Join(root, "none"), 0}} {
+		c, _ := connect(t, []string{"VISOR_BRIDGE_PROC=" + tc.root})
+		tr := &remote.BridgeTransport{Conn: c}
+		b, err := tr.Bridge(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m, err := b.Machine(ctx)
+		tr.Close()
+		if err != nil || m.Cores < 1 || m.MemBytes != tc.mem {
+			t.Fatalf("%s: machine %+v %v, want cores and %d bytes", tc.root, m, err, tc.mem)
+		}
 	}
 }

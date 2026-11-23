@@ -9,9 +9,11 @@
 #   D data, X close, R read file, T tail file (json {path, max}),
 #   S stat, G glob, P ping, W replace (json {path, data (base64), hash}),
 #   C create (json {path, data}), U delete (json {path, hash}),
-#   A check (json {path, what: write|remove|folder}), L user exists.
+#   A check (json {path, what: write|remove|folder}), L user exists,
+#   M usage (json {pids}).
 # To Visor: H hello (json), o opened, D data, X closed, r file, t tail,
 #   s stat (json), g glob (json list), p pong, w/c/u/a done, l (json bool),
+#   m usage (json {hz, page, cores, mem, pids: {pid: [cpu ticks, rss pages, procs]}}),
 #   e error (json {errno, code, msg}; code ECHANGED: the file is no longer
 #   what Visor read).
 import base64
@@ -282,6 +284,75 @@ def open_conn(spec):
     raise ValueError("unknown address " + spec)
 
 
+def usage(pids):
+    # Each pid's process tree from /proc, in one pass: CPU ticks (utime,
+    # stime and the reaped children's cutime, cstime), resident pages and
+    # how many processes. Without /proc (or with hidepid) it answers less.
+    root = os.environ.get("VISOR_BRIDGE_PROC", "/proc")
+    out = {"hz": os.sysconf("SC_CLK_TCK"), "page": os.sysconf("SC_PAGE_SIZE"), "pids": {}}
+    # The machine's size: online cores, and MemTotal (kB) from meminfo.
+    # Online cores ignore CPU affinity, unlike Go's runtime.NumCPU here.
+    out["cores"] = 0
+    out["mem"] = 0
+    try:
+        out["cores"] = os.sysconf("SC_NPROCESSORS_ONLN")
+    except (ValueError, OSError):
+        pass
+    try:
+        with open(os.path.join(root, "meminfo"), "rb") as f:
+            for line in f.read().decode("ascii", "replace").splitlines():
+                if line.startswith("MemTotal:"):
+                    out["mem"] = int(line.split()[1]) * 1024
+                    break
+    except (IOError, OSError, ValueError, IndexError):
+        pass
+    if not pids:
+        return out
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return out
+    procs = {}
+    kids = {}
+    for n in names:
+        if not n.isdigit():
+            continue
+        try:
+            with open(os.path.join(root, n, "stat"), "rb") as f:
+                line = f.read().decode("utf-8", "replace")
+        except (IOError, OSError):
+            continue
+        # Fields after the command's last ")": rest[k] is field k + 3.
+        rest = line[line.rfind(")") + 1:].split()
+        if len(rest) < 22:
+            continue
+        try:
+            ppid = int(rest[1])
+            ticks = sum(int(x) for x in rest[11:15])
+            rss = max(int(rest[21]), 0)
+        except ValueError:
+            continue
+        procs[int(n)] = (ticks, rss)
+        kids.setdefault(ppid, []).append(int(n))
+    for pid in pids:
+        if pid not in procs:
+            continue
+        ticks = rss = count = 0
+        seen = set()
+        stack = [pid]
+        while stack:
+            p = stack.pop()
+            if p in seen or p not in procs:
+                continue
+            seen.add(p)
+            ticks += procs[p][0]
+            rss += procs[p][1]
+            count += 1
+            stack.extend(kids.get(p, []))
+        out["pids"][str(pid)] = [ticks, rss, count]
+    return out
+
+
 def hello():
     info = {"v": 1, "uid": os.getuid(), "user": user_name(os.getuid()),
             "python": sys.version.split()[0]}
@@ -378,6 +449,9 @@ def handle(kind, ident, payload, conns, socks):
             req = json.loads(text(payload))
             check(req["path"], req["what"])
             send("a", ident)
+        elif kind == b"M":
+            req = json.loads(text(payload))
+            send("m", ident, json.dumps(usage([int(p) for p in req.get("pids") or []])))
         elif kind == b"L":
             send("l", ident, json.dumps(user_exists(text(payload).strip())))
         else:

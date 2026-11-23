@@ -297,6 +297,16 @@ func (a *ServerAPI) StopGroup(server string, g string) error {
 	return t.Server.StopGroup(g)
 }
 
+// Usage is the last hour of CPU and memory of the processes of the config
+// file at path, for its Resources card.
+func (a *ServerAPI) Usage(server string, path string) ([]UsageView, error) {
+	t, err := a.hub.Tab(server)
+	if err != nil {
+		return nil, err
+	}
+	return t.Server.Usage(path)
+}
+
 // ConfigAPI is ConfigService for the tab the frontend names first.
 type ConfigAPI struct{ hub *Hub }
 

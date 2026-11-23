@@ -12,6 +12,7 @@ import { sinceLabel } from '../lib/format'
 import { isFailing, reasonClass, summaryParts } from '../lib/health'
 import { configMenu, forHost, processMenu, withoutSupervisord, type HostRules, type MenuItem } from '../lib/menus'
 import { configRoute } from '../lib/links'
+import { sparkPath, usageLabel, usageMark, usageText } from '../lib/usage'
 import ActionMenu from './ActionMenu.vue'
 import StateText from './StateText.vue'
 import { readOnlyReason, useFolder } from '../lib/folder'
@@ -62,7 +63,7 @@ defineExpose({ focusProcess })
   <div ref="root" class="frame">
     <div class="grid">
       <div class="row head">
-        <span class="th">Name</span><span class="th">State</span><span class="th">For</span><span class="th num">PID</span><span class="th num">Watch</span>
+        <span class="th">Name</span><span class="th">State</span><span class="th num" title="CPU (100 % is one core) and memory, with the children each process starts">Usage</span><span class="th">For</span><span class="th num">PID</span><span class="th num">Watch</span>
       </div>
       <p v-if="!configs.length" class="empty">No configs or processes match.</p>
       <div v-for="c in configs" :key="key(c)" class="cfg">
@@ -132,6 +133,14 @@ defineExpose({ focusProcess })
               <span v-if="p.Detail" :class="['why', reasonClass(p)]">{{ p.Detail }}</span>
             </div>
             <span><StateText :state="p.State" :status="p.Status" /></span>
+            <span class="use" :data-usage="p.FullName" :title="usageText(p)">
+              <span class="sr-only">{{ usageText(p) }}</span>
+              <svg v-if="usageLabel(p).known && (p.Spark ?? []).length > 1" class="spark" width="48" height="14" viewBox="0 0 48 14" aria-hidden="true"><polyline :points="sparkPath(p.Spark ?? [], 48, 14)" /></svg>
+              <span v-if="usageLabel(p).known" class="figs" aria-hidden="true"
+                ><span class="fig">{{ usageLabel(p).cpu }}</span><span class="sep">·</span><span class="fig">{{ usageLabel(p).mem }}</span></span
+              >
+              <span v-else class="fig" aria-hidden="true">{{ usageMark(p) }}</span>
+            </span>
             <span class="meta">{{ sinceLabel(p, nowMs) }}</span>
             <span class="mono pid num">{{ p.PID > 0 ? p.PID : '–' }}</span>
             <div class="acts">
@@ -149,6 +158,7 @@ defineExpose({ focusProcess })
               <span class="pname" :title="`${n.Program} isn’t loaded: supervisord doesn’t know it yet`">{{ n.Program }}</span>
             </div>
             <span class="state"><span class="dot d-idle" aria-hidden="true" /><span class="t-idle">Not loaded</span></span>
+            <span class="use"><span class="fig">–</span></span>
             <span class="meta">–</span>
             <span class="mono pid num">–</span>
             <div class="acts" />
@@ -161,12 +171,13 @@ defineExpose({ focusProcess })
 </template>
 
 <style scoped>
-.frame { border: 1px solid var(--line); border-radius: 10px; background: var(--raised); overflow-x: auto; }
-/* Name gets at least 200 px; the rest are fixed (+ 4 gaps and the padding). */
-.grid { min-width: 662px; }
+.frame { border: 1px solid var(--line); border-radius: 10px; background: var(--raised); overflow-x: auto; container-type: inline-size; }
+/* Name gets at least 180 px; the rest are fixed (+ 5 gaps and the padding),
+   so the table fits the default 1000 px window. */
+.grid { min-width: 742px; }
 .row {
   display: grid;
-  grid-template-columns: minmax(200px, 1fr) 120px 110px 80px 72px;
+  grid-template-columns: minmax(180px, 1fr) 120px 118px 96px 64px 72px;
   align-items: center;
   column-gap: 12px;
   padding: 0 16px;
@@ -176,7 +187,7 @@ defineExpose({ focusProcess })
 .num { text-align: right; }
 .cfg { border-top: 1px solid var(--line); }
 .cfg-row { min-height: 44px; }
-.cfg-row .name { grid-column: 1 / 5; }
+.cfg-row .name { grid-column: 1 / 6; }
 .cfg-row:hover, .proc:hover { background: var(--sunken); }
 .name { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .chev { flex: none; margin-left: -6px; color: var(--ink3); }
@@ -208,4 +219,15 @@ a.pname:hover { text-decoration: underline; }
 .load { margin-right: 4px; }
 .empty { margin: 0; padding: 16px; color: var(--ink2); }
 .note { margin: 0; padding: 10px 16px; border-top: 1px solid var(--line); background: var(--sunken); color: var(--ink3); font-size: 12.5px; }
+/* Usage: CPU · memory, right-aligned; the 10-minute sparkline on wide tables. */
+.use { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 5px; font-family: var(--mono); font-size: 12px; color: var(--ink2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.figs { display: inline-flex; gap: 5px; }
+.sep { color: var(--ink3); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.spark { display: none; flex: none; }
+.spark polyline { fill: none; stroke: var(--accent); stroke-width: 1.3; stroke-linejoin: round; }
+@container (min-width: 900px) {
+  .row { grid-template-columns: minmax(200px, 1fr) 120px 172px 110px 80px 72px; }
+  .spark { display: block; }
+}
 </style>

@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"io/fs"
+	"strconv"
 	"time"
+
+	"github.com/touhidurabir/visor/internal/usage"
 )
 
 // FileInfo is what the bridge reports for a path on the server.
@@ -112,4 +115,53 @@ func (b *Bridge) Glob(ctx context.Context, pattern string) ([]string, error) {
 	var out []string
 	err = json.Unmarshal(f.payload, &out)
 	return out, err
+}
+
+type usageJSON struct {
+	HZ    int64               `json:"hz"`
+	Page  uint64              `json:"page"`
+	Cores int                 `json:"cores"`
+	Mem   uint64              `json:"mem"`
+	PIDs  map[string][3]int64 `json:"pids"`
+}
+
+// Usage measures the process trees rooted at pids from the server's /proc,
+// in one round trip. A pid the server doesn't show is left out.
+func (b *Bridge) Usage(ctx context.Context, pids []int) (map[int]usage.Totals, error) {
+	req, err := json.Marshal(map[string][]int{"pids": pids})
+	if err != nil {
+		return nil, err
+	}
+	f, err := b.request(ctx, 'M', req)
+	if err != nil {
+		return nil, err
+	}
+	var r usageJSON
+	if err := json.Unmarshal(f.payload, &r); err != nil {
+		return nil, err
+	}
+	tick := time.Second / time.Duration(max(r.HZ, 1))
+	out := make(map[int]usage.Totals, len(r.PIDs))
+	for k, v := range r.PIDs {
+		pid, err := strconv.Atoi(k)
+		if err != nil {
+			continue
+		}
+		out[pid] = usage.Totals{CPU: time.Duration(v[0]) * tick, RSS: uint64(max(v[1], 0)) * r.Page, Procs: int(v[2])}
+	}
+	return out, nil
+}
+
+// Machine is the server's core count and total memory (0 without
+// /proc/meminfo): the usage frame with no pids, which skips the /proc pass.
+func (b *Bridge) Machine(ctx context.Context) (usage.Machine, error) {
+	f, err := b.request(ctx, 'M', []byte(`{"pids":[]}`))
+	if err != nil {
+		return usage.Machine{}, err
+	}
+	var r usageJSON
+	if err := json.Unmarshal(f.payload, &r); err != nil {
+		return usage.Machine{}, err
+	}
+	return usage.Machine{Cores: r.Cores, MemBytes: r.Mem}, nil
 }

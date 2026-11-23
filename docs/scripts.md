@@ -30,6 +30,7 @@ both for you:
 
 These don't, so they are **real** runs:
 
+- `scripts/sign-check.sh open-real` (real supervisord, but its own state folder)
 - bare `wails3 dev`
 - `wails3 task run`
 - starting `bin/visor` or `bin/visor.app` yourself
@@ -42,6 +43,7 @@ These don't, so they are **real** runs:
 | Work on the UI or Go code with hot reload | `wails3 task dev` |
 | Get a throwaway supervisord with sample processes | `scripts/sandbox.sh up` |
 | Try what only the installed app can do (notifications, launch at login, one Visor at a time, Keychain prompts) | `scripts/sign-check.sh adhoc`, then `scripts/sign-check.sh open` |
+| Try the packaged app against my real supervisord, without touching my real Visor's state | `scripts/sign-check.sh adhoc`, then `scripts/sign-check.sh open-real` |
 | Run the browser UI tests | `wails3 task test:e2e` |
 | Run every check CI runs | [Checks before a pull request](#5-checks-before-a-pull-request) |
 | Build a `.dmg` like the release does | `wails3 package`, then `scripts/release-dmg.sh` |
@@ -112,33 +114,94 @@ supervisorctl -c /tmp/visor-sandbox/supervisord.conf shutdown
 
 ## 3. `scripts/sign-check.sh`: the packaged app
 
+This is the closest you get to the app people install. `adhoc` builds a real
+`visor.app` (as `wails3 package` does) into `/tmp/visor-signcheck`, signs it,
+and prints its signature and what Gatekeeper says. `bin/visor.app` isn't
+touched. Rebuild after each code change (run `adhoc` again).
+
+Then open the build in one of two ways:
+
+| | `open` | `open-real` |
+|---|---|---|
+| supervisord | the sandbox | your real one |
+| Needs the sandbox up | yes | no |
+| Start, stop, Save & apply | act on sample processes | act on **your real processes** |
+| Visor's state folder | `/tmp/visor-signcheck/state` | `/tmp/visor-signcheck/state-real` |
+| Your real Visor's state (`~/Library/Application Support/Visor`) | not touched | not touched |
+| Keychain secrets (MCP token, passwords) and Launch at login | shared with your installed Visor | shared with your installed Visor |
+
+### Against the sandbox: `open`
+
 ```sh
-scripts/sandbox.sh up             # the app runs against the sandbox
+scripts/sandbox.sh up             # start the sample supervisord
 scripts/sign-check.sh adhoc       # build and ad-hoc sign /tmp/visor-signcheck/bin/visor.app
 scripts/sign-check.sh open        # launch it
 ```
 
-This is the closest you get to the app people install. It builds a real
-`visor.app` (as `wails3 package` does) into `/tmp/visor-signcheck`, signs it,
-and prints its signature and what Gatekeeper says. `bin/visor.app` isn't
-touched.
+`open` sets `VISOR_CONFIG` to the sandbox's `supervisord.conf` and
+`VISOR_STATE_DIR` to `/tmp/visor-signcheck/state`. Nothing you do reaches your
+real supervisord. This is the safe default for trying things out.
 
-`open` launches it with `VISOR_CONFIG` pointing at the sandbox and
-`VISOR_STATE_DIR=/tmp/visor-signcheck/state`. Rebuild after each code change
-(`adhoc` again); the state folder is kept between builds.
+### Against your real supervisord: `open-real`
 
-Use it for:
+```sh
+scripts/sign-check.sh adhoc       # build, as above
+scripts/sign-check.sh open-real   # launch it against your real supervisord
+```
+
+Use this to see how the packaged app behaves with your own programs, without
+starting the sandbox.
+
+- **What it connects to.** `open-real` doesn't set `VISOR_CONFIG`, so Visor
+  finds your config the way an installed copy does (for example
+  `/opt/homebrew/etc/supervisord.conf`).
+- **What is real.** Start, stop, restart, Save & apply and anything else you
+  do act on your real supervisord and its processes.
+- **What stays separate.** Visor's own state (settings, issues, history,
+  saved servers, backups) goes to `/tmp/visor-signcheck/state-real`. Your real
+  Visor's state isn't read or changed. Because that folder starts empty, the
+  first launch looks like a first run: no saved servers, MCP off.
+- **What is shared with your installed Visor.** Every test build shares
+  these with it (`open` too), because they're keyed by the app, not by the
+  state folder:
+  - **Keychain secrets.** supervisord's password is keyed by the config
+    path, so with `open-real` it's the same entry your everyday Visor uses.
+    The MCP token is one entry for every build: **Regenerate** here
+    disconnects the AI tools set up for your installed Visor.
+  - **Launch at login.** Turning it on here replaces your installed Visor's
+    login item with this build's.
+
+Before you start:
+
+- **Quit any other Visor first.** `open-real` refuses while one runs and
+  shows its process ID. Every packaged Visor uses the same single-instance
+  ID, so a second launch would only bring the running one forward, and you
+  would be looking at the old build without noticing.
+- **Turn launch at login off before deleting the build.** See
+  [Cleaning up](#cleaning-up).
+
+### What to test with it
 
 - **Notifications.** macOS asks once whether Visor may notify; change it later in System Settings → Notifications → Visor (set "Persistent" there to keep banners on screen).
 - **Launch at login.** See the warning under [Cleaning up](#cleaning-up).
 - **One Visor at a time.** `scripts/sign-check.sh open` again while it runs: no second menu-bar icon, the window comes forward.
 - **Keychain prompts** when saving a password.
 
+### Starting fresh
+
+The state folders are kept between builds. To see the first launch again
+(onboarding, Doctor), quit Visor and delete the folder for the way you open it:
+
+```sh
+rm -rf /tmp/visor-signcheck/state        # then: scripts/sign-check.sh open
+rm -rf /tmp/visor-signcheck/state-real   # then: scripts/sign-check.sh open-real
+```
+
+### Signing with a certificate
+
 `scripts/sign-check.sh identity:"Visor Self-Signed"` signs with a certificate
 from your login keychain instead of ad-hoc (the signing spike used this).
-
-Starting it fresh (first-launch Doctor): quit Visor, `rm -rf /tmp/visor-signcheck/state`,
-then `scripts/sign-check.sh open`.
+Open it with `open` or `open-real` as above.
 
 ## 4. `wails3 task test:e2e`: browser UI tests
 
@@ -283,7 +346,7 @@ The details are in [testing.md](testing.md#remote-servers).
 | Variable | What it does | Set by |
 |---|---|---|
 | `VISOR_CONFIG` | Use this supervisord config; overrides the one saved in Settings and disables Choose… | `task dev`, `sign-check.sh open`, e2e |
-| `VISOR_STATE_DIR` | Keep Visor's state (issues, history, settings, backups) here instead of `~/Library/Application Support/Visor` | same |
+| `VISOR_STATE_DIR` | Keep Visor's state (issues, history, settings, backups) here instead of `~/Library/Application Support/Visor` | the same, plus `sign-check.sh open-real` |
 | `VISOR_SANDBOX_DIR` | Which sandbox folder `sandbox.sh` uses (`/tmp/visor-<name>`) | e2e (`/tmp/visor-e2e`) |
 | `VISOR_PLATFORM` | Server build only: word the UI as on `darwin` or `linux` | e2e (`linux`; `platform.spec.ts` starts a `darwin` one) |
 | `VISOR_VERSION` | The version `wails3 task linux:package` puts in the `.deb` and `.rpm` (default `0.0.0`) | release workflow |
@@ -295,7 +358,7 @@ The details are in [testing.md](testing.md#remote-servers).
 ## Cleaning up
 
 - **Sandboxes:** `scripts/sandbox.sh down` (add `VISOR_SANDBOX_DIR=…` for another one).
-- **Packaged test build:** quit it, then `rm -rf /tmp/visor-signcheck`.
+- **Packaged test build:** quit it, then `rm -rf /tmp/visor-signcheck` (this removes both state folders too).
 - **Launch at login:** turn it off in Visor before you delete a test build. A login item from a test build starts that build at login *without* `VISOR_CONFIG`, so it connects to your real supervisord. If one is left over: `rm ~/Library/LaunchAgents/dev.getvisor.visor.plist` (Linux: `rm ~/.config/autostart/dev.getvisor.visor.desktop`).
 - **Linux test AppImage:** `rm -rf /tmp/visor-linuxcheck`. A profile you added for it stays in `/etc/apparmor.d/` until you remove it (`sudo apparmor_parser -R <file> && sudo rm <file>`).
 - **A saved test password:** `security delete-generic-password -s dev.getvisor.visor -a <config path>`.

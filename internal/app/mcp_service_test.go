@@ -133,7 +133,7 @@ func callText(t *testing.T, cs *sdk.ClientSession, tool string, args map[string]
 func TestMcpServiceLifecycle(t *testing.T) {
 	f := newMcpFixture(t)
 	v := f.svc.Get()
-	if v.Status != McpOff || v.Enabled || v.Token == "" || len(v.Tools) != 25 || !strings.HasPrefix(v.URL, "http://127.0.0.1:") {
+	if v.Status != McpOff || v.Enabled || v.Token == "" || len(v.Tools) != 26 || !strings.HasPrefix(v.URL, "http://127.0.0.1:") {
 		t.Fatalf("before enabling: %+v", v)
 	}
 	if v, err := f.svc.SetEnabled(true); err != nil || v.Status != McpRunning {

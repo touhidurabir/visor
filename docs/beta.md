@@ -40,12 +40,22 @@ Use Visor with your own supervisord, the way you use `supervisorctl` today:
    status…**), its buttons, the unread count.
 7. **Launch at login** (Visor then starts in the menu bar or tray only, with
    no window) and **Settings**, including a saved password.
+8. **Remote servers.** Add a server under **Remote servers**: **Test** first,
+   then connect. Is the report right about what your SSH user can do? Use the
+   dashboard, logs and config editing there, with and without **Use sudo**.
+   Tag one **Production** and check that it asks before disruptive actions.
+9. **CPU and memory.** The dashboard's Usage column and a config's
+   **Resources** card. Do the figures roughly match `top` or Activity Monitor?
+10. **AI tools (MCP).** Turn on **MCP server**, click **Add to Claude Code**
+    (or copy the command for Codex or Cursor), and ask "what's failing?" or
+    "which worker uses the most memory?". Try a restart with **Ask in Visor
+    before changes** on. See [MCP.md](MCP.md).
 
 Tested before this beta: macOS, and Ubuntu 24.04 with GNOME on Wayland and
 on Xorg. Not yet tested by us: Fedora and the `.rpm`, and KDE Plasma. If you
 use them, your report is especially welcome.
 
-Visor never runs `sudo` and never edits your main `supervisord.conf`
+On your computer Visor never runs `sudo` (on a server only with **Use sudo**), and it never edits your main `supervisord.conf`
 (`[supervisord]` and the sockets); it writes only the program files in your
 include folder, and backs each one up first.
 
