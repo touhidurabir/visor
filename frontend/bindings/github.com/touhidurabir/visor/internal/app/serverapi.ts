@@ -153,9 +153,6 @@ export function RestartGroup(server: string, g: string): $CancellablePromise<voi
     return $Call.ByID(4202561169, server, g);
 }
 
-/**
- * Reveal shows a file or folder in Finder.
- */
 export function Reveal(server: string, path: string): $CancellablePromise<void> {
     return $Call.ByID(1242800202, server, path);
 }
@@ -237,4 +234,12 @@ export function StopFile(server: string, path: string): $CancellablePromise<void
  */
 export function StopGroup(server: string, g: string): $CancellablePromise<void> {
     return $Call.ByID(465703158, server, g);
+}
+
+/**
+ * Usage is the last hour of CPU and memory of the processes of the config
+ * file at path, for its Resources card.
+ */
+export function Usage(server: string, path: string): $CancellablePromise<$models.UsageView[] | null> {
+    return $Call.ByID(3677146262, server, path);
 }

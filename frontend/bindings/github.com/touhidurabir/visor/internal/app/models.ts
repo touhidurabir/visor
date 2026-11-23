@@ -13,6 +13,9 @@ import * as mcp$0 from "../mcp/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as settings$0 from "../settings/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as usage$0 from "../usage/models.js";
 
 /**
  * ActivityEventView is one activity event for the frontend.
@@ -884,6 +887,17 @@ export interface ProcessView {
     "NowMs": number;
     "Since": string;
     "Detail": string;
+
+    /**
+     * CPU is a percentage of one core and MemBytes resident memory, each
+     * with the process's children and -1 when unknown (not running, not
+     * measurable, or CPU before a second sample). Procs is how many
+     * processes they count; Spark is the last 10 minutes of CPU.
+     */
+    "CPU": number;
+    "MemBytes": number;
+    "Procs": number;
+    "Spark": number[] | null;
 }
 
 /**
@@ -1075,4 +1089,14 @@ export interface TransitionView {
     "From": string;
     "To": string;
     "Note": string;
+}
+
+/**
+ * UsageView is one process's hour of CPU and memory for the config page.
+ */
+export interface UsageView {
+    "Process": string;
+    "Points": usage$0.Point[] | null;
+    "Summary": usage$0.Summary;
+    "EveryMs": number;
 }

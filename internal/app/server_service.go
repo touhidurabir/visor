@@ -222,7 +222,12 @@ func (s *ServerService) ConfigDetail(path string) (ConfigDetailView, error) {
 	return s.rt.configDetail(path)
 }
 
+// Usage is the last hour of CPU and memory of the processes of the config
+// file at path, for its Resources card.
+func (s *ServerService) Usage(path string) ([]UsageView, error) { return s.rt.Usage(path) }
+
 // Reveal shows a file or folder in Finder.
+
 func (s *ServerService) Reveal(path string) error {
 	if s.rt.Remote() {
 		return errOnServer
