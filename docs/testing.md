@@ -186,6 +186,25 @@ then `open`):
 - [ ] Regenerate: the agent's next call fails until the new command is added.
 - [ ] Quit Visor while a prompt waits: the agent gets "declined".
 
+## CPU and memory
+
+Go: `internal/usage` (the stat parser on a fake `/proc`, trees, the hour's
+history, and the local sampler against real `sh` children on macOS and
+Linux), `TestBridgeUsage` in `internal/remote` (the bridge's M frame on a
+fake `/proc` through `VISOR_BRIDGE_PROC`), `TestUsage*` and
+`TestMCPTargetUsage` in `internal/app` (a real supervisord, the sampler sped
+up through `usageEvery`). `TestLiveSSH` also measures a server's processes.
+e2e: `usage.spec.ts` (the dashboard's Usage column, the Resources card,
+`get_resource_usage`).
+
+### Manual CPU and memory checklist
+
+- [ ] Dashboard, wide window: each running process shows "CPU · memory" with a sparkline; a narrow window drops the sparkline; a stopped one shows "–". The tooltip names the children.
+- [ ] A busy process (`sh -c 'while :; do :; done'` in a sandbox config) reads about 100 %, as Activity Monitor or `top` shows it.
+- [ ] Config page → Overview: the Resources card's rows and charts; after a restart the chart shows a gap and CPU starts again.
+- [ ] A server tab (the VM): figures appear within 10 s and match `top` there for the same process tree.
+- [ ] Claude Code: "which process uses the most memory?" calls get_resource_usage.
+
 ## Manual Linux checklist
 
 Check these on Ubuntu 24.04 (GNOME, Wayland) and Fedora 40+ (KDE Plasma)
