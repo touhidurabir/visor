@@ -61,12 +61,21 @@ export function chartPaths(points: { AtMs: number; v: number }[], fromMs: number
   return out
 }
 
-type UsageRow = { CPU: number; MemBytes: number; Procs: number; PID: number }
+type UsageRow = { CPU: number; MemBytes: number; Procs: number; PID: number; Unmeasurable: boolean }
+
+/** The cell's mark when there are no figures: "…" while a running process
+ *  waits for its first sample, "–" when it isn't running or can't be measured. */
+export function usageMark(p: Pick<UsageRow, 'CPU' | 'MemBytes' | 'PID' | 'Unmeasurable'>): string {
+  return p.PID > 0 && !p.Unmeasurable ? '…' : '–'
+}
 
 /** What the Usage cell says to a screen reader and in its tooltip. */
 export function usageText(p: UsageRow): string {
   const u = usageLabel(p)
-  if (!u.known) return p.PID > 0 ? 'Visor can’t measure this process: another user’s, or hidden from this user on the server' : 'Not running'
+  if (!u.known) {
+    if (p.PID <= 0) return 'Not running'
+    return p.Unmeasurable ? 'Visor can’t measure this process: another user’s, or hidden from this user on the server' : 'Measuring CPU and memory'
+  }
   const kids = p.Procs > 1 ? `, with ${p.Procs - 1} ${p.Procs === 2 ? 'child' : 'children'}` : ''
   return `CPU ${u.cpu === '…' ? 'measuring' : u.cpu}, memory ${u.mem}${kids}`
 }

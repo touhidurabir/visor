@@ -30,14 +30,29 @@ type History struct {
 }
 
 type track struct {
-	pts   []Point // a ring once full; next is the oldest
-	next  int
-	pid   int
-	at    time.Time
-	cpu   time.Duration
-	base  bool // pid/at/cpu hold the last known sample
-	procs int
+	pts    []Point // a ring once full; next is the oldest
+	next   int
+	pid    int
+	at     time.Time
+	cpu    time.Duration
+	base   bool // pid/at/cpu hold the last known sample
+	procs  int
+	last   int // the pid of the latest sample, known or not
+	lastOK bool
 }
+
+// State says whether a process's latest figures belong to it.
+type State int
+
+const (
+	// Pending: not sampled since it started (or not running).
+	Pending State = iota
+	// Known: the latest sample measured this pid.
+	Known
+	// Refused: the latest sample couldn't measure this pid (another
+	// user's, or hidden on the server).
+	Refused
+)
 
 // NewHistory keeps size samples per process (360 is an hour at 10 s).
 func NewHistory(size int) *History { return &History{size: max(size, 1), of: map[string]*track{}} }
@@ -54,6 +69,7 @@ func (h *History) Add(at time.Time, name string, pid int, t Totals, ok bool) {
 		h.of[name] = tr
 	}
 	p := Point{AtMs: at.UnixMilli(), CPU: -1, RSS: -1}
+	tr.last, tr.lastOK = pid, ok
 	if ok {
 		p.RSS = int64(t.RSS)
 		if tr.base && tr.pid == pid && at.After(tr.at) {
@@ -96,6 +112,22 @@ func (h *History) Current(name string) Point {
 		return Point{CPU: -1, RSS: -1}
 	}
 	return tr.pts[(tr.next+len(tr.pts)-1)%len(tr.pts)]
+}
+
+// Of is name's latest sample and process count when that sample measured
+// pid; a stopped or restarted process is Pending until it is sampled.
+func (h *History) Of(name string, pid int) (Point, int, State) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	unknown := Point{CPU: -1, RSS: -1}
+	tr := h.of[name]
+	if tr == nil || pid <= 0 || tr.last != pid || len(tr.pts) == 0 {
+		return unknown, 0, Pending
+	}
+	if !tr.lastOK {
+		return unknown, 0, Refused
+	}
+	return tr.pts[(tr.next+len(tr.pts)-1)%len(tr.pts)], tr.procs, Known
 }
 
 // Spark is name's last n CPU values, oldest first, unknown ones as 0.

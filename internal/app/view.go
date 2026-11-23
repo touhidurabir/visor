@@ -108,6 +108,9 @@ type ProcessView struct {
 	MemBytes int64
 	Procs    int
 	Spark    []float64
+	// Unmeasurable: the latest sample couldn't measure this process
+	// (another user's, or hidden on the server), as opposed to not yet.
+	Unmeasurable bool
 }
 
 // IssueView is one issue. Status is "open", "resolved_auto",
@@ -319,9 +322,8 @@ func buildOverview(in overviewInput) OverviewView {
 		}
 		v.Program = prog.Name
 		if in.usage != nil {
-			cur := in.usage.Current(v.FullName)
-			v.CPU, v.MemBytes = cur.CPU, cur.RSS
-			v.Procs = in.usage.Summary(v.FullName).Procs
+			cur, procs, st := in.usage.Of(v.FullName, v.PID)
+			v.CPU, v.MemBytes, v.Procs, v.Unmeasurable = cur.CPU, cur.RSS, procs, st == usage.Refused
 			v.Spark = in.usage.Spark(v.FullName, sparkPoints)
 		}
 		expected := expectedExit(in.inv, v.FullName, p.ExitStatus)

@@ -18,11 +18,14 @@ test.describe('CPU and memory', () => {
     await waitForDashboard(page)
     await expect(page.getByText('Usage', { exact: true })).toBeVisible()
     const cell = page.locator(`[data-usage="${QUEUE}"]`)
-    await expect(cell).toHaveAttribute('aria-label', /^CPU (measuring|[\d.]+ %), memory [\d.]+ (KB|MB)/, { timeout: 25_000 })
-    await expect(cell).toContainText(/[\d.]+ (KB|MB)/)
-    await expect(cell).toHaveAttribute('aria-label', /^CPU [\d.]+ %/, { timeout: 25_000 })
-    await expect(page.locator('[data-usage="reports-sync:reports-sync"]')).toHaveAttribute('aria-label', 'Not running')
-    await expect(page.locator('[data-usage="reports-sync:reports-sync"]')).toHaveText('–')
+    await expect(cell).toHaveAttribute('title', /^CPU (measuring|[\d.]+ %), memory [\d.]+ (KB|MB)/, { timeout: 25_000 })
+    await expect(cell.locator('.figs')).toHaveText(/[\d.]+ (KB|MB)/)
+    await expect(cell).toHaveAttribute('title', /^CPU [\d.]+ %/, { timeout: 25_000 })
+    await expect(cell.locator('.sr-only')).toHaveText(/^CPU [\d.]+ %, memory/) // what a screen reader reads
+    const stopped = page.locator('[data-usage="reports-sync:reports-sync"]')
+    await expect(stopped).toHaveAttribute('title', 'Not running')
+    await expect(stopped.locator('.sr-only')).toHaveText('Not running')
+    await expect(stopped.locator('.fig')).toHaveText('–')
   })
 
   test('the config page’s Resources card has a row per process and the hour’s charts', async ({ page }) => {

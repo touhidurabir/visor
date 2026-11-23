@@ -67,3 +67,24 @@ func TestHistoryRing(t *testing.T) {
 		t.Fatal("Keep didn't drop w")
 	}
 }
+
+func TestHistoryOf(t *testing.T) {
+	h := NewHistory(10)
+	if _, _, st := h.Of("w", 5); st != Pending {
+		t.Fatalf("never sampled: %v", st)
+	}
+	h.Add(t0, "w", 5, Totals{RSS: 7, Procs: 3}, true)
+	if p, procs, st := h.Of("w", 5); st != Known || p.RSS != 7 || procs != 3 {
+		t.Fatalf("sampled: %+v %d %v", p, procs, st)
+	}
+	if _, _, st := h.Of("w", 6); st != Pending {
+		t.Fatalf("restarted, not sampled yet: %v", st)
+	}
+	if _, _, st := h.Of("w", 0); st != Pending {
+		t.Fatalf("stopped: %v", st)
+	}
+	h.Add(t0.Add(10*time.Second), "w", 5, Totals{}, false)
+	if _, _, st := h.Of("w", 5); st != Refused {
+		t.Fatalf("not measurable: %v", st)
+	}
+}

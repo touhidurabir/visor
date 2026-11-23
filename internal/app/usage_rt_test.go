@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/touhidurabir/visor/internal/monitor"
 	"github.com/touhidurabir/visor/internal/supervisor"
 	"github.com/touhidurabir/visor/internal/supervisor/supervisortest"
 	"github.com/touhidurabir/visor/internal/usage"
@@ -114,4 +115,42 @@ func TestUsageLocalByDefault(t *testing.T) {
 		p, _, ok := findProc(ov, "sleeper:sleeper")
 		return ok && p.MemBytes > 0 && p.Procs >= 1
 	})
+}
+
+// The figures belong to the pid that was measured: a stopped or restarted
+// process shows nothing old, and one the OS refused says so.
+func TestOverviewUsageBelongsToThePid(t *testing.T) {
+	now := time.UnixMilli(10_000_000)
+	h := usage.NewHistory(10)
+	for _, n := range []string{"stopped", "restarted", "same", "refused"} {
+		h.Add(now, n+":"+n, 5, usage.Totals{RSS: 1 << 20, Procs: 3}, true)
+	}
+	h.Add(now.Add(time.Second), "refused:refused", 5, usage.Totals{}, false)
+	proc := func(name string, pid int, st supervisor.ProcessState) supervisor.ProcessInfo {
+		return supervisor.ProcessInfo{Name: name, Group: name, State: st, PID: pid, Now: now}
+	}
+	ov := buildOverview(overviewInput{
+		now: now, usage: h,
+		snap: monitor.Snapshot{At: now, Reachable: true, Processes: []supervisor.ProcessInfo{
+			proc("stopped", 0, supervisor.StateStopped),
+			proc("restarted", 6, supervisor.StateRunning),
+			proc("same", 5, supervisor.StateRunning),
+			proc("refused", 5, supervisor.StateRunning),
+		}},
+		watched: func(string) bool { return true },
+	})
+	for _, c := range ov.Configs {
+		for _, p := range c.Processes {
+			wantMem, wantProcs, wantRefused := int64(-1), 0, false
+			switch p.Name {
+			case "same":
+				wantMem, wantProcs = 1<<20, 3
+			case "refused":
+				wantRefused = true
+			}
+			if p.MemBytes != wantMem || p.Procs != wantProcs || p.Unmeasurable != wantRefused {
+				t.Errorf("%s: mem %d procs %d unmeasurable %v", p.Name, p.MemBytes, p.Procs, p.Unmeasurable)
+			}
+		}
+	}
 }

@@ -227,7 +227,6 @@ func (s *ServerService) ConfigDetail(path string) (ConfigDetailView, error) {
 func (s *ServerService) Usage(path string) ([]UsageView, error) { return s.rt.Usage(path) }
 
 // Reveal shows a file or folder in Finder.
-
 func (s *ServerService) Reveal(path string) error {
 	if s.rt.Remote() {
 		return errOnServer

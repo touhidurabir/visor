@@ -16,11 +16,15 @@ const W = 600
 const H = 90
 
 async function load() {
+  const want = props.path
+  let got: UsageView[] = []
   try {
-    views.value = (await ServerService.Usage(props.path)) ?? []
+    got = (await ServerService.Usage(want)) ?? []
   } catch {
-    views.value = []
+    // The tab dropped: the card says it is measuring.
   }
+  if (want !== props.path) return // a newer page's answer wins
+  views.value = got
   loaded.value = true
   if (!views.value.some((v) => v.Process === pick.value)) pick.value = views.value[0]?.Process ?? ''
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chartPaths, fmtBytes, fmtCpu, sparkPath, usageLabel, usageText } from './usage'
+import { chartPaths, fmtBytes, fmtCpu, sparkPath, usageLabel, usageMark, usageText } from './usage'
 
 describe('fmtCpu', () => {
   it('formats a share of one core', () => {
@@ -62,9 +62,15 @@ describe('chartPaths', () => {
 
 describe('usageText', () => {
   it('names the children and the unknowns', () => {
-    expect(usageText({ CPU: 4.1, MemBytes: 1024 * 1024, Procs: 3, PID: 5 })).toBe('CPU 4.1 %, memory 1.0 MB, with 2 children')
-    expect(usageText({ CPU: -1, MemBytes: 1024 * 1024, Procs: 2, PID: 5 })).toBe('CPU measuring, memory 1.0 MB, with 1 child')
-    expect(usageText({ CPU: -1, MemBytes: -1, Procs: 0, PID: 0 })).toBe('Not running')
-    expect(usageText({ CPU: -1, MemBytes: -1, Procs: 0, PID: 9 })).toMatch(/can’t measure/)
+    expect(usageText({ CPU: 4.1, MemBytes: 1024 * 1024, Procs: 3, PID: 5, Unmeasurable: false })).toBe('CPU 4.1 %, memory 1.0 MB, with 2 children')
+    expect(usageText({ CPU: -1, MemBytes: 1024 * 1024, Procs: 2, PID: 5, Unmeasurable: false })).toBe('CPU measuring, memory 1.0 MB, with 1 child')
+    expect(usageText({ CPU: -1, MemBytes: -1, Procs: 0, PID: 0, Unmeasurable: false })).toBe('Not running')
+    expect(usageText({ CPU: -1, MemBytes: -1, Procs: 0, PID: 9, Unmeasurable: true })).toMatch(/can’t measure/)
+  })
+  it('says measuring for a process that started since the last sample', () => {
+    expect(usageText({ CPU: -1, MemBytes: -1, Procs: 0, PID: 9, Unmeasurable: false })).toBe('Measuring CPU and memory')
+    expect(usageMark({ CPU: -1, MemBytes: -1, PID: 9, Unmeasurable: false })).toBe('…')
+    expect(usageMark({ CPU: -1, MemBytes: -1, PID: 9, Unmeasurable: true })).toBe('–')
+    expect(usageMark({ CPU: -1, MemBytes: -1, PID: 0, Unmeasurable: false })).toBe('–')
   })
 })

@@ -187,6 +187,7 @@ func (a *ServerAPI) RestartGroup(server string, g string) error {
 	return t.Server.RestartGroup(g)
 }
 
+// Reveal shows a file or folder in Finder.
 func (a *ServerAPI) Reveal(server string, path string) error {
 	t, err := a.hub.Tab(server)
 	if err != nil {

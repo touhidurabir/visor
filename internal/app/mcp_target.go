@@ -159,12 +159,14 @@ func (g *tabTarget) Usage(in mcp.UsageIn) (any, error) {
 	}
 	out := make([]map[string]any, 0, len(procs))
 	for _, p := range procs {
-		s := g.t.RT.usage.Summary(p.FullName)
-		out = append(out, map[string]any{
-			"name": p.FullName, "state": p.State,
-			"cpu_percent": known(p.CPU), "memory_bytes": known(float64(p.MemBytes)), "processes": p.Procs,
-			"hour": map[string]any{"peak_cpu_percent": s.PeakCPU, "avg_cpu_percent": s.AvgCPU, "peak_memory_bytes": s.PeakRSS, "avg_memory_bytes": s.AvgRSS},
-		})
+		row := map[string]any{"name": p.FullName, "state": p.State, "cpu_percent": known(p.CPU), "memory_bytes": known(float64(p.MemBytes)), "processes": nil, "hour": nil}
+		if p.MemBytes >= 0 {
+			row["processes"] = p.Procs
+		}
+		if s := g.t.RT.usage.Summary(p.FullName); s.PeakRSS > 0 {
+			row["hour"] = map[string]any{"peak_cpu_percent": s.PeakCPU, "avg_cpu_percent": s.AvgCPU, "peak_memory_bytes": s.PeakRSS, "avg_memory_bytes": s.AvgRSS}
+		}
+		out = append(out, row)
 	}
 	return map[string]any{"processes": out, "sample_every_s": usageEvery.Seconds()}, nil
 }

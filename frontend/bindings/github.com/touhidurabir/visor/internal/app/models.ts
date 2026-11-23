@@ -898,6 +898,12 @@ export interface ProcessView {
     "MemBytes": number;
     "Procs": number;
     "Spark": number[] | null;
+
+    /**
+     * Unmeasurable: the latest sample couldn't measure this process
+     * (another user's, or hidden on the server), as opposed to not yet.
+     */
+    "Unmeasurable": boolean;
 }
 
 /**

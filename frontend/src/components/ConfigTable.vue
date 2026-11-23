@@ -12,7 +12,7 @@ import { sinceLabel } from '../lib/format'
 import { isFailing, reasonClass, summaryParts } from '../lib/health'
 import { configMenu, forHost, processMenu, withoutSupervisord, type HostRules, type MenuItem } from '../lib/menus'
 import { configRoute } from '../lib/links'
-import { sparkPath, usageLabel, usageText } from '../lib/usage'
+import { sparkPath, usageLabel, usageMark, usageText } from '../lib/usage'
 import ActionMenu from './ActionMenu.vue'
 import StateText from './StateText.vue'
 import { readOnlyReason, useFolder } from '../lib/folder'
@@ -133,12 +133,13 @@ defineExpose({ focusProcess })
               <span v-if="p.Detail" :class="['why', reasonClass(p)]">{{ p.Detail }}</span>
             </div>
             <span><StateText :state="p.State" :status="p.Status" /></span>
-            <span class="use" :data-usage="p.FullName" :title="usageText(p)" :aria-label="usageText(p)">
+            <span class="use" :data-usage="p.FullName" :title="usageText(p)">
+              <span class="sr-only">{{ usageText(p) }}</span>
               <svg v-if="usageLabel(p).known && (p.Spark ?? []).length > 1" class="spark" width="48" height="14" viewBox="0 0 48 14" aria-hidden="true"><polyline :points="sparkPath(p.Spark ?? [], 48, 14)" /></svg>
-              <template v-if="usageLabel(p).known"
-                ><span class="fig">{{ usageLabel(p).cpu }}</span><span class="sep" aria-hidden="true">·</span><span class="fig">{{ usageLabel(p).mem }}</span></template
+              <span v-if="usageLabel(p).known" class="figs" aria-hidden="true"
+                ><span class="fig">{{ usageLabel(p).cpu }}</span><span class="sep">·</span><span class="fig">{{ usageLabel(p).mem }}</span></span
               >
-              <span v-else class="fig" aria-hidden="true">–</span>
+              <span v-else class="fig" aria-hidden="true">{{ usageMark(p) }}</span>
             </span>
             <span class="meta">{{ sinceLabel(p, nowMs) }}</span>
             <span class="mono pid num">{{ p.PID > 0 ? p.PID : '–' }}</span>
@@ -219,8 +220,10 @@ a.pname:hover { text-decoration: underline; }
 .empty { margin: 0; padding: 16px; color: var(--ink2); }
 .note { margin: 0; padding: 10px 16px; border-top: 1px solid var(--line); background: var(--sunken); color: var(--ink3); font-size: 12.5px; }
 /* Usage: CPU · memory, right-aligned; the 10-minute sparkline on wide tables. */
-.use { display: flex; align-items: center; justify-content: flex-end; gap: 5px; font-family: var(--mono); font-size: 12px; color: var(--ink2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.use { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 5px; font-family: var(--mono); font-size: 12px; color: var(--ink2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.figs { display: inline-flex; gap: 5px; }
 .sep { color: var(--ink3); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .spark { display: none; flex: none; }
 .spark polyline { fill: none; stroke: var(--accent); stroke-width: 1.3; stroke-linejoin: round; }
 @container (min-width: 900px) {
