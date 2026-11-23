@@ -45,11 +45,25 @@ func (t Table) Tree(pid int) (Totals, bool) {
 	if _, ok := t[pid]; !ok {
 		return Totals{}, false
 	}
+	var sum Totals
+	for _, n := range t.members(pid) {
+		sum.CPU += t[n].CPU
+		sum.RSS += t[n].RSS
+		sum.Procs++
+	}
+	return sum, true
+}
+
+// members is pid and its descendants in t (pid first), each once.
+func (t Table) members(pid int) []int {
+	if _, ok := t[pid]; !ok {
+		return nil
+	}
 	kids := map[int][]int{}
 	for _, p := range t {
 		kids[p.PPID] = append(kids[p.PPID], p.PID)
 	}
-	var sum Totals
+	var out []int
 	seen := map[int]bool{}
 	stack := []int{pid}
 	for len(stack) > 0 {
@@ -59,13 +73,10 @@ func (t Table) Tree(pid int) (Totals, bool) {
 			continue
 		}
 		seen[n] = true
-		p := t[n]
-		sum.CPU += p.CPU
-		sum.RSS += p.RSS
-		sum.Procs++
+		out = append(out, n)
 		stack = append(stack, kids[n]...)
 	}
-	return sum, true
+	return out
 }
 
 // Trees is Tree for each pid in t.
