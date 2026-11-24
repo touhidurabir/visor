@@ -2,7 +2,26 @@
 
 ## Reporting a problem
 
-Please don't open a public issue for a security problem. Report it privately through GitHub: on the repository's **Security** tab, choose **Report a vulnerability**. Include what you found, how to reproduce it, and which Visor version you used. You'll get an answer within a week.
+Please don't open a public issue for a security problem. Report it privately through GitHub: on the repository's **Security** tab, choose **Report a vulnerability**. No GitHub account? Email security@getvisor.dev instead.
+
+Include what you found, how to reproduce it, and which Visor version you used.
+
+### What happens next
+
+- You'll get an answer within a week, saying whether it's a security problem and what comes next.
+- The fix is worked on in private. Expect a fixed release, or a plan with a date, within 90 days.
+- When the fixed release is out, a GitHub security advisory describes the problem, with a CVE when it needs one. You're credited in it, unless you'd rather not be.
+- Please keep the problem private until that advisory is published.
+
+### Supported versions
+
+Only the latest release gets security fixes. Visor is in beta, so update to the newest version before you report.
+
+### What isn't a security problem
+
+- Anything that needs someone to already run code as your user, or to have your password, key or MCP token. Visor runs with your permissions and can't protect you from yourself.
+- What supervisord itself allows to anyone who can reach its socket or port. That's supervisord's own security, set in `supervisord.conf`.
+- What an AI tool does with access you gave it through MCP, within that machine's access level.
 
 ## What Visor can reach
 
