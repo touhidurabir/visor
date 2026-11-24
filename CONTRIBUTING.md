@@ -6,6 +6,9 @@ Thanks for helping. Bug reports, ideas and pull requests are all welcome.
 
 - **Bugs:** open an issue with the bug report form: what you did, what you expected, what happened, your macOS and supervisord versions (`supervisord --version`), and Visor's version (Visor → About Visor).
 - **Bigger changes:** open an issue first so we can agree on the approach before you spend time on it.
+- **Security problems:** never in an issue. Report them privately as [SECURITY.md](SECURITY.md) explains.
+
+Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## Setting up
 
