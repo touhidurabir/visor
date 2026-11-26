@@ -72,6 +72,8 @@ describe('fileSize and fixToSave', () => {
     expect(fileSize(512)).toBe('512 bytes')
     expect(fileSize(2_516_582)).toBe('2.4 MB')
     expect(fileSize(50 * 1024 * 1024)).toBe('50 MB')
+    expect(fileSize(1024 * 1024 - 1)).toBe('1.0 MB')
+    expect(fileSize(9.97 * 1024)).toBe('10 KB')
     expect(fixToSave(1)).toBe('Fix 1 line to save')
     expect(fixToSave(3)).toBe('Fix 3 lines to save')
     expect(fixToSave(1, false)).toBe('Fix 1 problem to save')

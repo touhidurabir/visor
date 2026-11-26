@@ -54,11 +54,11 @@ export function fileSize(n: number): string {
   const units = ['KB', 'MB', 'GB', 'TB']
   let v = n / 1024
   let i = 0
-  while (v >= 1024 && i < units.length - 1) {
+  while (Math.round(v) >= 1024 && i < units.length - 1) {
     v /= 1024
     i++
   }
-  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`
+  return `${v < 9.95 ? v.toFixed(1) : Math.round(v)} ${units[i]}`
 }
 
 /** "Fix 1 line to save", "Fix 3 lines to save"; "problems" when some are about the whole file. */

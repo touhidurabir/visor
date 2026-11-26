@@ -5,7 +5,7 @@
 export function fmtCpu(v: number): string {
   if (v < 0) return '–'
   if (v < 0.05) return '0 %'
-  return `${v >= 100 ? Math.round(v) : v.toFixed(1)} %`
+  return `${v >= 99.95 ? Math.round(v) : v.toFixed(1)} %`
 }
 
 /** "980 KB", "182 MB", "1.2 GB" in 1024 steps, "–" when unknown. */
@@ -14,11 +14,12 @@ export function fmtBytes(n: number): string {
   const units = ['KB', 'MB', 'GB', 'TB']
   let v = n / 1024
   let i = 0
-  while (v >= 1024 && i < units.length - 1) {
+  // Compare as shown: 1023.7 MB reads 1.0 GB, not 1024 MB.
+  while (Math.round(v) >= 1024 && i < units.length - 1) {
     v /= 1024
     i++
   }
-  return `${v >= 10 || v === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`
+  return `${v >= 9.95 || v === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`
 }
 
 /** The dashboard's figures: CPU reads "…" until the second sample. */

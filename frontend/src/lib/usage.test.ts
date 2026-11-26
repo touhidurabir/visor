@@ -74,3 +74,13 @@ describe('usageText', () => {
     expect(usageMark({ CPU: -1, MemBytes: -1, PID: 0, Unmeasurable: false })).toBe('–')
   })
 })
+
+describe('unit edges', () => {
+  it('rounds before choosing the format', () => {
+    expect(fmtCpu(99.97)).toBe('100 %')
+    expect(fmtCpu(9.97)).toBe('10.0 %')
+    expect(fmtBytes(1023.7 * 1024 * 1024)).toBe('1.0 GB')
+    expect(fmtBytes(9.97 * 1024)).toBe('10 KB')
+    expect(fmtBytes(1024 * 1024 - 1)).toBe('1.0 MB')
+  })
+})
