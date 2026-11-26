@@ -231,6 +231,15 @@ func TestMcpRestartsSerialized(t *testing.T) {
 	}
 	l.Close()
 
+	// A restart that lost the race to Disable doesn't bring the server back.
+	if _, err := f.svc.SetEnabled(false); err != nil {
+		t.Fatal(err)
+	}
+	f.svc.restart()
+	if st := f.svc.Status(); st != McpOff {
+		t.Fatalf("restart after Disable: %s", st)
+	}
+
 	_ = f.svc.ServiceShutdown()
 	f.svc.restart()
 	if st := f.svc.Status(); st != McpOff {

@@ -273,7 +273,8 @@ func (s *McpService) restart() {
 	s.mu.Lock()
 	closed := s.closed
 	s.mu.Unlock()
-	if closed {
+	// A restart that raced a Disable (or Visor quitting) stays stopped.
+	if closed || !s.cfg().Enabled {
 		return
 	}
 	port := s.port()
@@ -313,15 +314,15 @@ func (s *McpService) shutdownHTTP() {
 	hs, ln := s.http, s.ln
 	s.http, s.ln, s.status, s.errText = nil, nil, McpOff, ""
 	s.mu.Unlock()
-	if ln != nil {
-		_ = ln.Close()
-	}
 	if hs != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		if err := hs.Shutdown(ctx); err != nil {
 			_ = hs.Close()
 		}
+	}
+	if ln != nil {
+		_ = ln.Close() // after Shutdown, so Serve sees a closed server, not an Accept error
 	}
 }
 
