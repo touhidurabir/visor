@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -276,6 +277,21 @@ func ClientLabel(name string) string {
 		return "Cursor"
 	case "visual studio code", "vscode":
 		return "VS Code"
+	case "opencode":
+		return "OpenCode"
+	}
+	// Any other name is the client's own: no control characters, at most 40.
+	name = strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, name))
+	if r := []rune(name); len(r) > 40 {
+		name = string(r[:40]) + "…"
+	}
+	if name == "" {
+		return "An AI tool"
 	}
 	return name
 }

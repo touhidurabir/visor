@@ -91,8 +91,8 @@ func (t *fakeTarget) Process(in ProcessIn) (any, error) {
 	}
 	return t.b.log(t.m, "Process", "", in.Name)
 }
-func (t *fakeTarget) Usage(in UsageIn) (any, error)     { return t.b.log(t.m, "Usage", "", in.Process) }
-func (t *fakeTarget) Logs(in LogsIn) (any, error)       { return t.b.log(t.m, "Logs", "", in.Process) }
+func (t *fakeTarget) Usage(in UsageIn) (any, error) { return t.b.log(t.m, "Usage", "", in.Process) }
+func (t *fakeTarget) Logs(in LogsIn) (any, error)   { return t.b.log(t.m, "Logs", "", in.Process) }
 func (t *fakeTarget) SearchLogs(in SearchIn) (any, error) {
 	return t.b.log(t.m, "SearchLogs", "", in.Query)
 }
@@ -443,7 +443,11 @@ func TestReadsTimeOut(t *testing.T) {
 func TestClientLabel(t *testing.T) {
 	for in, want := range map[string]string{
 		"claude-code": "Claude Code", "codex-mcp-client": "Codex", "codex": "Codex",
-		"Cursor": "Cursor", "my-agent": "my-agent", "": "An AI tool",
+		"Cursor": "Cursor", "my-agent": "my-agent", "": "An AI tool", "opencode": "OpenCode",
+		// A client names itself: control characters go, and a long name is cut.
+		"bad\nname\x1b[31m":      "badname[31m",
+		strings.Repeat("a", 500): strings.Repeat("a", 40) + "…",
+		"   ":                    "An AI tool",
 	} {
 		if got := ClientLabel(in); got != want {
 			t.Errorf("ClientLabel(%q) = %q, want %q", in, got, want)
