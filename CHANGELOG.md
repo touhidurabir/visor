@@ -15,6 +15,7 @@ Fixes from a security review, each with a test.
 - An empty log reply from a server no longer crashes Visor when an AI tool asks for a process. A panic in any MCP tool now fails only that call; before, it closed the app.
 - A jump host is no longer offered the server's password, which by default is also its sudo password. A jump host now logs in with a key file or the SSH agent only.
 - Restoring a removed config brings it back with the permissions it had (a `0600` file stays `0600`), on this computer and on servers. Before, it came back readable by every user. Backups of files removed before this change don't know the old permissions, so those files still come back as `0644`.
+- A supervisord reply nested more than 64 levels deep is refused. supervisord's own replies go three levels at most, and a crafted reply from a server could recurse until Visor crashed.
 
 ### CPU and memory
 Each process shows how much CPU and memory it uses, now and over the last hour, on this computer and on servers.

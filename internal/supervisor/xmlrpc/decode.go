@@ -97,8 +97,14 @@ func isMappedCtrl(c rune) bool {
 	return c >= ctrlBase && c < ctrlBase+0x20 && mapped(c-ctrlBase)
 }
 
+// maxDepth is how deeply arrays and structs may nest. supervisord's replies
+// go two or three levels deep; a reply past this (a hostile server's) is
+// refused rather than recursing until the stack runs out.
+const maxDepth = 64
+
 type parser struct {
-	d *xml.Decoder
+	d     *xml.Decoder
+	depth int // arrays and structs open around the current value
 }
 
 // next returns the next start or end element, skipping the XML declaration,
@@ -268,9 +274,15 @@ func (p *parser) valueBody() (any, error) {
 // consumed, up to and including its closing tag.
 func (p *parser) typed(name string) (any, error) {
 	switch name {
-	case "array":
-		return p.array()
-	case "struct":
+	case "array", "struct":
+		if p.depth >= maxDepth {
+			return nil, fmt.Errorf("reply nested more than %d levels deep", maxDepth)
+		}
+		p.depth++
+		defer func() { p.depth-- }()
+		if name == "array" {
+			return p.array()
+		}
 		return p.structure()
 	case "nil":
 		return nil, p.expectEnd("nil")
