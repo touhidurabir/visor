@@ -527,12 +527,14 @@ func (s *ConfigService) CreateCopy(fileName, content, from string) (ApplyResultV
 }
 
 // keptMode is a source file's permissions for a new config (0644 when
-// unknown), always readable and writable by its owner so Visor can edit it.
+// unknown): always readable and writable by its owner so Visor can edit it,
+// and never writable by the group or others (a file from a USB stick or a
+// share is 0777, and supervisord may run its command as root).
 func keptMode(m uint32) fs.FileMode {
 	if m == 0 {
 		return 0
 	}
-	return fs.FileMode(m)&fs.ModePerm | 0o600
+	return fs.FileMode(m)&0o755 | 0o600
 }
 
 func (s *ConfigService) createNamed(fileName, content string, perm fs.FileMode) (ApplyResultView, error) {

@@ -291,6 +291,13 @@ func TestCopyAndImportKeepTheMode(t *testing.T) {
 	if m := mode(confFile(inst, "plain")); m != 0o644 {
 		t.Errorf("import with no mode: %o", m)
 	}
+	// From a USB stick or a share every file is 0777: never group or world writable here.
+	if got := keptMode(0o777); got != 0o755 {
+		t.Errorf("keptMode(0777) = %o", got)
+	}
+	if got := keptMode(0o4666); got != 0o644 {
+		t.Errorf("keptMode(04666) = %o", got)
+	}
 
 	dropped := filepath.Join(t.TempDir(), "d.ini")
 	if err := os.WriteFile(dropped, []byte("[program:d]\n"), 0o600); err != nil {

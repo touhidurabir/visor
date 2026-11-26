@@ -16,7 +16,7 @@ What Visor 1.0 doesn't do yet, or can't do, and what to do about it. Found somet
 ## Configs
 
 - **A config restored with Use sudo comes back owned by root.** On a server that uses sudo, restoring a removed config writes it as root. supervisord reads it as before. To edit it later without sudo, give it back to your user with `sudo chown`.
-- **A file added with Import's file picker gets the usual permissions (`0644`),** because the window can't see the original's. A file dragged onto the window, or a copy of an existing config, keeps the original's permissions.
+- **A file added with Import's file picker gets the usual permissions (`0644`),** because the window can't see the original's. A file dragged onto the window, or a copy of an existing config, keeps the original's permissions, except that Visor's copy is always readable and writable by you and never writable by the group or others.
 
 ## macOS
 
