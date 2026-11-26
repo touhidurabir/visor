@@ -4,7 +4,6 @@ A free, open-source menu-bar and tray app for [supervisord](http://supervisord.o
 
 See every process at a glance, start, stop and restart them, follow their logs, and edit program configs safely. Do it on your own computer and on your Linux servers over SSH, and let your AI coding tools help through MCP. It's the everyday `supervisorctl` work, in a window, with nothing to install next to supervisord.
 
-> **Status:** beta (`v0.1.0-beta.N`), heading for v0.1.0. Testers: see [docs/beta.md](docs/beta.md).
 
 - [Features](#features)
 - [Install](#install)
@@ -82,13 +81,9 @@ Things to know:
   - Root owns `/etc/supervisor/conf.d` too, so configs are read-only in Visor until the group can write there. Doctor shows that command as well.
 - Saved passwords go to your keyring (GNOME Keyring or KWallet). Without a keyring, Visor keeps the password only until you quit.
 
-### Known limitations
+### Known issues
 
-- macOS asks once whether Visor may show notifications. If you say no, or turn them off later in System Settings → Notifications, every notification is still kept in Visor: the bell in the sidebar and the popover show what's unread.
-- Keep Visor in Applications. If you run it from the disk image or Downloads, macOS moves it to a temporary place, and Launch at login won't turn on.
-- On Wayland (Ubuntu's and Fedora's default), the desktop decides where the popover opens, so it can't sit under the tray icon.
-- Linux panels don't show text beside a tray icon, so the unread count is drawn on the icon (1–9, then 9+).
-- **Workers started through Docker** (`docker run` or `docker compose` in the program's command) show the Docker client's CPU and memory, not the container's. The container's processes belong to Docker, not to supervisord, so Visor can't see them. Use `docker stats` for those.
+A few things don't work everywhere yet: notifications macOS turned off, the popover's place on Wayland, CPU and memory for Docker workers, and more. See [docs/known-issues.md](docs/known-issues.md).
 
 ## Getting started
 
@@ -102,7 +97,7 @@ Things to know:
 | Read | For |
 |---|---|
 | [docs/MCP.md](docs/MCP.md) | The MCP server: connecting AI tools, access per machine, every tool, security |
-| [docs/beta.md](docs/beta.md) | Beta testers: what to try, how to report, where Visor keeps things |
+| [docs/known-issues.md](docs/known-issues.md) | What Visor doesn't do yet, and what to do about it |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each version |
 | [SECURITY.md](SECURITY.md) | What Visor can reach, and how to report a security problem |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Setting up, the code layout and pull requests |
