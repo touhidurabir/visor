@@ -539,3 +539,30 @@ func TestFolderViewForTheReadOnlyBanner(t *testing.T) {
 		t.Error("ownerName of a temp dir is empty")
 	}
 }
+
+// Restoring an older backup of a removed file (not the removal's own) keeps
+// the mode the removal recorded too.
+func TestConfigServiceRestoreOlderBackupOfRemovedFile(t *testing.T) {
+	cs, svc, _, inst := configFixture(t)
+	p := confFile(inst, "doomed")
+	if err := os.Chmod(p, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	v, _ := cs.Read(p)
+	if _, err := cs.Save(p, v.Content+"; edited\n", v.Hash); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.RemoveFromSupervisor(p); err != nil {
+		t.Fatal(err)
+	}
+	list, err := cs.Backups(p)
+	if err != nil || len(list) != 2 || !list[0].Removed || list[1].Removed {
+		t.Fatalf("backups = %+v, %v", list, err)
+	}
+	if _, err := cs.Restore(p, list[1].ID); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(p); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("restored mode: %v, %v; want 0600", fi, err)
+	}
+}

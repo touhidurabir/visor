@@ -347,7 +347,8 @@ func (s *ConfigService) Restore(path, backupID string) (ApplyResultView, error) 
 	}
 	cur, err := s.rt.files().ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return s.create(path, string(data), b.Mode(list[i]))
+		// The removal's backup (the newest) knows the mode the file had.
+		return s.create(path, string(data), b.Mode(list[0]))
 	}
 	if err != nil {
 		return ApplyResultView{}, fmt.Errorf("read %s: %w", path, err)
