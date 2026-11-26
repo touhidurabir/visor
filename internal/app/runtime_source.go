@@ -90,6 +90,13 @@ func ServerTarget(ctx context.Context, s settings.Server) (remote.Target, error)
 		if err != nil {
 			return t, err
 		}
+		// Each hop logs in with its own key or the agent (never the
+		// server's password), so it needs ~/.ssh/config applied too.
+		for i := range jumps {
+			if jumps[i], err = resolveTarget(ctx, jumps[i]); err != nil {
+				return t, fmt.Errorf("jump host %s: %w", jumps[i].Host, err)
+			}
+		}
 		t.Jump = jumps
 	}
 	return resolveTarget(ctx, t)

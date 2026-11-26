@@ -51,8 +51,8 @@ func TestDialThroughJumpHost(t *testing.T) {
 	// A jump host that only takes a password isn't given the server's.
 	pwOnly := target(jump)
 	tg.Jump = []remote.Target{pwOnly}
-	if _, err := remote.Dial(context.Background(), tg, remote.Secrets{Password: "pw"}, hk); !errors.Is(err, remote.ErrNoAuth) {
-		t.Fatalf("password-only jump host: %v, want ErrNoAuth", err)
+	if _, err := remote.Dial(context.Background(), tg, remote.Secrets{Password: "pw"}, hk); !errors.Is(err, remote.ErrJumpNoAuth) {
+		t.Fatalf("password-only jump host: %v, want ErrJumpNoAuth", err)
 	}
 	if n := jump.PasswordAttempts(); n != 0 {
 		t.Fatalf("the jump host was offered the server's password %d times", n)

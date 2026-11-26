@@ -91,6 +91,8 @@ func sshErrorText(err error, t remote.Target) string {
 		return "The key file is locked with a passphrase. Enter it, or add the key to your SSH agent (ssh-add --apple-use-keychain on a Mac)."
 	case errors.Is(err, remote.ErrPassphraseWrong):
 		return "The passphrase didn't open the key file."
+	case errors.Is(err, remote.ErrJumpNoAuth):
+		return "The jump host has no key to log in with: choose a key file for it in ~/.ssh/config, or add one to your SSH agent. Visor never sends this server's password to a jump host."
 	case errors.Is(err, remote.ErrNoAuth):
 		return "There's nothing to log in with: enter a password, choose a key file, or start your SSH agent."
 	case errors.Is(err, remote.ErrProxyCommand):
