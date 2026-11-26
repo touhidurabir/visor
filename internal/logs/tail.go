@@ -120,6 +120,9 @@ func Tail(ctx context.Context, c TailClient, process string, s Stream, n int) (s
 // it). Text with no line start after the first byte (one long line) keeps
 // the rest.
 func fromLineStart(text string) string {
+	if text == "" {
+		return ""
+	}
 	if i := strings.IndexByte(text, '\n'); i >= 0 && i+1 < len(text) {
 		return text[i+1:]
 	}

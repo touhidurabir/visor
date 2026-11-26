@@ -191,7 +191,7 @@ func (s *ConfigService) Import(items []ImportItem, start bool) ([]ImportResultVi
 			out[i].Error = err.Error()
 			continue
 		}
-		res, err := s.create(path, it.Content)
+		res, err := s.create(path, it.Content, 0)
 		out[i].Result = res
 		if err != nil {
 			out[i].Error = err.Error()

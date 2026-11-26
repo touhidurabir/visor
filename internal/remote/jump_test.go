@@ -19,8 +19,10 @@ import (
 )
 
 func TestDialThroughJumpHost(t *testing.T) {
-	_, hk := isolate(t)
-	jump := remotetest.Start(t, remotetest.Options{Password: "pw"})
+	home, hk := isolate(t)
+	keyPath, pub := writeKey(t, home, "")
+	// The jump host also takes the server's password: it must never be offered.
+	jump := remotetest.Start(t, remotetest.Options{Password: "pw", AuthorizedKeys: []ssh.PublicKey{pub}})
 	dest := remotetest.Start(t, remotetest.Options{Password: "pw"})
 	for _, s := range []*remotetest.Server{jump, dest} {
 		if err := hk.Trust(s.Host, s.Port, s.HostKey); err != nil {
@@ -28,7 +30,9 @@ func TestDialThroughJumpHost(t *testing.T) {
 		}
 	}
 	tg := target(dest)
-	tg.Jump = []remote.Target{target(jump)}
+	hop := target(jump)
+	hop.KeyPath = keyPath
+	tg.Jump = []remote.Target{hop}
 	c, err := remote.Dial(context.Background(), tg, remote.Secrets{Password: "pw"}, hk)
 	if err != nil {
 		t.Fatal(err)
@@ -40,6 +44,20 @@ func TestDialThroughJumpHost(t *testing.T) {
 	if len(dest.Execs()) != 1 || len(jump.Execs()) != 0 {
 		t.Fatal("the command should run on the destination only")
 	}
+	if n := jump.PasswordAttempts(); n != 0 {
+		t.Fatalf("the jump host was offered the server's password %d times", n)
+	}
+
+	// A jump host that only takes a password isn't given the server's.
+	pwOnly := target(jump)
+	tg.Jump = []remote.Target{pwOnly}
+	if _, err := remote.Dial(context.Background(), tg, remote.Secrets{Password: "pw"}, hk); !errors.Is(err, remote.ErrJumpNoAuth) {
+		t.Fatalf("password-only jump host: %v, want ErrJumpNoAuth", err)
+	}
+	if n := jump.PasswordAttempts(); n != 0 {
+		t.Fatalf("the jump host was offered the server's password %d times", n)
+	}
+	tg.Jump = []remote.Target{hop}
 
 	// An unknown jump host is reported as such.
 	_, hk2 := isolate(t)

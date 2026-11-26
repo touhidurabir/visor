@@ -209,13 +209,13 @@ def replace_file(path, data, want):
     sync_dir(os.path.dirname(target))
 
 
-def create_file(path, data):
+def create_file(path, data, mode):
     if os.path.lexists(path):
         raise OSError(errno.EEXIST, "file exists")
     fd, tmp = temp_beside(path)
     try:
         try:
-            os.fchmod(fd, 0o644)
+            os.fchmod(fd, (mode or 0o644) & 0o777)
             write_fd(fd, data)
         finally:
             os.close(fd)
@@ -439,7 +439,7 @@ def handle(kind, ident, payload, conns, socks):
             send("w", ident)
         elif kind == b"C":
             req = json.loads(text(payload))
-            create_file(req["path"], base64.b64decode(req.get("data") or ""))
+            create_file(req["path"], base64.b64decode(req.get("data") or ""), req.get("mode") or 0)
             send("c", ident)
         elif kind == b"U":
             req = json.loads(text(payload))

@@ -347,7 +347,8 @@ func (s *ConfigService) Restore(path, backupID string) (ApplyResultView, error) 
 	}
 	cur, err := s.rt.files().ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return s.create(path, string(data))
+		// The removal's backup (the newest) knows the mode the file had.
+		return s.create(path, string(data), b.Mode(list[0]))
 	}
 	if err != nil {
 		return ApplyResultView{}, fmt.Errorf("read %s: %w", path, err)
@@ -381,7 +382,7 @@ const maxRemovedListed = 20
 
 // create writes content as a new file at path and applies its groups. When
 // supervisord refuses it, the file is removed again (ErrRejected).
-func (s *ConfigService) create(path, content string) (ApplyResultView, error) {
+func (s *ConfigService) create(path, content string, perm fs.FileMode) (ApplyResultView, error) {
 	if err := s.rt.checkNotMain(path); err != nil {
 		return ApplyResultView{}, err
 	}
@@ -392,7 +393,7 @@ func (s *ConfigService) create(path, content string) (ApplyResultView, error) {
 		return ApplyResultView{}, invalidError(cs)
 	}
 	d := s.rt.disk()
-	if _, err := apply.Write(d, path, []byte(content), "", s.rt.backups()); err != nil {
+	if err := apply.Create(d, path, []byte(content), perm); err != nil {
 		return ApplyResultView{}, err
 	}
 	res, err := s.applyWritten(path)
@@ -532,7 +533,7 @@ func (s *ConfigService) Create(fileName, content string) (ApplyResultView, error
 	if err := s.rt.watch.set(path, true); err != nil {
 		return ApplyResultView{}, err
 	}
-	return s.create(path, content)
+	return s.create(path, content, 0)
 }
 
 // CopyDraftView is a new config drafted from an existing one: its file name

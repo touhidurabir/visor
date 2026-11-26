@@ -467,11 +467,15 @@ func TestMcpChangeShowsViaInActivity(t *testing.T) {
 	}
 }
 
-// mcpKeychain counts reads and writes, and can fail reads.
+// mcpKeychain counts reads and writes, and can fail reads, or drop writes
+// (dropSets: Set says yes but keeps nothing, as a keychain tool that hides
+// its failure would).
 type mcpKeychain struct {
 	settings.MemoryKeychain
 	gets, sets atomic.Int32
 	getErr     error
+	setErr     error
+	dropSets   bool
 }
 
 func (k *mcpKeychain) Get(service, account string) (string, error) {
@@ -484,7 +488,42 @@ func (k *mcpKeychain) Get(service, account string) (string, error) {
 
 func (k *mcpKeychain) Set(service, account, secret string) error {
 	k.sets.Add(1)
+	if k.setErr != nil || k.dropSets {
+		return k.setErr
+	}
 	return k.MemoryKeychain.Set(service, account, secret)
+}
+
+// Regenerate that can't save the new token keeps the old one and says so:
+// a new token kept only in memory would quietly give way to the old one at
+// the next launch.
+func TestMcpRegenerateKeepsTokenWhenNotSaved(t *testing.T) {
+	f := newMcpFixture(t)
+	for name, k := range map[string]*mcpKeychain{
+		"Set fails":         {setErr: errors.New("the keychain refused")},
+		"Set keeps nothing": {dropSets: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := k.MemoryKeychain.Set(settings.KeychainService, mcpTokenAccount, "vsr_old"); err != nil {
+				t.Fatal(err)
+			}
+			svc := NewMcpService(McpOptions{Hub: f.hub, Remote: f.remote, Settings: f.svc.o.Settings, Keychain: k})
+			if v := svc.Get(); v.Token != "vsr_old" {
+				t.Fatalf("token = %q", v.Token)
+			}
+			v, err := svc.RegenerateToken()
+			if err == nil || v.Token != "vsr_old" || svc.currentToken() != "vsr_old" {
+				t.Fatalf("regenerate = %q, %v; want an error and the old token", v.Token, err)
+			}
+		})
+	}
+
+	// With no old token (it couldn't be read), the error doesn't promise one.
+	locked := &mcpKeychain{getErr: errors.New("the keyring is locked")}
+	svc := NewMcpService(McpOptions{Hub: f.hub, Remote: f.remote, Settings: f.svc.o.Settings, Keychain: locked})
+	if _, err := svc.RegenerateToken(); err == nil || strings.Contains(err.Error(), "old token still works") {
+		t.Fatalf("regenerate with no old token: %v", err)
+	}
 }
 
 // The token is read from the Keychain or keyring only when MCP is used, and

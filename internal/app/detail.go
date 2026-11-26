@@ -229,6 +229,9 @@ func buildPaths(file config.ConfigFile, inv config.Inventory, procs []supervisor
 
 	var out []PathView
 	for _, p := range dedupe(append(append(dirs, bins...), logPaths...)) {
+		if strings.Contains(p.Path, "%(") {
+			continue // %(ENV_x)s: only supervisord knows the path
+		}
 		switch {
 		case p.Kind == "bin" && !filepath.IsAbs(p.Path):
 			p.Exists = false // not found on PATH
@@ -313,21 +316,17 @@ func dedupe(ps []PathView) []PathView {
 }
 
 // progVars are the %(name)s expansions supervisord offers in program
-// values, with the first process number.
+// values, with the first process number. %(ENV_x)s stays unexpanded: it comes
+// from supervisord's environment, which Visor can't see, and Visor's own must
+// never reach an AI tool or a server.
 func progVars(prog config.Program, here string) map[string]string {
-	vars := map[string]string{
+	return map[string]string{
 		"program_name": prog.Name,
 		"group_name":   prog.Group,
 		"here":         here,
 		"process_num":  strconv.Itoa(intKey(prog.Section, "numprocs_start", 0)),
 		"numprocs":     strconv.Itoa(prog.NumProcs),
 	}
-	for _, kv := range os.Environ() {
-		if k, v, ok := strings.Cut(kv, "="); ok {
-			vars["ENV_"+k] = v
-		}
-	}
-	return vars
 }
 
 // commandBinary is the program a command= line runs: its first word, with

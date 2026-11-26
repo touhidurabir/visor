@@ -53,6 +53,9 @@ var (
 	ErrPassphraseWrong = errors.New("the passphrase did not open the key file")
 	// ErrNoAuth means there was nothing to log in with.
 	ErrNoAuth = errors.New("no password, key file or agent to log in with")
+	// ErrJumpNoAuth means a jump host had no key file or agent to log in
+	// with: it never gets the server's password.
+	ErrJumpNoAuth = errors.New("a jump host logs in with a key file or the SSH agent only, never with this server's password")
 )
 
 // DialTimeout bounds the TCP connect and SSH handshake when ctx has no deadline.
@@ -75,9 +78,14 @@ func Dial(ctx context.Context, t Target, s Secrets, hk HostKeys) (*Conn, error) 
 		var d net.Dialer
 		return d.DialContext(ctx, "tcp", addr)
 	}
-	// Each jump host is reached through the one before it.
+	// Each jump host is reached through the one before it, with keys and the
+	// agent only: the password is the server's, never a jump host's.
 	for _, j := range t.Jump {
-		c, err := handshake(ctx, dial, j, s, cb, algos)
+		c, err := handshake(ctx, dial, j, Secrets{KeyPassphrase: s.KeyPassphrase}, cb, algos)
+		if errors.Is(err, ErrNoAuth) {
+			cleanup()
+			return nil, fmt.Errorf("jump host %s: %w", j.Addr(), ErrJumpNoAuth)
+		}
 		if err != nil {
 			cleanup()
 			return nil, fmt.Errorf("jump host %s: %w", j.Addr(), err)

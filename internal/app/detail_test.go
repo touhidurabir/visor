@@ -232,3 +232,30 @@ func inventoryOf(t *testing.T, src string) config.Inventory {
 	}
 	return inv
 }
+
+// supervisord expands %(ENV_x)s from its own environment, never Visor's, so
+// Visor must not fill them in: that would show its environment to a Read-level
+// AI tool and send it to servers in file checks.
+func TestBuildPathsLeavesEnvUnexpanded(t *testing.T) {
+	t.Setenv("VISOR_PROBE", "s3cret")
+	src := "[program:w]\ncommand=/bin/%(ENV_VISOR_PROBE)s\ndirectory=/%(ENV_VISOR_PROBE)s\nstdout_logfile=/var/log/%(ENV_VISOR_PROBE)s.log\n"
+	inv := inventoryOf(t, src)
+	var checked []string
+	exists := func(p string) bool { checked = append(checked, p); return true }
+	look := func(string) (string, error) { return "", errors.New("not found") }
+	paths, _ := buildPaths(inv.Files[0], inv, nil, look, exists)
+	for _, p := range paths {
+		if strings.Contains(p.Path, "s3cret") {
+			t.Errorf("path %q holds Visor's environment", p.Path)
+		}
+	}
+	for _, p := range checked {
+		if strings.Contains(p, "s3cret") {
+			t.Errorf("checked %q, which holds Visor's environment", p)
+		}
+	}
+	// A path Visor can't expand isn't checked or shown as missing.
+	if len(paths) != 0 || len(checked) != 0 {
+		t.Errorf("paths %+v, checked %q; want none", paths, checked)
+	}
+}

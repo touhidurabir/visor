@@ -8,6 +8,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### License
 Visor is now licensed under the **GNU Affero General Public License v3.0** (AGPL-3.0-or-later), instead of MIT. You can still use, change, share and sell it. Anyone who distributes a changed Visor, or offers one as a network service, must share their changes under the same license. The betas released before this change (v0.1.0-beta.1 and beta.2) stay under MIT.
 
+### Security fixes
+Fixes from a security review, each with a test.
+- `%(ENV_name)s` in a config is no longer filled in from Visor's own environment. supervisord takes those values from its own environment, which Visor can't see. Filling them in let an AI tool with Read access read Visor's environment, and sent its values to servers when Visor checked whether a path exists.
+- An `environment=` value that continues after a blank or comment line is now hidden from AI tools like the rest of it. supervisord reads those lines as part of the value, so `read_config` showed them in the clear. Indented comment lines at the end of the value (often an old secret commented out) are hidden with it.
+- An empty log reply from a server no longer crashes Visor when an AI tool asks for a process. A panic in any MCP tool now fails only that call; before, it closed the app.
+- A jump host is no longer offered the server's password, which by default is also its sudo password. A jump host now logs in with a key file or the SSH agent only. One typed in the server form gets its key and agent from `~/.ssh/config`, like the server, and the connection report says when it has nothing to log in with.
+- Restoring a removed config brings it back with the permissions it had (a `0600` file stays `0600`), on this computer and on servers. Before, it came back readable by every user. Backups of files removed before this change don't know the old permissions, so those files still come back as `0644`.
+- A supervisord reply nested more than 64 levels deep is refused. supervisord's own replies go three levels at most, and a crafted reply from a server could recurse until Visor crashed.
+- A config with a huge `numprocs` (a typo, or a server's file) no longer hangs its tab, and MCP with it. Visor matches process names against the first 10,000 copies.
+- **Regenerate…** on the MCP page now fails with a message when the new token can't be saved in the Keychain or keyring, and the old token keeps working. Before, it reported success, and the old token came back at the next launch. Visor also reads a saved token back to check that it was saved.
+- [docs/MCP.md](docs/MCP.md) now explains what the review accepted as known behaviour: Allow for 10 minutes trusts the name an AI tool gives itself, what a tool reads from servers is untrusted text, and on a computer shared with other users the token can be seen.
+
 ### CPU and memory
 Each process shows how much CPU and memory it uses, now and over the last hour, on this computer and on servers.
 - The dashboard has a **Usage** column, "4.1 % · 182 MB": CPU (100 % is one core) and resident memory, each counting the process with the children it starts (horizon's workers, the program behind an `sh -c`). Wide windows add a sparkline of the last 10 minutes of CPU. "…" means the CPU figure comes with the next sample; "–" means not running, or not measurable (on macOS, another user's process).

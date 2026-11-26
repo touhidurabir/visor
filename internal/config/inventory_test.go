@@ -473,3 +473,29 @@ func TestWatcherDropsRemovedFilesAfterDaemonRestart(t *testing.T) {
 		t.Fatal("snapshot of a removed file persisted")
 	}
 }
+
+// A numprocs far past anything supervisord could run (a typo, or a hostile
+// server's include file) must not keep Lookup busy for minutes: it runs
+// under the tab's lock, so MCP and the window would hang.
+func TestInventoryLookupHugeNumprocs(t *testing.T) {
+	dir := t.TempDir()
+	writeConf(t, dir, "w.conf", "[program:w]\ncommand=true\nnumprocs=2000000000\nprocess_name=%(program_name)s_%(process_num)02d\n")
+	inv, err := LoadInventory(disc(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan bool, 1)
+	go func() {
+		_, _, ok := inv.Lookup("w:nope")
+		_, _, found := inv.Lookup("w:w_05")
+		done <- !ok && found
+	}()
+	select {
+	case ok := <-done:
+		if !ok {
+			t.Fatal("Lookup found the wrong processes")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Lookup still running after 5 s")
+	}
+}

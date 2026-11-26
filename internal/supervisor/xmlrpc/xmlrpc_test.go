@@ -263,3 +263,22 @@ func FuzzDecodeResponse(f *testing.F) {
 		_, _ = DecodeResponse(bytes.NewReader(doc)) // must never panic
 	})
 }
+
+// A reply nested deeper than any real one (a hostile server's) is refused
+// instead of recursing until the stack runs out.
+func TestDecodeRefusesDeepNesting(t *testing.T) {
+	nest := func(n int) string {
+		return strings.Repeat("<array><data><value>", n) + "<int>1</int>" + strings.Repeat("</value></data></array>", n)
+	}
+	if _, err := DecodeResponse(strings.NewReader(response(nest(maxDepth)))); err != nil {
+		t.Fatalf("%d levels: %v", maxDepth, err)
+	}
+	_, err := DecodeResponse(strings.NewReader(response(nest(100_000))))
+	if err == nil || !strings.Contains(err.Error(), "nested") {
+		t.Fatalf("100000 levels: %v, want a nesting error", err)
+	}
+	deepStruct := strings.Repeat("<struct><member><name>a</name><value>", 100) + "1" + strings.Repeat("</value></member></struct>", 100)
+	if _, err := DecodeResponse(strings.NewReader(response(deepStruct))); err == nil {
+		t.Fatal("100 nested structs decoded")
+	}
+}

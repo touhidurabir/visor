@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -590,5 +591,31 @@ func TestNoActivityNotificationAfterStop(t *testing.T) {
 	time.Sleep(600 * time.Millisecond)
 	if n := len(sender.messages()); n != 0 {
 		t.Fatalf("%d notifications after Stop", n)
+	}
+}
+
+// A jump host typed in the form gets ~/.ssh/config and the SSH agent like the
+// server itself: it never gets the server's password, so without them it
+// couldn't log in at all.
+func TestServerTargetResolvesFormJumpHosts(t *testing.T) {
+	old := resolveTarget
+	resolveTarget = func(_ context.Context, tg remote.Target) (remote.Target, error) {
+		tg.AgentSocket = "/agent/" + tg.Host
+		return tg, nil
+	}
+	t.Cleanup(func() { resolveTarget = old })
+	tg, err := ServerTarget(context.Background(), settings.Server{Host: "srv", Port: 22, User: "deploy", Jump: "me@bastion:2222,hop2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tg.Jump) != 2 || tg.Jump[0].AgentSocket != "/agent/bastion" || tg.Jump[0].User != "me" || tg.Jump[0].Port != 2222 || tg.Jump[1].AgentSocket != "/agent/hop2" {
+		t.Fatalf("jumps = %+v", tg.Jump)
+	}
+}
+
+func TestSSHErrorTextJumpHostWithoutKey(t *testing.T) {
+	err := fmt.Errorf("jump host bastion:22: %w", remote.ErrJumpNoAuth)
+	if got := sshErrorText(err, remote.Target{User: "deploy"}); !strings.Contains(got, "jump host") || strings.Contains(got, "enter a password") {
+		t.Fatalf("text = %q", got)
 	}
 }

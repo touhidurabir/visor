@@ -57,6 +57,25 @@ func diskContract(t *testing.T, d apply.Disk) {
 		t.Fatalf("create over a file = %v, want ErrExists", err)
 	}
 
+	// A removed file comes back with the mode it had, not readable by all.
+	sec := filepath.Join(dir, "secret.ini")
+	if _, err := apply.Write(d, sec, v1, "", b); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(sec, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rb, err := apply.Remove(d, sec, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := apply.Create(d, sec, v1, b.Mode(rb)); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(sec); fi == nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("restored mode: %v, want 0600", fi)
+	}
+
 	// Replace keeps the mode and backs up the old content.
 	if err := os.Chmod(p, 0o640); err != nil {
 		t.Fatal(err)

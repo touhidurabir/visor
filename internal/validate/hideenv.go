@@ -30,9 +30,32 @@ func walkEnv(text string, other func(line string), entry func(envEntry)) {
 		orig := lines[i]
 		value := strings.TrimRight(lines[i][len(head):], "\r\n")
 		eol := lines[i][len(strings.TrimRight(lines[i], "\r\n")):]
-		for i+1 < len(lines) && continuation(lines[i+1]) {
-			i++
-			orig += lines[i]
+		for {
+			// Like supervisord's parser, blank and comment lines between
+			// continuation lines don't end the value.
+			j := i + 1
+			for j < len(lines) && skippable(lines[j]) {
+				j++
+			}
+			if j >= len(lines) || !continuation(lines[j]) {
+				// Indented comments at the end of the value (often old
+				// secrets) go with it, so they're hidden too.
+				for k := j - 1; k > i; k-- {
+					if l := lines[k]; strings.TrimSpace(l) != "" && (l[0] == ' ' || l[0] == '\t') {
+						for i < k {
+							i++
+							orig += lines[i]
+						}
+						eol = lines[i][len(strings.TrimRight(lines[i], "\r\n")):]
+						break
+					}
+				}
+				break
+			}
+			for i < j {
+				i++
+				orig += lines[i]
+			}
 			value += " " + strings.TrimSpace(lines[i])
 			eol = lines[i][len(strings.TrimRight(lines[i], "\r\n")):]
 		}
@@ -86,9 +109,17 @@ func RestoreEnv(edited, disk string) (string, error) {
 	return b.String(), nil
 }
 
-// continuation reports an indented, non-blank line: part of the value above.
+// continuation reports an indented line that is neither blank nor a
+// comment: part of the value above.
 func continuation(line string) bool {
-	return strings.TrimSpace(line) != "" && (line[0] == ' ' || line[0] == '\t')
+	return !skippable(line) && (line[0] == ' ' || line[0] == '\t')
+}
+
+// skippable reports a blank or comment line, which supervisord's parser
+// skips, even inside a value.
+func skippable(line string) bool {
+	t := strings.TrimSpace(line)
+	return t == "" || t[0] == ';' || t[0] == '#'
 }
 
 // HideEnvValue hides the values of one environment= value

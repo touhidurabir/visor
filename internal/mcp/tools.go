@@ -122,7 +122,11 @@ var entries = []entry{
 		title: "List servers", idempotent: true,
 		register: func(s *Server, t *sdk.Tool) {
 			sdk.AddTool(s.SDK, t, func(_ context.Context, req *sdk.CallToolRequest, _ ServerIn) (*sdk.CallToolResult, any, error) {
-				out := s.listServers()
+				out, err := safeRun(func() (any, error) { return s.listServers(), nil })
+				if err != nil {
+					s.record(req, "list_servers", "", ResultError, err)
+					return nil, nil, err
+				}
 				s.record(req, "list_servers", "", ResultOK, nil)
 				return nil, out, nil
 			})
@@ -319,7 +323,15 @@ func (s *Server) machine(name string) (Machine, error) {
 
 // handle is every tool call after its input is read: find the machine,
 // check its level, rate-limit, ask when needed, run, record.
-func (s *Server) handle(ctx context.Context, req *sdk.CallToolRequest, tool string, need Level, server string, a *askSpec, run func(Target, string) (any, error)) (any, error) {
+func (s *Server) handle(ctx context.Context, req *sdk.CallToolRequest, tool string, need Level, server string, a *askSpec, run func(Target, string) (any, error)) (out any, err error) {
+	// The SDK runs tools on goroutines nothing else recovers: a panic here
+	// (opening a server, asking, the tool itself) would end the app.
+	defer func() {
+		if r := recover(); r != nil {
+			out, err = nil, panicError(r)
+			s.record(req, tool, server, ResultError, err)
+		}
+	}()
 	client := clientOf(req)
 	m, err := s.machine(server)
 	if err == nil {
@@ -345,7 +357,6 @@ func (s *Server) handle(ctx context.Context, req *sdk.CallToolRequest, tool stri
 		return nil, err
 	}
 	t, err := s.b.Target(ctx, m)
-	var out any
 	if err == nil {
 		out, err = run(t, client)
 	}
@@ -355,6 +366,21 @@ func (s *Server) handle(ctx context.Context, req *sdk.CallToolRequest, tool stri
 	}
 	s.record(req, tool, m.Name, ResultOK, nil)
 	return out, nil
+}
+
+// safeRun turns a panic in run into its error, for work on a goroutine of
+// its own (withTimeout) or outside handle.
+func safeRun(run func() (any, error)) (out any, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			out, err = nil, panicError(r)
+		}
+	}()
+	return run()
+}
+
+func panicError(r any) error {
+	return fmt.Errorf("Visor hit an internal error (%v). Visor itself is still running.", r) //nolint:staticcheck // shown to the agent as a sentence
 }
 
 func (s *Server) allowed(m Machine, need Level) error {
@@ -396,7 +422,7 @@ func withTimeout(d time.Duration, fn func() (any, error)) (any, error) {
 	}
 	ch := make(chan result, 1)
 	go func() {
-		out, err := fn()
+		out, err := safeRun(fn)
 		ch <- result{out, err}
 	}()
 	select {
