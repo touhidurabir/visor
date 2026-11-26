@@ -517,6 +517,13 @@ func TestMcpRegenerateKeepsTokenWhenNotSaved(t *testing.T) {
 			}
 		})
 	}
+
+	// With no old token (it couldn't be read), the error doesn't promise one.
+	locked := &mcpKeychain{getErr: errors.New("the keyring is locked")}
+	svc := NewMcpService(McpOptions{Hub: f.hub, Remote: f.remote, Settings: f.svc.o.Settings, Keychain: locked})
+	if _, err := svc.RegenerateToken(); err == nil || strings.Contains(err.Error(), "old token still works") {
+		t.Fatalf("regenerate with no old token: %v", err)
+	}
 }
 
 // The token is read from the Keychain or keyring only when MCP is used, and

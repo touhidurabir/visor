@@ -384,9 +384,11 @@ func (s *McpService) RegenerateToken() (McpView, error) {
 	if err != nil {
 		// The old token may already be overwritten: put it back, or the next
 		// launch would bring back neither.
-		if old := s.currentToken(); old != "" {
-			_ = s.o.Keychain.Set(settings.KeychainService, mcpTokenAccount, old)
+		old := s.currentToken()
+		if old == "" {
+			return s.Get(), err
 		}
+		_ = s.o.Keychain.Set(settings.KeychainService, mcpTokenAccount, old)
 		return s.Get(), fmt.Errorf("%w. The old token still works", err)
 	}
 	s.mu.Lock()
