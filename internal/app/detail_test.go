@@ -254,4 +254,8 @@ func TestBuildPathsLeavesEnvUnexpanded(t *testing.T) {
 			t.Errorf("checked %q, which holds Visor's environment", p)
 		}
 	}
+	// A path Visor can't expand isn't checked or shown as missing.
+	if len(paths) != 0 || len(checked) != 0 {
+		t.Errorf("paths %+v, checked %q; want none", paths, checked)
+	}
 }

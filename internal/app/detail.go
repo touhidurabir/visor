@@ -229,6 +229,9 @@ func buildPaths(file config.ConfigFile, inv config.Inventory, procs []supervisor
 
 	var out []PathView
 	for _, p := range dedupe(append(append(dirs, bins...), logPaths...)) {
+		if strings.Contains(p.Path, "%(") {
+			continue // %(ENV_x)s: only supervisord knows the path
+		}
 		switch {
 		case p.Kind == "bin" && !filepath.IsAbs(p.Path):
 			p.Exists = false // not found on PATH
