@@ -370,6 +370,16 @@ func (a *ConfigAPI) Create(server string, fileName string, content string) (Appl
 	return t.Config.Create(fileName, content)
 }
 
+// CreateCopy is Create for a copy of the include file from (CopyDraft): the
+// new file gets from's mode, so a config kept private stays private.
+func (a *ConfigAPI) CreateCopy(server string, fileName string, content string, from string) (ApplyResultView, error) {
+	t, err := a.hub.Tab(server)
+	if err != nil {
+		return ApplyResultView{}, err
+	}
+	return t.Config.CreateCopy(fileName, content, from)
+}
+
 // Describe explains each program in content in plain English.
 func (a *ConfigAPI) Describe(server string, content string) ([]describe.Program, error) {
 	t, err := a.hub.Tab(server)

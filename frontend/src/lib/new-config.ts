@@ -37,6 +37,8 @@ const created = ref<{ path: string; fileName: string; res: ApplyResultView } | n
 /** The draft came from "Copy an existing config": from which file, what was renamed, what to double-check. */
 export interface CopiedFrom {
   fileName: string
+  /** The original's path: the copy is saved with its mode (ConfigService.CreateCopy). */
+  path: string
   renames: Rename[]
   doubts: CopyDoubt[]
   /** The copy as Go drafted it, which the doubts were raised on. */
@@ -133,7 +135,10 @@ export function useNewConfig() {
         return
       }
       const fileName = draft.state.fileName
-      const res = await ConfigService.Create(fileName, draft.state.content)
+      const from = copied.value?.path
+      const res = from
+        ? await ConfigService.CreateCopy(fileName, draft.state.content, from)
+        : await ConfigService.Create(fileName, draft.state.content)
       created.value = { path: pathOf(fileName), fileName, res }
       showToast(res.Errors?.length ? `Saved ${fileName}, but ${res.Errors.length} could not apply.` : `Saved and applied ${fileName}.`, res.Errors?.length ? 'error' : 'info')
     } catch (e) {
@@ -174,7 +179,7 @@ export async function copyFrom(path: string, fileName: string) {
   await start() // so the first template never lands on top of the copy
   const v = await ConfigService.CopyDraft(path)
   draft.loadCopy(v.FileName, v.Content)
-  copied.value = { fileName, renames: v.Renames ?? [], doubts: v.Doubts ?? [], copy: { fileName: v.FileName, content: v.Content } }
+  copied.value = { fileName, path, renames: v.Renames ?? [], doubts: v.Doubts ?? [], copy: { fileName: v.FileName, content: v.Content } }
 }
 
 /** The draft no longer is the copy (a template was chosen). */

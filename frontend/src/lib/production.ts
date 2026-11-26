@@ -95,6 +95,7 @@ const QUESTIONS: Record<string, (args: unknown[]) => [string, string, string]> =
   ApplyChanges: () => ['Apply every changed config', 'supervisord re-reads its configs and restarts every program that changed. Work in progress is interrupted.', 'Apply all'],
   LoadFile: ([p]) => [`Load ${base(String(p))}`, 'supervisord adds its programs and starts the ones set to start.', 'Load'],
   Create: ([n]) => [`Add ${String(n)}`, 'Visor writes the new config and supervisord adds its programs, starting the ones set to start.', 'Add'],
+  CreateCopy: ([n]) => [`Add ${String(n)}`, 'Visor writes the new config and supervisord adds its programs, starting the ones set to start.', 'Add'],
   Import: ([items]) => [`Import ${Array.isArray(items) && items.length === 1 ? 'a config' : 'configs'}`, 'Visor writes the files and supervisord adds their programs, starting the ones set to start.', 'Import'],
   Restore: ([p]) => [`Restore ${base(String(p))}`, APPLIES, 'Restore'],
   RemoveFromSupervisor: ([p]) => [`Remove ${base(String(p))}`, 'Its processes stop and supervisord forgets them. Visor keeps a backup to restore it from.', 'Remove'],

@@ -21,6 +21,7 @@ func init() { application.RegisterEvent[[]DroppedFileView](EventFilesDropped) }
 type DroppedFileView struct {
 	Name    string
 	Content string
+	Mode    uint32 // permissions, kept by Import
 	Error   string
 }
 
@@ -49,7 +50,7 @@ func ReadDropped(paths []string) []DroppedFileView {
 			if err != nil {
 				v.Error = fmt.Sprintf("Couldn’t read it: %v", err)
 			} else {
-				v.Content = string(b)
+				v.Content, v.Mode = string(b), uint32(fi.Mode().Perm())
 			}
 		}
 		out = append(out, v)

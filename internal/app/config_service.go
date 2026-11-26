@@ -510,6 +510,32 @@ func (r *Runtime) newFileHome() (dir, ext string) {
 // its programs, so everything else keeps running. The new config is watched
 // for notifications. A file that already exists is never overwritten.
 func (s *ConfigService) Create(fileName, content string) (ApplyResultView, error) {
+	return s.createNamed(fileName, content, 0)
+}
+
+// CreateCopy is Create for a copy of the include file from (CopyDraft): the
+// new file gets from's mode, so a config kept private stays private.
+func (s *ConfigService) CreateCopy(fileName, content, from string) (ApplyResultView, error) {
+	if _, err := s.rt.includeFile(from); err != nil {
+		return ApplyResultView{}, err
+	}
+	fi, err := s.rt.files().Stat(from)
+	if err != nil {
+		return ApplyResultView{}, fmt.Errorf("read %s: %w", from, err)
+	}
+	return s.createNamed(fileName, content, keptMode(uint32(fi.Mode().Perm())))
+}
+
+// keptMode is a source file's permissions for a new config (0644 when
+// unknown), always readable and writable by its owner so Visor can edit it.
+func keptMode(m uint32) fs.FileMode {
+	if m == 0 {
+		return 0
+	}
+	return fs.FileMode(m)&fs.ModePerm | 0o600
+}
+
+func (s *ConfigService) createNamed(fileName, content string, perm fs.FileMode) (ApplyResultView, error) {
 	if err := s.rt.CheckConfigWrite(); err != nil {
 		return ApplyResultView{}, err
 	}
@@ -533,7 +559,7 @@ func (s *ConfigService) Create(fileName, content string) (ApplyResultView, error
 	if err := s.rt.watch.set(path, true); err != nil {
 		return ApplyResultView{}, err
 	}
-	return s.create(path, content, 0)
+	return s.create(path, content, perm)
 }
 
 // CopyDraftView is a new config drafted from an existing one: its file name
