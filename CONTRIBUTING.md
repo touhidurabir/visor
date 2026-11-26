@@ -12,7 +12,7 @@ Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## Setting up
 
-You need macOS 13 or later, or Linux with GTK 4 and WebKitGTK 6.0 (see the [README](README.md#development)). You also need Go 1.27.3 (the official installer from go.dev), Node (see `.nvmrc`), supervisord (`brew install supervisor`, or your distro's package) and the Wails v3 CLI:
+You need macOS 13 or later, or Linux with GTK 4 and WebKitGTK 6.0 (see the [README](README.md#development)). You also need Go 1.27.4 (the official installer from go.dev, or Homebrew), Node (see `.nvmrc`), supervisord (`brew install supervisor`, or your distro's package) and the Wails v3 CLI:
 
 ```sh
 go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0

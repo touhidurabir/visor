@@ -119,7 +119,7 @@ Things to know:
 
 ## Development
 
-Requirements: Go 1.26+ (1.27.3 recommended), Node 24 (see `.nvmrc`), and the Wails v3 CLI. On macOS, version 13 or later. On Linux, GTK 4 and WebKitGTK 6.0; on Ubuntu 24.04, run `sudo apt install build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev`.
+Requirements: Go 1.26+ (1.27.4 recommended), Node 24 (see `.nvmrc`), and the Wails v3 CLI. On macOS, version 13 or later. On Linux, GTK 4 and WebKitGTK 6.0; on Ubuntu 24.04, run `sudo apt install build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev`.
 
 ```sh
 go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
