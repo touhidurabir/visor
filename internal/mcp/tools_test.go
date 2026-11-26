@@ -500,3 +500,18 @@ func TestTargetPanicIsAnError(t *testing.T) {
 		t.Fatal("the server stopped working after a panic")
 	}
 }
+
+// Two servers with one name: an Off one is skipped, so the other is found.
+func TestNameSkipsOffServers(t *testing.T) {
+	b := newFake()
+	b.machines = append(b.machines, Machine{ID: "s4", Name: "Hidden", Tag: "development", Connected: true, Level: Read})
+	cs := connect(t, NewServer(b, "test"), "claude-code")
+	if text, isErr := call(t, cs, "get_status", map[string]any{"server": "hidden"}); isErr {
+		t.Fatalf("the usable server of that name: %q", text)
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.calls) != 1 || !strings.HasPrefix(b.calls[0], "s4:") {
+		t.Fatalf("calls: %v", b.calls)
+	}
+}

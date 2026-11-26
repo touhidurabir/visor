@@ -322,14 +322,15 @@ func (s *Server) record(req *sdk.CallToolRequest, tool, machine, result string, 
 }
 
 // machine finds the machine a tool is aimed at: this computer when name is
-// empty, else a server by id or name. A server set to Off is invisible.
+// empty, else a server by id or name. A server set to Off is invisible, so
+// another of the same name is found past it.
 func (s *Server) machine(name string) (Machine, error) {
 	ms := s.b.Machines()
 	name = strings.TrimSpace(name)
 	for _, m := range ms {
 		if name == "" && m.Local || name != "" && (m.ID == name || strings.EqualFold(m.Name, name)) {
 			if !m.Local && m.Level == Off {
-				break
+				continue
 			}
 			return m, nil
 		}
