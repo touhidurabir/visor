@@ -38,6 +38,18 @@ func walkEnv(text string, other func(line string), entry func(envEntry)) {
 				j++
 			}
 			if j >= len(lines) || !continuation(lines[j]) {
+				// Indented comments at the end of the value (often old
+				// secrets) go with it, so they're hidden too.
+				for k := j - 1; k > i; k-- {
+					if l := lines[k]; strings.TrimSpace(l) != "" && (l[0] == ' ' || l[0] == '\t') {
+						for i < k {
+							i++
+							orig += lines[i]
+						}
+						eol = lines[i][len(strings.TrimRight(lines[i], "\r\n")):]
+						break
+					}
+				}
 				break
 			}
 			for i < j {
