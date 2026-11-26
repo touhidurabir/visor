@@ -341,12 +341,16 @@ func (g *tabTarget) SearchLogs(in mcp.SearchIn) (any, error) {
 	}
 	matches, cut := capNewestFirst(out.Lines)
 	res := map[string]any{"matches": matches, "cursor": out.Next}
-	switch {
-	case cut:
+	var notes []string
+	if cut {
 		res["cut"] = true
-		res["note"] = "Cut at 64 KB: search for something narrower, or ask for fewer matches."
-	case out.Next > 0:
-		res["note"] = "Older lines weren't searched: pass cursor as before to go on."
+		notes = append(notes, fmt.Sprintf("Cut at 64 KB: %d older matches were left out, and cursor goes past them. Search for something narrower, or ask for fewer matches.", len(out.Lines)-len(matches)))
+	}
+	if out.Next > 0 {
+		notes = append(notes, "Older lines weren't searched: pass cursor as before to go on.")
+	}
+	if notes != nil {
+		res["note"] = strings.Join(notes, " ")
 	}
 	return res, nil
 }

@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -523,5 +524,13 @@ func TestMCPSearchCapped(t *testing.T) {
 	}
 	if b := js(t, sr); len(b) > mcpMaxBytes+4096 || !strings.Contains(b, "64 KB") {
 		t.Fatalf("200 matches of 1 KB: %d bytes, no note", len(b))
+	}
+	// The cursor goes past the matches left out, so the note must say so.
+	res := decode[struct {
+		Matches []string
+		Note    string
+	}](t, sr)
+	if left := 200 - len(res.Matches); !strings.Contains(res.Note, fmt.Sprintf("%d older matches were left out", left)) {
+		t.Fatalf("note: %q (%d kept)", res.Note, len(res.Matches))
 	}
 }
