@@ -216,9 +216,14 @@ func (inv Inventory) Autorestart(fullName string) string {
 	return "unexpected"
 }
 
+// maxProcs bounds the copies Lookup looks through: a numprocs past it (a
+// typo, or a hostile server's file) would keep it busy for hours.
+// shortcut: a program with more copies than this is matched up to here only; parse the number from the name if one ever does.
+const maxProcs = 10000
+
 // Lookup finds the program behind a process full name ("group:process")
 // and the file that defines it, expanding each program's process_name for
-// every process number in its numprocs range.
+// every process number in its numprocs range (the first maxProcs of it).
 func (inv Inventory) Lookup(fullName string) (path string, prog Program, ok bool) {
 	group, proc, found := strings.Cut(fullName, ":")
 	if !found {
@@ -235,7 +240,7 @@ func (inv Inventory) Lookup(fullName string) (path string, prog Program, ok bool
 				pn = "%(program_name)s"
 			}
 			start := intOr(p.Section, "numprocs_start", 0)
-			for i := start; i < start+p.NumProcs; i++ {
+			for i := start; i < start+min(p.NumProcs, maxProcs); i++ {
 				got := Expand(pn, map[string]string{
 					"program_name": p.Name,
 					"group_name":   group,
