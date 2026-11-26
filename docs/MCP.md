@@ -90,7 +90,7 @@ When a change needs your answer, Visor comes forward with the question, for exam
 - **Deny**, **Allow for 10 minutes** or **Allow**.
 - It appears in the main window, or in the menu-bar popover when the window is closed. A notification points to it, and Esc denies.
 - No answer within a minute counts as Deny. The AI tool is told *"The person declined in Visor."* and shouldn't retry.
-- **Allow for 10 minutes** covers that one AI tool, that machine and that kind of change. It isn't offered on production servers or for KILL, which always ask.
+- **Allow for 10 minutes** covers that one AI tool, that machine and that kind of change. It isn't offered on production servers or for KILL, which always ask. Visor knows a tool by the name the tool gives itself, so any tool that has the token can claim that name.
 
 ## Tools
 
@@ -150,6 +150,8 @@ When a change needs your answer, Visor comes forward with the question, for exam
 - **Rate limits.** A runaway agent is held to one change per second per machine and 30 calls per 10 seconds. An allowed change waits out the gap rather than failing.
 - **Environment values are hidden.** Values in `environment=` lines, commented ones too, show as «hidden» unless you turn on **Let AI read environment values** under Privacy. When an AI tool saves a file, the lines it left as it read them keep their real values. A hidden line it changed is refused.
 - **What leaves your computer.** Logs and configs an AI tool reads go to your AI provider. Visor can't filter secrets out of logs. Set machines whose logs you don't want shared to **Off**.
+- **What an AI tool reads is untrusted.** A log line or a config on a server can hold text written to steer an AI tool. The tool can then act on another machine within that machine's access level, so give **Control** or **Change configs** only where you'd accept that, and keep **Ask** on.
+- **Shared computers.** The token is visible to other user accounts on the same computer while **Add to Claude Code** runs, and another account could take the port while Visor is off. On a computer shared with people you don't trust, add the tool by hand and **Regenerate…** if in doubt.
 - **A record.** **Recent calls** lists the last 100 calls since Visor started (client, tool, machine, result). Changes show in Activity as *via Claude Code* (or the tool's name) and don't send notifications.
 
 ## Troubleshooting

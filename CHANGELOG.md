@@ -18,6 +18,7 @@ Fixes from a security review, each with a test.
 - A supervisord reply nested more than 64 levels deep is refused. supervisord's own replies go three levels at most, and a crafted reply from a server could recurse until Visor crashed.
 - A config with a huge `numprocs` (a typo, or a server's file) no longer hangs its tab, and MCP with it. Visor matches process names against the first 10,000 copies.
 - **Regenerate…** on the MCP page now fails with a message when the new token can't be saved in the Keychain or keyring, and the old token keeps working. Before, it reported success, and the old token came back at the next launch. Visor also reads a saved token back to check that it was saved.
+- [docs/MCP.md](docs/MCP.md) now explains what the review accepted as known behaviour: Allow for 10 minutes trusts the name an AI tool gives itself, what a tool reads from servers is untrusted text, and on a computer shared with other users the token can be seen.
 
 ### CPU and memory
 Each process shows how much CPU and memory it uses, now and over the last hour, on this computer and on servers.
