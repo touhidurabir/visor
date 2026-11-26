@@ -23,6 +23,7 @@ type fakeBackend struct {
 	env      bool
 	block    chan struct{} // Status waits on it when set
 	panics   bool          // Process panics when set
+	panicsAt string        // Target panics for this machine id when set
 }
 
 func (b *fakeBackend) Machines() []Machine {
@@ -42,6 +43,9 @@ func (b *fakeBackend) setLevel(id string, l Level) {
 }
 
 func (b *fakeBackend) Target(_ context.Context, m Machine) (Target, error) {
+	if b.panicsAt == m.ID {
+		panic("dial failed oddly")
+	}
 	return &fakeTarget{b: b, m: m.ID}, nil
 }
 
@@ -474,6 +478,21 @@ func TestToolPanicIsAnError(t *testing.T) {
 	}
 	b.panics = false
 	if _, isErr := call(t, cs, "get_process", map[string]any{"name": "web"}); isErr {
+		t.Fatal("the server stopped working after a panic")
+	}
+}
+
+// A panic while opening the machine (before the tool runs) fails that call too.
+func TestTargetPanicIsAnError(t *testing.T) {
+	b := newFake()
+	b.panicsAt = "local"
+	cs := connect(t, NewServer(b, "test"), "test")
+	text, isErr := call(t, cs, "restart", map[string]any{"target": "web"})
+	if !isErr || !strings.Contains(text, "internal error") {
+		t.Fatalf("restart = %q, error %v", text, isErr)
+	}
+	b.panicsAt = ""
+	if _, isErr := call(t, cs, "restart", map[string]any{"target": "web"}); isErr {
 		t.Fatal("the server stopped working after a panic")
 	}
 }
