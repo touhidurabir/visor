@@ -1,11 +1,13 @@
 package remote_test
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/touhidurabir/visor/internal/config"
 	"github.com/touhidurabir/visor/internal/remote"
@@ -96,5 +98,28 @@ func TestBridgeFSErrors(t *testing.T) {
 	}
 	if _, err := rfs.Glob("[bad"); err == nil {
 		t.Fatal("bad pattern should fail")
+	}
+}
+
+// A sample on a link that stopped answering ends with its ctx (a tab
+// closing), not after BridgeFS's own 15 s.
+func TestBridgeFSUsageStopsWithCtx(t *testing.T) {
+	needPython(t)
+	c, srv := connectOpts(t, remotetest.Options{})
+	tr := &remote.BridgeTransport{Conn: c}
+	defer tr.Close()
+	rfs := remote.BridgeFS{T: tr}
+	if _, err := rfs.Usage(context.Background(), []int{1}); err != nil {
+		t.Fatal(err)
+	}
+	srv.Freeze()
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := rfs.Usage(ctx, []int{1}); err == nil {
+		t.Fatal("a frozen link answered")
+	}
+	if d := time.Since(start); d > 3*time.Second {
+		t.Fatalf("took %s after its ctx ended", d)
 	}
 }
