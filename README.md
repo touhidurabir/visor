@@ -1,11 +1,21 @@
-# Visor
+<h1>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/banner-dark.svg">
+  <img src="docs/images/banner-light.svg" alt="Visor: supervisord in your menu bar and tray, on macOS and Linux">
+</picture>
+</h1>
 
 A free, open-source menu-bar and tray app for [supervisord](http://supervisord.org/), on macOS and Linux.
 
 See every process at a glance, start, stop and restart them, follow their logs, and edit program configs safely. Do it on your own computer and on your Linux servers over SSH, and let your AI coding tools help through MCP. It's the everyday `supervisorctl` work, in a window, with nothing to install next to supervisord.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/dashboard-dark.webp">
+  <img src="docs/images/dashboard-light.webp" alt="The dashboard: every config and its processes, their state, CPU and memory, and the ones failing">
+</picture>
 
 - [Features](#features)
+- [Screenshots](#screenshots)
 - [Install](#install)
 - [Getting started](#getting-started)
 - [Documentation](#documentation)
@@ -44,6 +54,15 @@ See every process at a glance, start, stop and restart them, follow their logs, 
 - An MCP server on `127.0.0.1`, behind a token, with 26 tools: status, logs, issues, CPU and memory, configs, control and config changes.
 - You choose the access per machine: Off, Read, Control or Change configs. Visor can ask you before each change.
 - Details: [docs/MCP.md](docs/MCP.md).
+
+## Screenshots
+
+| | |
+|---|---|
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/config-explain-dark.webp"><img src="docs/images/config-explain-light.webp" alt="A config's Overview: the last error, and what the config does line by line"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/config-editor-dark.webp"><img src="docs/images/config-editor-light.webp" alt="The config editor with the plain-English explanation beside it and the save bar"></picture> |
+| What this config does, and why it failed | Editing a config, checked before it's saved |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/resources-dark.webp"><img src="docs/images/resources-light.webp" alt="The Resources card: CPU and memory of a process over the last hour"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/mcp-ask-dark.webp"><img src="docs/images/mcp-ask-light.webp" alt="Visor asking before Claude Code restarts a process"></picture> |
+| CPU and memory over the last hour | An AI tool asking before a change |
 
 ## Install
 
