@@ -347,7 +347,7 @@ func (s *Server) handle(ctx context.Context, req *sdk.CallToolRequest, tool stri
 	t, err := s.b.Target(ctx, m)
 	var out any
 	if err == nil {
-		out, err = run(t, client)
+		out, err = safeRun(func() (any, error) { return run(t, client) })
 	}
 	if err != nil {
 		s.record(req, tool, m.Name, ResultError, err)
@@ -355,6 +355,17 @@ func (s *Server) handle(ctx context.Context, req *sdk.CallToolRequest, tool stri
 	}
 	s.record(req, tool, m.Name, ResultOK, nil)
 	return out, nil
+}
+
+// safeRun turns a panic in a tool into that call's error: the SDK runs tools
+// on goroutines nothing else recovers, so a panic would end the app.
+func safeRun(run func() (any, error)) (out any, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			out, err = nil, fmt.Errorf("Visor hit an internal error (%v). Visor itself is still running.", r) //nolint:staticcheck // shown to the agent as a sentence
+		}
+	}()
+	return run()
 }
 
 func (s *Server) allowed(m Machine, need Level) error {
@@ -396,7 +407,7 @@ func withTimeout(d time.Duration, fn func() (any, error)) (any, error) {
 	}
 	ch := make(chan result, 1)
 	go func() {
-		out, err := fn()
+		out, err := safeRun(fn)
 		ch <- result{out, err}
 	}()
 	select {

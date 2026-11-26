@@ -304,3 +304,27 @@ func TestNoBufferKeepsNothing(t *testing.T) {
 		t.Errorf("Buffer = %q, cap %d; want nothing kept", b, cap(tl.buf))
 	}
 }
+
+// fixedReply answers every tail call with the same result, as a broken or
+// hostile server could.
+type fixedReply supervisor.TailResult
+
+func (f fixedReply) TailProcessStdoutLog(context.Context, string, int, int) (supervisor.TailResult, error) {
+	return supervisor.TailResult(f), nil
+}
+
+func (f fixedReply) TailProcessStderrLog(context.Context, string, int, int) (supervisor.TailResult, error) {
+	return supervisor.TailResult(f), nil
+}
+
+// A reply with no bytes but an offset past them used to panic, which through
+// MCP took the whole app down.
+func TestTailEmptyReplyPastStart(t *testing.T) {
+	c := fixedReply{Bytes: "", Offset: 1}
+	if got, err := Tail(context.Background(), c, "p", Stdout, 10); err != nil || got != "" {
+		t.Errorf("Tail = %q, %v; want empty", got, err)
+	}
+	if got := poll(t, NewTailer(c, "p", Stdout, 0)); got.Text != "" {
+		t.Errorf("Poll = %q, want empty", got.Text)
+	}
+}

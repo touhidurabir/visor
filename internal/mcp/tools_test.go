@@ -22,6 +22,7 @@ type fakeBackend struct {
 	recorded []Call
 	env      bool
 	block    chan struct{} // Status waits on it when set
+	panics   bool          // Process panics when set
 }
 
 func (b *fakeBackend) Machines() []Machine {
@@ -80,7 +81,12 @@ func (t *fakeTarget) Status() (any, error) {
 func (t *fakeTarget) Processes(in ProcessesIn) (any, error) {
 	return t.b.log(t.m, "Processes", "", in.State)
 }
-func (t *fakeTarget) Process(in ProcessIn) (any, error) { return t.b.log(t.m, "Process", "", in.Name) }
+func (t *fakeTarget) Process(in ProcessIn) (any, error) {
+	if t.b.panics {
+		panic("boom")
+	}
+	return t.b.log(t.m, "Process", "", in.Name)
+}
 func (t *fakeTarget) Usage(in UsageIn) (any, error)     { return t.b.log(t.m, "Usage", "", in.Process) }
 func (t *fakeTarget) Logs(in LogsIn) (any, error)       { return t.b.log(t.m, "Logs", "", in.Process) }
 func (t *fakeTarget) SearchLogs(in SearchIn) (any, error) {
@@ -449,5 +455,25 @@ func TestEnvPassedThrough(t *testing.T) {
 	call(t, cs, "read_config", map[string]any{"path": "/a.conf"})
 	if b.calls[0] != "local:ReadConfig::/a.conf false" || b.calls[1] != "local:ReadConfig::/a.conf true" {
 		t.Fatalf("calls = %v", b.calls)
+	}
+}
+
+// A tool that panics (a bug, or a reply from a server it didn't expect) fails
+// that one call; it must not take the whole app down.
+func TestToolPanicIsAnError(t *testing.T) {
+	b := newFake()
+	b.panics = true
+	s := NewServer(b, "test")
+	cs := connect(t, s, "test")
+	text, isErr := call(t, cs, "get_process", map[string]any{"name": "web"})
+	if !isErr || !strings.Contains(text, "internal error") {
+		t.Fatalf("get_process = %q, error %v", text, isErr)
+	}
+	if got := s.Calls(); len(got) != 1 || got[0].Result != ResultError {
+		t.Fatalf("recorded %+v", got)
+	}
+	b.panics = false
+	if _, isErr := call(t, cs, "get_process", map[string]any{"name": "web"}); isErr {
+		t.Fatal("the server stopped working after a panic")
 	}
 }
