@@ -333,8 +333,13 @@ func (g *tabTarget) SearchLogs(in mcp.SearchIn) (any, error) {
 		}
 		before = v.Next
 	}
-	res := map[string]any{"matches": out.Lines, "cursor": out.Next}
-	if out.Next > 0 {
+	matches, cut := capNewestFirst(out.Lines)
+	res := map[string]any{"matches": matches, "cursor": out.Next}
+	switch {
+	case cut:
+		res["cut"] = true
+		res["note"] = "Cut at 64 KB: search for something narrower, or ask for fewer matches."
+	case out.Next > 0:
 		res["note"] = "Older lines weren't searched: pass cursor as before to go on."
 	}
 	return res, nil
@@ -352,7 +357,47 @@ func (g *tabTarget) SupervisordLog(in mcp.SupervisordLogIn) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"lines": res.Lines, "fromFile": res.FromFile}, nil
+	lines, cut := capMainLog(res.Lines)
+	out := map[string]any{"lines": lines, "fromFile": res.FromFile}
+	if cut {
+		out["cut"] = true
+		out["note"] = "Cut at 64 KB: ask for fewer lines."
+	}
+	return out, nil
+}
+
+// capNewestFirst keeps lines (newest first) while they fit in mcpMaxBytes; a
+// first line longer than that is cut to it. cut reports that something was.
+func capNewestFirst(lines []string) (kept []string, cut bool) {
+	size := 0
+	for i, l := range lines {
+		if size+len(l) > mcpMaxBytes {
+			if i == 0 {
+				return []string{strings.ToValidUTF8(l[:mcpMaxBytes], "")}, true
+			}
+			return lines[:i], true
+		}
+		size += len(l)
+	}
+	return lines, false
+}
+
+// capMainLog keeps the newest main log entries (oldest first) that fit in
+// mcpMaxBytes; a newest entry longer than that keeps its end.
+func capMainLog(lines []MainLogLineView) ([]MainLogLineView, bool) {
+	size := 0
+	for i := len(lines) - 1; i >= 0; i-- {
+		if size+len(lines[i].Text) > mcpMaxBytes {
+			if i == len(lines)-1 {
+				l := lines[i]
+				l.Text, _ = logs.CutFront(l.Text, mcpMaxBytes)
+				return []MainLogLineView{l}, true
+			}
+			return lines[i+1:], true
+		}
+		size += len(lines[i].Text)
+	}
+	return lines, false
 }
 
 func (g *tabTarget) Issues(in mcp.IssuesIn) (any, error) {
