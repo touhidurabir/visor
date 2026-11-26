@@ -209,6 +209,38 @@ func TestMcpPortInUse(t *testing.T) {
 	}
 }
 
+// Restarts at once (toggles and port changes racing) leave one listener,
+// and none starts once Visor is shutting down.
+func TestMcpRestartsSerialized(t *testing.T) {
+	f := newMcpFixture(t)
+	if _, err := f.svc.SetEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(f.svc.restart)
+	}
+	wg.Wait()
+	if st := f.svc.Status(); st != McpRunning {
+		t.Fatalf("after parallel restarts: %s (%s)", st, f.svc.Get().Error)
+	}
+	f.svc.stop()
+	l, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(f.svc.port())))
+	if err != nil {
+		t.Fatalf("a listener was left behind: %v", err)
+	}
+	l.Close()
+
+	_ = f.svc.ServiceShutdown()
+	f.svc.restart()
+	if st := f.svc.Status(); st != McpOff {
+		t.Fatalf("restart after shutdown: %s", st)
+	}
+	if _, err := http.Get(f.svc.Get().URL); err == nil {
+		t.Fatal("listening after shutdown")
+	}
+}
+
 func TestMcpAsk(t *testing.T) {
 	f := newMcpFixture(t)
 	f.svc.askTimeout = 300 * time.Millisecond
