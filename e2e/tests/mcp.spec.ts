@@ -49,6 +49,14 @@ test.describe('MCP server', () => {
     await expect(snippets).toContainText('[mcp_servers.visor]')
     await page.getByRole('tab', { name: /JSON/ }).click()
     await expect(snippets).toContainText('"mcpServers"')
+    // A tablist: arrow keys move between the tools, the panel is named by its tab.
+    await page.getByRole('tab', { name: /JSON/ }).focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(page.getByRole('tab', { name: 'Claude Code' })).toBeFocused()
+    await expect(page.getByRole('tab', { name: 'Claude Code' })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('tabpanel', { name: 'Claude Code' })).toContainText('claude mcp add')
+    await page.keyboard.press('ArrowLeft')
+    await expect(page.getByRole('tab', { name: /JSON/ })).toBeFocused()
 
     await expect(page.getByTestId('mcp-tools').locator('tbody td.mono')).toHaveCount(26)
     await expect(access(page).getByLabel(`Access for ${LOCAL}`)).toHaveValue('control')

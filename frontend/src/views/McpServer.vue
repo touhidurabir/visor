@@ -20,7 +20,23 @@ const loadError = ref('')
 const busy = ref(false)
 const showToken = ref(false)
 const portText = ref('')
-const tab = ref<'claude' | 'codex' | 'json'>('claude')
+type Tool = 'claude' | 'codex' | 'json'
+const TOOLS: { id: Tool; label: string }[] = [
+  { id: 'claude', label: 'Claude Code' },
+  { id: 'codex', label: 'Codex' },
+  { id: 'json', label: 'JSON (Cursor, VS Code, others)' },
+]
+const tab = ref<Tool>('claude')
+const tabEls = ref<HTMLButtonElement[]>([])
+
+function onTabKey(e: KeyboardEvent, i: number) {
+  const n = TOOLS.length
+  const to = e.key === 'ArrowRight' ? (i + 1) % n : e.key === 'ArrowLeft' ? (i + n - 1) % n : e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : -1
+  if (to < 0) return
+  e.preventDefault()
+  tab.value = TOOLS[to].id
+  tabEls.value[to]?.focus()
+}
 const confirm = ref<'' | 'regenerate' | 'claude'>('')
 const claudeOut = ref('')
 
@@ -200,11 +216,24 @@ onUnmounted(() => offs.forEach((off) => off()))
         </div>
         <p class="meta pad">Each command has your token filled in. Run it once.</p>
         <div class="tabs pad" role="tablist" aria-label="AI tool">
-          <button type="button" role="tab" :aria-selected="tab === 'claude'" :class="{ on: tab === 'claude' }" @click="tab = 'claude'">Claude Code</button>
-          <button type="button" role="tab" :aria-selected="tab === 'codex'" :class="{ on: tab === 'codex' }" @click="tab = 'codex'">Codex</button>
-          <button type="button" role="tab" :aria-selected="tab === 'json'" :class="{ on: tab === 'json' }" @click="tab = 'json'">JSON (Cursor, VS Code, others)</button>
+          <button
+            v-for="(t, i) in TOOLS"
+            :id="`mcp-tab-${t.id}`"
+            :key="t.id"
+            ref="tabEls"
+            type="button"
+            role="tab"
+            :aria-selected="tab === t.id"
+            aria-controls="mcp-snippets"
+            :tabindex="tab === t.id ? 0 : -1"
+            :class="{ on: tab === t.id }"
+            @click="tab = t.id"
+            @keydown="onTabKey($event, i)"
+          >
+            {{ t.label }}
+          </button>
         </div>
-        <div class="snips" role="tabpanel" data-testid="mcp-snippets">
+        <div id="mcp-snippets" class="snips" role="tabpanel" :aria-labelledby="`mcp-tab-${tab}`" data-testid="mcp-snippets">
           <template v-if="tab === 'claude'">
             <CommandBlock :text="snippets.claude" :shown="shown(snippets.claude)" />
             <p v-if="claudeOut" class="meta" role="status">{{ claudeOut }}</p>
