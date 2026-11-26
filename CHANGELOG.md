@@ -17,6 +17,7 @@ Fixes from a security review, each with a test.
 - Restoring a removed config brings it back with the permissions it had (a `0600` file stays `0600`), on this computer and on servers. Before, it came back readable by every user. Backups of files removed before this change don't know the old permissions, so those files still come back as `0644`.
 - A supervisord reply nested more than 64 levels deep is refused. supervisord's own replies go three levels at most, and a crafted reply from a server could recurse until Visor crashed.
 - A config with a huge `numprocs` (a typo, or a server's file) no longer hangs its tab, and MCP with it. Visor matches process names against the first 10,000 copies.
+- **Regenerate…** on the MCP page now fails with a message when the new token can't be saved in the Keychain or keyring, and the old token keeps working. Before, it reported success, and the old token came back at the next launch. Visor also reads a saved token back to check that it was saved.
 
 ### CPU and memory
 Each process shows how much CPU and memory it uses, now and over the last hour, on this computer and on servers.

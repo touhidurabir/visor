@@ -186,7 +186,11 @@ func (s *McpService) ensureToken() (string, error) {
 	case err == nil && tok != "":
 	case err == nil || errors.Is(err, keyring.ErrNotFound):
 		if tok, err = s.newToken(); err != nil {
-			return "", err
+			if tok == "" {
+				return "", err
+			}
+			// Kept for this session: clients work until Visor restarts.
+			log.Printf("visor: %v", err)
 		}
 	default:
 		s.mu.Lock()
@@ -230,15 +234,23 @@ func (s *McpService) loadToken() string {
 	return tok
 }
 
+// newToken makes a token and saves it. One that can't be saved is still
+// returned with the error, for this session only.
 func (s *McpService) newToken() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
 	tok := "vsr_" + base64.RawURLEncoding.EncodeToString(b)
-	if err := s.o.Keychain.Set(settings.KeychainService, mcpTokenAccount, tok); err != nil {
-		// Kept for this session: clients work until Visor restarts.
-		log.Printf("visor: saving the MCP token: %v", err)
+	err := s.o.Keychain.Set(settings.KeychainService, mcpTokenAccount, tok)
+	if err == nil {
+		// Read it back: some keychain tools don't report a failed write.
+		if got, gerr := s.o.Keychain.Get(settings.KeychainService, mcpTokenAccount); gerr != nil || got != tok {
+			err = errors.Join(errors.New("the saved token didn't read back"), gerr)
+		}
+	}
+	if err != nil {
+		return tok, fmt.Errorf("Visor can't save the MCP token in the %s: %w", platform.Describe(platform.Current()).SecretStore, err) //nolint:staticcheck // shown as a sentence
 	}
 	return tok, nil
 }
@@ -370,7 +382,12 @@ func (s *McpService) SetPort(port int) (McpView, error) {
 func (s *McpService) RegenerateToken() (McpView, error) {
 	tok, err := s.newToken()
 	if err != nil {
-		return s.Get(), err
+		// The old token may already be overwritten: put it back, or the next
+		// launch would bring back neither.
+		if old := s.currentToken(); old != "" {
+			_ = s.o.Keychain.Set(settings.KeychainService, mcpTokenAccount, old)
+		}
+		return s.Get(), fmt.Errorf("%w. The old token still works", err)
 	}
 	s.mu.Lock()
 	s.token = tok
