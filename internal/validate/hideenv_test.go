@@ -26,6 +26,15 @@ func TestHideEnv(t *testing.T) {
 		{"commented-out values are hidden too", "[program:a]\n;environment=OLD_PASSWORD=\"x\"\n# environment = B=2\n", "[program:a]\n;environment=OLD_PASSWORD=\"«hidden»\"\n# environment = B=\"«hidden»\"\n"},
 		{"an empty environment stays", "environment=\n", "environment=\n"},
 		{"supervisord's own section too", "[supervisord]\nenvironment=X=1\n", "[supervisord]\nenvironment=X=\"«hidden»\"\n"},
+		{"a continuation after a blank line",
+			"environment=A=1,\n\n    SECRET=\"x\"\nuser=w\n",
+			"environment=A=\"«hidden»\",SECRET=\"«hidden»\"\nuser=w\n"},
+		{"a continuation after a comment line",
+			"environment=A=1,\n; note\n  # more\n\tSECRET=\"x\"\n",
+			"environment=A=\"«hidden»\",SECRET=\"«hidden»\"\n"},
+		{"a blank line before the next section stays",
+			"environment=A=1\n\n; b\n[program:b]\n",
+			"environment=A=\"«hidden»\"\n\n; b\n[program:b]\n"},
 		{"CRLF and no final newline", "environment=A=1\r\nuser=x", "environment=A=\"«hidden»\"\r\nuser=x"},
 	}
 	for _, c := range cases {
@@ -36,6 +45,9 @@ func TestHideEnv(t *testing.T) {
 			}
 			if c.in != c.want && !HasHidden(got) {
 				t.Fatal("HasHidden is false after hiding")
+			}
+			if back, err := RestoreEnv(got, c.in); err != nil || back != c.in {
+				t.Fatalf("RestoreEnv: %q, %v", back, err)
 			}
 		})
 	}

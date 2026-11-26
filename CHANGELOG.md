@@ -11,6 +11,7 @@ Visor is now licensed under the **GNU Affero General Public License v3.0** (AGPL
 ### Security fixes
 Fixes from a security review, each with a test.
 - `%(ENV_name)s` in a config is no longer filled in from Visor's own environment. supervisord takes those values from its own environment, which Visor can't see. Filling them in let an AI tool with Read access read Visor's environment, and sent its values to servers when Visor checked whether a path exists.
+- An `environment=` value that continues after a blank or comment line is now hidden from AI tools like the rest of it. supervisord reads those lines as part of the value, so `read_config` showed them in the clear.
 
 ### CPU and memory
 Each process shows how much CPU and memory it uses, now and over the last hour, on this computer and on servers.
