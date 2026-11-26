@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chartPaths, fmtBytes, fmtCpu, sparkPath, usageLabel, usageMark, usageText } from './usage'
+import { chartPaths, fmtBytes, fmtCpu, runShape, sparkPath, usageLabel, usageMark, usageText } from './usage'
 
 describe('fmtCpu', () => {
   it('formats a share of one core', () => {
@@ -82,5 +82,12 @@ describe('unit edges', () => {
     expect(fmtBytes(1023.7 * 1024 * 1024)).toBe('1.0 GB')
     expect(fmtBytes(9.97 * 1024)).toBe('10 KB')
     expect(fmtBytes(1024 * 1024 - 1)).toBe('1.0 MB')
+  })
+})
+
+describe('runShape', () => {
+  it('draws a lone sample as a dot, a run as a line', () => {
+    expect(runShape('100,10')).toEqual({ points: '100,10 100,10', dot: true })
+    expect(runShape('0,10 10,5')).toEqual({ points: '0,10 10,5', dot: false })
   })
 })

@@ -5,7 +5,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { UsageView } from '../../bindings/github.com/touhidurabir/visor/internal/app'
 import { ServerService } from '../lib/api'
-import { chartPaths, fmtBytes, fmtCpu } from '../lib/usage'
+import { chartPaths, fmtBytes, fmtCpu, runShape } from '../lib/usage'
 
 const props = defineProps<{ path: string }>()
 const views = ref<UsageView[]>([])
@@ -107,7 +107,7 @@ const charts = computed(() => [
             <line x1="0" :x2="W" y1="2" y2="2" class="grid" /><text :x="W + 6" y="10">{{ c.top }}</text>
             <line x1="0" :x2="W" :y1="2 + H / 2" :y2="2 + H / 2" class="grid" /><text :x="W + 6" :y="6 + H / 2">{{ c.mid }}</text>
             <line x1="0" :x2="W" :y1="2 + H" :y2="2 + H" class="grid" />
-            <g transform="translate(0 2)"><polyline v-for="(l, i) in c.lines" :key="i" :points="l" class="line" /></g>
+            <g transform="translate(0 2)"><polyline v-for="(l, i) in c.lines" :key="i" :points="runShape(l).points" :class="['line', { dot: runShape(l).dot }]" /></g>
           </svg>
         </div>
         <div class="axis" aria-hidden="true"><span>60 min ago</span><span>30 min</span><span>now</span></div>
@@ -135,6 +135,7 @@ h2 { margin: 0; font-size: 15px; font-weight: 600; }
 .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
 .grid { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .line { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.line.dot { stroke-width: 4; stroke-linecap: round; }
 text { font-size: 10.5px; fill: var(--ink3); }
 .axis { display: flex; justify-content: space-between; padding-right: 8.5%; font-size: 11px; color: var(--ink3); }
 .foot { margin: 0; }

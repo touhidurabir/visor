@@ -62,6 +62,13 @@ export function chartPaths(points: { AtMs: number; v: number }[], fromMs: number
   return out
 }
 
+/** A run of chartPaths as a polyline: a lone sample is drawn as a dot (a
+ *  zero-length line with round caps), since one point draws nothing. */
+export function runShape(run: string): { points: string; dot: boolean } {
+  const dot = !run.includes(' ')
+  return { points: dot ? `${run} ${run}` : run, dot }
+}
+
 type UsageRow = { CPU: number; MemBytes: number; Procs: number; PID: number; Unmeasurable: boolean }
 
 /** The cell's mark when there are no figures: "…" while a running process
