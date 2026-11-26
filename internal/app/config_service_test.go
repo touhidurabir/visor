@@ -256,6 +256,9 @@ func TestConfigServiceRestoreRemovedFile(t *testing.T) {
 	cs, svc, _, inst := configFixture(t)
 	p := confFile(inst, "doomed")
 	want := mustRead(t, p)
+	if err := os.Chmod(p, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := svc.RemoveFromSupervisor(p); err != nil {
 		t.Fatal(err)
 	}
@@ -272,6 +275,9 @@ func TestConfigServiceRestoreRemovedFile(t *testing.T) {
 	}
 	if got := mustRead(t, p); got != want {
 		t.Errorf("file = %q, want %q", got, want)
+	}
+	if fi, err := os.Stat(p); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("restored mode: %v, %v; want 0600, as it was", fi, err)
 	}
 	waitRunning(t, svc, "doomed:doomed")
 }

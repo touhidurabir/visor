@@ -19,6 +19,7 @@ type writeReq struct {
 	Data []byte `json:"data"` // base64 in JSON; an empty file is "" (not left out)
 	Hash string `json:"hash,omitempty"`
 	What string `json:"what,omitempty"`
+	Mode uint32 `json:"mode,omitempty"` // a new file's permissions; 0 is 0644
 }
 
 func (b *Bridge) do(ctx context.Context, kind byte, r writeReq) error {
@@ -35,9 +36,9 @@ func (b *Bridge) Replace(ctx context.Context, path string, data []byte, hash str
 	return b.do(ctx, 'W', writeReq{Path: path, Data: data, Hash: hash})
 }
 
-// Create writes a new file (0644), never replacing one.
-func (b *Bridge) Create(ctx context.Context, path string, data []byte) error {
-	return b.do(ctx, 'C', writeReq{Path: path, Data: data})
+// Create writes a new file with mode perm (0644 when 0), never replacing one.
+func (b *Bridge) Create(ctx context.Context, path string, data []byte, perm fs.FileMode) error {
+	return b.do(ctx, 'C', writeReq{Path: path, Data: data, Mode: uint32(perm.Perm())})
 }
 
 // Delete removes a file that still hashes to hash.
@@ -106,8 +107,8 @@ func (f BridgeFS) Replace(path string, content []byte, hash string) error {
 	return f.change(path, func(b *Bridge, ctx context.Context) error { return b.Replace(ctx, path, content, hash) })
 }
 
-func (f BridgeFS) Create(path string, content []byte) error {
-	return f.change(path, func(b *Bridge, ctx context.Context) error { return b.Create(ctx, path, content) })
+func (f BridgeFS) Create(path string, content []byte, perm fs.FileMode) error {
+	return f.change(path, func(b *Bridge, ctx context.Context) error { return b.Create(ctx, path, content, perm) })
 }
 
 func (f BridgeFS) Delete(path, hash string) error {

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -216,6 +217,41 @@ func (b Backups) Removed(d Disk) ([]Backup, error) {
 	return out, nil
 }
 
+// modeExt names the file beside a removal backup that records the removed
+// file's permissions, so a restore doesn't make it readable by everyone.
+const modeExt = ".mode"
+
+// saveMode records perm as the mode of the file bk was taken of; 0 records
+// nothing.
+func (b Backups) saveMode(bk Backup, perm fs.FileMode) error {
+	if perm == 0 {
+		return nil
+	}
+	name, err := b.file(bk)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(name+modeExt, []byte(strconv.FormatUint(uint64(perm.Perm()), 8)), 0o600)
+}
+
+// Mode is the mode of the file a removal backup was taken of, or 0 when the
+// backup didn't record one (backups taken before Visor recorded modes).
+func (b Backups) Mode(bk Backup) fs.FileMode {
+	name, err := b.file(bk)
+	if err != nil {
+		return 0
+	}
+	raw, err := os.ReadFile(name + modeExt)
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.ParseUint(strings.TrimSpace(string(raw)), 8, 32)
+	if err != nil {
+		return 0
+	}
+	return fs.FileMode(n).Perm()
+}
+
 // Read returns the content of a backup.
 func (b Backups) Read(bk Backup) ([]byte, error) {
 	name, err := b.file(bk)
@@ -233,6 +269,7 @@ func (b Backups) Discard(bk Backup) {
 		return
 	}
 	_ = os.Remove(name)
+	_ = os.Remove(name + modeExt)
 	if left, err := b.List(bk.Path); err == nil && len(left) == 0 {
 		dir := filepath.Dir(name)
 		_ = os.Remove(filepath.Join(dir, metaFile))

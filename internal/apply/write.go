@@ -31,8 +31,8 @@ var (
 	ErrUnknownOutcome = errors.New("no answer came back, so the change may or may not have been made; Visor kept its backup")
 )
 
-// newFileMode is the mode of files Write creates: supervisord, which may
-// run as another user, must be able to read them.
+// newFileMode is the mode of new files (perm 0 to Create): supervisord,
+// which may run as another user, must be able to read them.
 const newFileMode = 0o644
 
 // Hash is the hash Write expects: the hex SHA-256 of a file's content, as
@@ -55,8 +55,11 @@ type Disk interface {
 	// (ErrChangedOnDisk otherwise, a deleted file too), atomically,
 	// keeping the file's mode.
 	Replace(path string, content []byte, expectedHash string) error
-	// Create writes a new file (0644), never replacing one (ErrExists).
-	Create(path string, content []byte) error
+	// Create writes a new file with mode perm (0644 when 0), never
+	// replacing one (ErrExists).
+	Create(path string, content []byte, perm fs.FileMode) error
+	// Stat describes path, following symlinks.
+	Stat(path string) (fs.FileInfo, error)
 	// Delete removes path, a symlink itself, if what it reads as still
 	// hashes to expectedHash (ErrChangedOnDisk otherwise).
 	Delete(path string, expectedHash string) error
@@ -91,9 +94,19 @@ func Write(d Disk, path string, content []byte, expectedHash string, b Backups) 
 	}
 	path = filepath.Clean(path)
 	if expectedHash == "" {
-		return Backup{}, d.Create(path, content)
+		return Backup{}, d.Create(path, content, 0)
 	}
 	return replace(d, path, content, expectedHash, &b)
+}
+
+// Create writes a new file at path, an absolute path, on d with mode perm
+// (0644 when 0): ErrExists if anything is at path. Restoring a removed file
+// passes the mode its backup recorded (Backups.Mode).
+func Create(d Disk, path string, content []byte, perm fs.FileMode) error {
+	if err := checkPath(path); err != nil {
+		return err
+	}
+	return d.Create(filepath.Clean(path), content, perm)
 }
 
 // Revert undoes a Write that supervisord refused: it puts prev back at
@@ -164,9 +177,11 @@ func (localDisk) Exists(path string) (bool, error) {
 
 func (localDisk) CheckWritable(path string) error  { return CheckWritable(path) }
 func (localDisk) CheckRemovable(path string) error { return CheckRemovable(path) }
-func (localDisk) Create(path string, content []byte) error {
-	return create(path, content)
+func (localDisk) Create(path string, content []byte, perm fs.FileMode) error {
+	return create(path, content, perm)
 }
+
+func (localDisk) Stat(path string) (fs.FileInfo, error) { return os.Stat(path) }
 
 func (localDisk) Delete(path, expectedHash string) error {
 	data, err := os.ReadFile(path)
@@ -230,7 +245,10 @@ func (localDisk) Replace(path string, content []byte, expectedHash string) error
 }
 
 // create writes a new file at path without ever replacing one.
-func create(path string, content []byte) error {
+func create(path string, content []byte, perm fs.FileMode) error {
+	if perm == 0 {
+		perm = newFileMode
+	}
 	if _, err := os.Lstat(path); err == nil {
 		return fmt.Errorf("%s: %w", path, ErrExists)
 	} else if !errors.Is(err, fs.ErrNotExist) {
@@ -243,7 +261,7 @@ func create(path string, content []byte) error {
 	}
 	tmpName := tmp.Name()
 	defer func() { _ = os.Remove(tmpName) }()
-	if err := tmp.Chmod(newFileMode); err != nil {
+	if err := tmp.Chmod(perm.Perm()); err != nil {
 		_ = tmp.Close()
 		return err
 	}
@@ -295,7 +313,16 @@ func BackUpForRemove(d Disk, path string, b Backups) (Backup, error) {
 	if err != nil {
 		return Backup{}, err
 	}
+	fi, err := d.Stat(path)
+	if err != nil {
+		return Backup{}, err
+	}
 	bk, err := b.save(path, data, true, time.Now())
+	if err == nil {
+		if err = b.saveMode(bk, fi.Mode().Perm()); err != nil {
+			b.Discard(bk)
+		}
+	}
 	if err != nil {
 		return Backup{}, fmt.Errorf("cannot back up %s, so it was not removed: %w", path, err)
 	}
@@ -319,6 +346,11 @@ func RemoveBackedUp(d Disk, path string, bk Backup, b Backups) (Backup, error) {
 	}
 	if saved, err := b.Read(bk); err != nil || Hash(saved) != Hash(data) {
 		fresh, err := b.save(path, data, true, time.Now())
+		if err == nil {
+			if err = b.saveMode(fresh, b.Mode(bk)); err != nil {
+				b.Discard(fresh)
+			}
+		}
 		if err != nil {
 			b.Discard(bk)
 			return Backup{}, fmt.Errorf("cannot back up %s, so it was not removed: %w", path, err)
