@@ -37,11 +37,17 @@ type tabTarget struct {
 
 var _ mcp.Target = (*tabTarget)(nil)
 
-// live fails at once while a server tab is reconnecting, instead of
-// waiting on a dead link.
+// live fails at once while a server tab is reconnecting or its connection
+// failed (it needs the user), instead of waiting on a dead link.
 func (g *tabTarget) live() error {
-	if g.t.RT.Remote() && g.t.RT.Overview().Host.Conn == ConnReconnecting {
+	if !g.t.RT.Remote() {
+		return nil
+	}
+	switch h := g.t.RT.Overview().Host; h.Conn {
+	case ConnReconnecting:
 		return fmt.Errorf("%s is disconnected; Visor is reconnecting", g.name)
+	case ConnFailed:
+		return fmt.Errorf("%s isn't connected (%s): reconnect it in Visor", g.name, h.ConnError)
 	}
 	return nil
 }

@@ -318,6 +318,30 @@ func TestMCPTargetReconnecting(t *testing.T) {
 	}
 }
 
+// A server whose reconnect needs the user (a wrong password) is refused at
+// once, like one that is reconnecting, not answered from stale data.
+func TestMCPTargetConnFailed(t *testing.T) {
+	fastReconnect(t)
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	f := startRemoteRuntime(t, inst, nil)
+	waitRunning(t, f.svc, "sleeper:sleeper")
+	tg := &tabTarget{t: newTab(f.rt, func(string, any) {}, ""), name: "vm"}
+	if err := settings.SetServerSecret(f.k, f.server.ID, settings.SecretPassword, "wrong"); err != nil {
+		t.Fatal(err)
+	}
+	f.ssh.DropAll()
+	waitOverview(t, f.svc, 15*time.Second, "failed", func(ov OverviewView) bool { return ov.Host.Conn == ConnFailed })
+	for name, call := range map[string]func() (any, error){
+		"status":  tg.Status,
+		"configs": tg.Configs,
+		"restart": func() (any, error) { return tg.Restart("x", mcp.TargetIn{Target: "sleeper"}) },
+	} {
+		if _, err := call(); err == nil || !strings.HasPrefix(err.Error(), "vm isn't connected") {
+			t.Fatalf("%s while the connection failed: %v", name, err)
+		}
+	}
+}
+
 // get_status counts as failing what the dashboard does: a clean, expected
 // exit is not failing.
 func TestMCPStatusFailingMatchesTheDashboard(t *testing.T) {
