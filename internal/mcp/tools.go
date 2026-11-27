@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -276,6 +277,21 @@ func ClientLabel(name string) string {
 		return "Cursor"
 	case "visual studio code", "vscode":
 		return "VS Code"
+	case "opencode":
+		return "OpenCode"
+	}
+	// Any other name is the client's own: no control characters, at most 40.
+	name = strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, name))
+	if r := []rune(name); len(r) > 40 {
+		name = string(r[:40]) + "…"
+	}
+	if name == "" {
+		return "An AI tool"
 	}
 	return name
 }
@@ -306,14 +322,15 @@ func (s *Server) record(req *sdk.CallToolRequest, tool, machine, result string, 
 }
 
 // machine finds the machine a tool is aimed at: this computer when name is
-// empty, else a server by id or name. A server set to Off is invisible.
+// empty, else a server by id or name. A server set to Off is invisible, so
+// another of the same name is found past it.
 func (s *Server) machine(name string) (Machine, error) {
 	ms := s.b.Machines()
 	name = strings.TrimSpace(name)
 	for _, m := range ms {
 		if name == "" && m.Local || name != "" && (m.ID == name || strings.EqualFold(m.Name, name)) {
 			if !m.Local && m.Level == Off {
-				break
+				continue
 			}
 			return m, nil
 		}

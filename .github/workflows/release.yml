@@ -29,8 +29,12 @@ jobs:
       bundle: ${{ steps.v.outputs.bundle }}
       prerelease: ${{ steps.v.outputs.prerelease }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       # macOS wants plain numbers (1.2.3) in the bundle versions, so a
-      # pre-release tag (v0.1.0-beta.1) stamps 0.1.0 there and the release is
+      # pre-release tag (v1.1.0-beta.1) stamps 1.1.0 there and the release is
       # marked as a pre-release.
       - id: v
         run: |
@@ -44,6 +48,11 @@ jobs:
             exit 1
           fi
           bundle="${version%%-*}"
+          # The tag must match the version the code carries (version.go).
+          if [ "$GITHUB_REF_TYPE" = tag ] && ! grep -qx "const version = \"$bundle\"" version.go; then
+            echo "Tag $GITHUB_REF_NAME doesn't match version.go ($(grep '^const version' version.go))" >&2
+            exit 1
+          fi
           prerelease=0
           if [ "$bundle" != "$version" ]; then prerelease=1; fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -68,7 +77,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: 1.27.3
+          go-version: 1.27.4
           cache: true
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -170,7 +179,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: 1.27.3
+          go-version: 1.27.4
           cache: true
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0

@@ -72,6 +72,14 @@ export function Create(server: string, fileName: string, content: string): $Canc
 }
 
 /**
+ * CreateCopy is Create for a copy of the include file from (CopyDraft): the
+ * new file gets from's mode, so a config kept private stays private.
+ */
+export function CreateCopy(server: string, fileName: string, content: string, $from: string): $CancellablePromise<$models.ApplyResultView> {
+    return $Call.ByID(1983047099, server, fileName, content, $from);
+}
+
+/**
  * Describe explains each program in content in plain English.
  */
 export function Describe(server: string, content: string): $CancellablePromise<describe$0.Program[] | null> {

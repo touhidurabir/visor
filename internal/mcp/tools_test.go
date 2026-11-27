@@ -91,8 +91,8 @@ func (t *fakeTarget) Process(in ProcessIn) (any, error) {
 	}
 	return t.b.log(t.m, "Process", "", in.Name)
 }
-func (t *fakeTarget) Usage(in UsageIn) (any, error)     { return t.b.log(t.m, "Usage", "", in.Process) }
-func (t *fakeTarget) Logs(in LogsIn) (any, error)       { return t.b.log(t.m, "Logs", "", in.Process) }
+func (t *fakeTarget) Usage(in UsageIn) (any, error) { return t.b.log(t.m, "Usage", "", in.Process) }
+func (t *fakeTarget) Logs(in LogsIn) (any, error)   { return t.b.log(t.m, "Logs", "", in.Process) }
 func (t *fakeTarget) SearchLogs(in SearchIn) (any, error) {
 	return t.b.log(t.m, "SearchLogs", "", in.Query)
 }
@@ -443,7 +443,11 @@ func TestReadsTimeOut(t *testing.T) {
 func TestClientLabel(t *testing.T) {
 	for in, want := range map[string]string{
 		"claude-code": "Claude Code", "codex-mcp-client": "Codex", "codex": "Codex",
-		"Cursor": "Cursor", "my-agent": "my-agent", "": "An AI tool",
+		"Cursor": "Cursor", "my-agent": "my-agent", "": "An AI tool", "opencode": "OpenCode",
+		// A client names itself: control characters go, and a long name is cut.
+		"bad\nname\x1b[31m":      "badname[31m",
+		strings.Repeat("a", 500): strings.Repeat("a", 40) + "…",
+		"   ":                    "An AI tool",
 	} {
 		if got := ClientLabel(in); got != want {
 			t.Errorf("ClientLabel(%q) = %q, want %q", in, got, want)
@@ -494,5 +498,20 @@ func TestTargetPanicIsAnError(t *testing.T) {
 	b.panicsAt = ""
 	if _, isErr := call(t, cs, "restart", map[string]any{"target": "web"}); isErr {
 		t.Fatal("the server stopped working after a panic")
+	}
+}
+
+// Two servers with one name: an Off one is skipped, so the other is found.
+func TestNameSkipsOffServers(t *testing.T) {
+	b := newFake()
+	b.machines = append(b.machines, Machine{ID: "s4", Name: "Hidden", Tag: "development", Connected: true, Level: Read})
+	cs := connect(t, NewServer(b, "test"), "claude-code")
+	if text, isErr := call(t, cs, "get_status", map[string]any{"server": "hidden"}); isErr {
+		t.Fatalf("the usable server of that name: %q", text)
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.calls) != 1 || !strings.HasPrefix(b.calls[0], "s4:") {
+		t.Fatalf("calls: %v", b.calls)
 	}
 }

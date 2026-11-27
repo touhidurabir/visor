@@ -2,7 +2,7 @@
 
 ## Reporting a problem
 
-Please don't open a public issue for a security problem. Report it privately through GitHub: on the repository's **Security** tab, choose **Report a vulnerability**. No GitHub account? Email security@getvisor.dev instead.
+Please don't open a public issue for a security problem. Report it privately through GitHub: on the repository's **Security** tab, choose **Report a vulnerability**. No GitHub account? Email abircse06@gmail.com instead.
 
 Include what you found, how to reproduce it, and which Visor version you used.
 
@@ -15,7 +15,7 @@ Include what you found, how to reproduce it, and which Visor version you used.
 
 ### Supported versions
 
-Only the latest release gets security fixes. Visor is in beta, so update to the newest version before you report.
+Only the latest release gets security fixes, so update to the newest version before you report.
 
 ### What isn't a security problem
 

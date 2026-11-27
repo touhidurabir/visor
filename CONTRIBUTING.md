@@ -4,7 +4,7 @@ Thanks for helping. Bug reports, ideas and pull requests are all welcome.
 
 ## Before you start
 
-- **Bugs:** open an issue with the bug report form: what you did, what you expected, what happened, your macOS and supervisord versions (`supervisord --version`), and Visor's version (Visor → About Visor).
+- **Bugs:** open an issue with the bug report form: what you did, what you expected, what happened, your macOS version or Linux distro, your supervisord version (`supervisord --version`), and Visor's version (on macOS, Visor → About Visor; on Linux, `dpkg -s visor` or `rpm -q visor`, or the AppImage's file name).
 - **Bigger changes:** open an issue first so we can agree on the approach before you spend time on it.
 - **Security problems:** never in an issue. Report them privately as [SECURITY.md](SECURITY.md) explains.
 
@@ -12,7 +12,7 @@ Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## Setting up
 
-You need macOS 13 or later, or Linux with GTK 4 and WebKitGTK 6.0 (see the [README](README.md#development)). You also need Go 1.27.3 (the official installer from go.dev), Node (see `.nvmrc`), supervisord (`brew install supervisor`, or your distro's package) and the Wails v3 CLI:
+You need macOS 13 or later, or Linux with GTK 4 and WebKitGTK 6.0 (see the [README](README.md#development)). You also need Go 1.27.4 (the official installer from go.dev, or Homebrew), Node (see `.nvmrc`), supervisord (`brew install supervisor`, or your distro's package) and the Wails v3 CLI:
 
 ```sh
 go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
@@ -55,7 +55,7 @@ Every change under `internal/` comes with tests. UI changes come with an end-to-
 ## Pull requests
 
 - Keep each pull request to one change, and describe what it does, why, and how you checked it.
-- Add a line to `CHANGELOG.md` under `## [Unreleased]`.
+- Add a line to `CHANGELOG.md` under `## [Unreleased]` at the top (add that heading if it isn't there yet).
 - Never point tests or dev runs at a real supervisord or its configs.
 
 By contributing you agree that your work is released under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-or-later), like the rest of Visor.

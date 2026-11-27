@@ -17,6 +17,7 @@ import (
 type ImportItem struct {
 	FileName string
 	Content  string
+	Mode     uint32 // the source file's permissions (DroppedFileView.Mode); 0: 0644
 }
 
 // ImportResultView is what happened to one imported file: Written when it
@@ -191,7 +192,7 @@ func (s *ConfigService) Import(items []ImportItem, start bool) ([]ImportResultVi
 			out[i].Error = err.Error()
 			continue
 		}
-		res, err := s.create(path, it.Content, 0)
+		res, err := s.create(path, it.Content, keptMode(it.Mode))
 		out[i].Result = res
 		if err != nil {
 			out[i].Error = err.Error()

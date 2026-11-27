@@ -21,7 +21,7 @@ func TestReadDropped(t *testing.T) {
 	if len(got) != 4 {
 		t.Fatalf("%d results: %+v", len(got), got)
 	}
-	if got[0] != (DroppedFileView{Name: "worker.conf", Content: "[program:w]\ncommand=sleep 1\n"}) {
+	if got[0] != (DroppedFileView{Name: "worker.conf", Content: "[program:w]\ncommand=sleep 1\n", Mode: 0o644}) {
 		t.Errorf("file: %+v", got[0])
 	}
 	for i, want := range map[int]string{1: "folder", 2: "Larger than 1 MB", 3: "Couldn’t read it"} {

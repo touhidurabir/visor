@@ -29,6 +29,8 @@ export interface ImportFile {
   open: boolean
   /** Why it couldn't be read ("" when it was). */
   readError: string
+  /** The original's permissions, kept by Import (0: unknown, a picked file). */
+  mode: number
 }
 
 /**
@@ -118,7 +120,7 @@ async function runChecks() {
     return
   }
   try {
-    const out = (await ConfigService.CheckImport(batch.map((b) => ({ FileName: b.fileName, Content: b.content })))) ?? []
+    const out = (await ConfigService.CheckImport(batch.map((b) => ({ FileName: b.fileName, Content: b.content, Mode: 0 })))) ?? []
     if (mine !== seq) return
     const next: Record<number, ExplainView> = {}
     batch.forEach((b, i) => {
@@ -145,6 +147,7 @@ watch(
 /** A file to add: its name and text, or why it can't be read. */
 interface Picked {
   name: string
+  mode?: number
   read: () => Promise<{ content: string; readError: string }>
 }
 
@@ -159,7 +162,7 @@ async function addPicked(list: Picked[]): Promise<number> {
       continue
     }
     const { content, readError } = await p.read()
-    files.push({ id: nextId++, source: p.name, fileName: targetName(p.name, ext.value), content, include: !readError, open: false, readError })
+    files.push({ id: nextId++, source: p.name, fileName: targetName(p.name, ext.value), content, include: !readError, open: false, readError, mode: p.mode ?? 0 })
   }
   // A single file opens straight in the editor.
   if (files.length === 1 && !files[0].readError) files[0].open = true
@@ -185,7 +188,7 @@ export function addFiles(list: Iterable<File>): Promise<number> {
 
 /** Adds files dropped on the window, which Go has read (app.ReadDropped). */
 export function addDropped(list: DroppedFileView[]): Promise<number> {
-  return addPicked(list.map((d) => ({ name: d.Name, read: async () => ({ content: d.Content, readError: d.Error }) })))
+  return addPicked(list.map((d) => ({ name: d.Name, mode: d.Mode, read: async () => ({ content: d.Content, readError: d.Error }) })))
 }
 
 /**
@@ -238,7 +241,7 @@ export function useImport() {
         failure.value = `Fix ${blocked.value.map((f) => f.fileName).join(', ')} first.`
         return
       }
-      const batch = included.value.map((f) => ({ FileName: f.fileName, Content: f.content }))
+      const batch = included.value.map((f) => ({ FileName: f.fileName, Content: f.content, Mode: f.mode }))
       const res = (await ConfigService.Import(batch, startAfter.value)) ?? []
       // Files now in the include folder leave the list (by position: the
       // fields are locked while adding); the rest stay to fix and try again.

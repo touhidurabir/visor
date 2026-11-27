@@ -251,3 +251,59 @@ func TestLoadFileAddsOnlyWhatIsNotLoaded(t *testing.T) {
 		t.Errorf("second LoadFile = %+v, %v; want nothing to do", res, err)
 	}
 }
+
+// A copy keeps its original's mode, and an import the mode of the dropped
+// file (0644 when unknown), so a config kept private stays private.
+func TestCopyAndImportKeepTheMode(t *testing.T) {
+	cs, _, _, inst := configFixture(t)
+	src := confFile(inst, "worker")
+	if err := os.Chmod(src, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mode := func(p string) os.FileMode {
+		t.Helper()
+		fi, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return fi.Mode().Perm()
+	}
+	if _, err := cs.CreateCopy("copied.ini", "[program:copied]\ncommand=sleep 3600\n", src); err != nil {
+		t.Fatal(err)
+	}
+	if m := mode(confFile(inst, "copied")); m != 0o600 {
+		t.Errorf("copy of a 0600 file: %o", m)
+	}
+	if _, err := cs.CreateCopy("other.ini", "[program:other]\ncommand=sleep 3600\n", "/etc/hosts"); err == nil {
+		t.Error("a copy of a file outside the include folder was written")
+	}
+
+	res, err := cs.Import([]ImportItem{
+		{FileName: "private.ini", Content: "[program:private]\ncommand=sleep 3600\n", Mode: 0o640},
+		{FileName: "plain.ini", Content: "[program:plain]\ncommand=sleep 3600\n"},
+	}, false)
+	if err != nil || !res[0].Written || !res[1].Written {
+		t.Fatalf("import: %+v %v", res, err)
+	}
+	if m := mode(confFile(inst, "private")); m != 0o640 {
+		t.Errorf("import of a 0640 file: %o", m)
+	}
+	if m := mode(confFile(inst, "plain")); m != 0o644 {
+		t.Errorf("import with no mode: %o", m)
+	}
+	// From a USB stick or a share every file is 0777: never group or world writable here.
+	if got := keptMode(0o777); got != 0o755 {
+		t.Errorf("keptMode(0777) = %o", got)
+	}
+	if got := keptMode(0o4666); got != 0o644 {
+		t.Errorf("keptMode(04666) = %o", got)
+	}
+
+	dropped := filepath.Join(t.TempDir(), "d.ini")
+	if err := os.WriteFile(dropped, []byte("[program:d]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := ReadDropped([]string{dropped}); len(got) != 1 || got[0].Mode != 0o600 {
+		t.Errorf("dropped file: %+v", got)
+	}
+}

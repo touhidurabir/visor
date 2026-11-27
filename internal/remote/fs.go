@@ -24,6 +24,11 @@ var _ config.FS = BridgeFS{}
 var ErrNotConnected = errors.New("not connected to the server")
 
 func (f BridgeFS) bridge() (*Bridge, context.Context, context.CancelFunc, error) {
+	return f.bridgeIn(context.Background())
+}
+
+// bridgeIn is bridge on parent's clock too: the call ends with parent.
+func (f BridgeFS) bridgeIn(parent context.Context) (*Bridge, context.Context, context.CancelFunc, error) {
 	d := f.Timeout
 	if d == 0 {
 		d = 15 * time.Second
@@ -31,7 +36,7 @@ func (f BridgeFS) bridge() (*Bridge, context.Context, context.CancelFunc, error)
 	if f.T == nil {
 		return nil, nil, nil, ErrNotConnected
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), d)
+	ctx, cancel := context.WithTimeout(parent, d)
 	b, err := f.T.Bridge(ctx)
 	if err != nil {
 		cancel()
@@ -91,9 +96,9 @@ func (f BridgeFS) Tail(name string, max int) ([]byte, error) {
 	return b.Tail(ctx, name, max)
 }
 
-// Usage measures the server's process trees rooted at pids.
-func (f BridgeFS) Usage(pids []int) (map[int]usage.Totals, error) {
-	b, ctx, cancel, err := f.bridge()
+// Usage measures the server's process trees rooted at pids, until ctx ends.
+func (f BridgeFS) Usage(ctx context.Context, pids []int) (map[int]usage.Totals, error) {
+	b, ctx, cancel, err := f.bridgeIn(ctx)
 	if err != nil {
 		return nil, err
 	}

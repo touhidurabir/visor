@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -318,6 +319,30 @@ func TestMCPTargetReconnecting(t *testing.T) {
 	}
 }
 
+// A server whose reconnect needs the user (a wrong password) is refused at
+// once, like one that is reconnecting, not answered from stale data.
+func TestMCPTargetConnFailed(t *testing.T) {
+	fastReconnect(t)
+	inst := supervisortest.Start(t, supervisortest.Sleeper)
+	f := startRemoteRuntime(t, inst, nil)
+	waitRunning(t, f.svc, "sleeper:sleeper")
+	tg := &tabTarget{t: newTab(f.rt, func(string, any) {}, ""), name: "vm"}
+	if err := settings.SetServerSecret(f.k, f.server.ID, settings.SecretPassword, "wrong"); err != nil {
+		t.Fatal(err)
+	}
+	f.ssh.DropAll()
+	waitOverview(t, f.svc, 15*time.Second, "failed", func(ov OverviewView) bool { return ov.Host.Conn == ConnFailed })
+	for name, call := range map[string]func() (any, error){
+		"status":  tg.Status,
+		"configs": tg.Configs,
+		"restart": func() (any, error) { return tg.Restart("x", mcp.TargetIn{Target: "sleeper"}) },
+	} {
+		if _, err := call(); err == nil || !strings.HasPrefix(err.Error(), "vm isn't connected") {
+			t.Fatalf("%s while the connection failed: %v", name, err)
+		}
+	}
+}
+
 // get_status counts as failing what the dashboard does: a clean, expected
 // exit is not failing.
 func TestMCPStatusFailingMatchesTheDashboard(t *testing.T) {
@@ -449,5 +474,63 @@ func TestSetServerForgetsTheMachineSize(t *testing.T) {
 	defer f.rt.sizeMu.Unlock()
 	if f.rt.size.Cores != 0 {
 		t.Fatalf("size kept after an edit: %+v", f.rt.size)
+	}
+}
+
+func TestMCPLogCaps(t *testing.T) {
+	line := strings.Repeat("x", 1000) + "\n"
+	many := make([]string, 200) // newest first
+	for i := range many {
+		many[i] = line
+	}
+	kept, cut := capNewestFirst(many)
+	if !cut || len(strings.Join(kept, "")) > mcpMaxBytes || len(kept) < 60 || kept[0] != line {
+		t.Fatalf("200 matches of 1 KB: kept %d, cut %v", len(kept), cut)
+	}
+	huge := strings.Repeat("y", 3*mcpMaxBytes)
+	if kept, cut := capNewestFirst([]string{huge, "older"}); !cut || len(kept) != 1 || len(kept[0]) > mcpMaxBytes {
+		t.Fatalf("one huge match: %d lines, %d bytes, cut %v", len(kept), len(kept[0]), cut)
+	}
+	if kept, cut := capNewestFirst([]string{"a", "b"}); cut || len(kept) != 2 {
+		t.Fatalf("small matches were cut: %v %v", kept, cut)
+	}
+
+	var main []MainLogLineView // oldest first
+	for i := range 200 {
+		main = append(main, MainLogLineView{AtMs: int64(i), Text: line})
+	}
+	ml, cut := capMainLog(main)
+	if !cut || ml[len(ml)-1].AtMs != 199 || len(ml) < 60 || len(ml) == 200 {
+		t.Fatalf("main log: kept %d, cut %v", len(ml), cut)
+	}
+	ml, cut = capMainLog([]MainLogLineView{{AtMs: 1, Text: "old"}, {AtMs: 2, Text: huge + "\nend of trace"}})
+	if !cut || len(ml) != 1 || len(ml[0].Text) > mcpMaxBytes || !strings.HasSuffix(ml[0].Text, "end of trace") {
+		t.Fatalf("one huge entry: %d entries, cut %v", len(ml), cut)
+	}
+}
+
+func TestMCPSearchCapped(t *testing.T) {
+	big := supervisortest.Program{
+		Name:    "big",
+		Command: `sh -c 'i=0; while [ $i -lt 300 ]; do printf "BIG %%01000d\n" $i; i=$((i+1)); done; exec sleep 3600'`,
+	}
+	inst := supervisortest.Start(t, big)
+	tg, svc := targetFor(t, inst)
+	waitRunning(t, svc, "big:big")
+	waitLog(t, tg, "big", "BIG 0")
+	sr, err := tg.SearchLogs(mcp.SearchIn{Process: "big", Query: "BIG", Limit: 200})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := js(t, sr); len(b) > mcpMaxBytes+4096 || !strings.Contains(b, "64 KB") {
+		t.Fatalf("200 matches of 1 KB: %d bytes, no note", len(b))
+	}
+	// The cursor goes past the matches left out, so the note must say so.
+	res := decode[struct {
+		Matches []string
+		Note    string
+	}](t, sr)
+	if left := 200 - len(res.Matches); !strings.Contains(res.Note, fmt.Sprintf("%d older matches were left out", left)) {
+		t.Fatalf("note: %q (%d kept)", res.Note, len(res.Matches))
 	}
 }

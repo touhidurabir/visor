@@ -95,7 +95,7 @@ func main() {
 	mcpService := app.NewMcpService(app.McpOptions{
 		Hub: hub, Remote: remoteService, Settings: settingsService, Doctor: doctorService,
 		Keychain: keychain, Emit: shell.Emit(app.WailsEmit), Notifier: notifier,
-		Show: func() { shell.ShowMain("") }, Version: "0.1.0", Port: mcpPort,
+		Show: func() { shell.ShowMain("") }, Version: version, Port: mcpPort,
 	})
 	// LogLevel stays at Wails' default (Info). Do not raise it to Debug:
 	// Wails then logs every binding call with its arguments, which would

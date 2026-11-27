@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"os"
-	"strings"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/touhidurabir/visor/internal/apply"
@@ -88,7 +88,7 @@ func TestLiveSSH(t *testing.T) {
 					pids = append(pids, p.PID)
 				}
 			}
-			use, err := remote.BridgeFS{T: files}.Usage(pids)
+			use, err := remote.BridgeFS{T: files}.Usage(context.Background(), pids)
 			if err != nil {
 				t.Fatal(err)
 			}

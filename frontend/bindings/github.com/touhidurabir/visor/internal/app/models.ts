@@ -237,6 +237,11 @@ export interface DoctorView {
 export interface DroppedFileView {
     "Name": string;
     "Content": string;
+
+    /**
+     * permissions, kept by Import
+     */
+    "Mode": number;
     "Error": string;
 }
 
@@ -421,6 +426,11 @@ export interface HostView {
 export interface ImportItem {
     "FileName": string;
     "Content": string;
+
+    /**
+     * the source file's permissions (DroppedFileView.Mode); 0: 0644
+     */
+    "Mode": number;
 }
 
 /**

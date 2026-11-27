@@ -89,6 +89,7 @@ type McpService struct {
 	mu       sync.Mutex
 	srv      *mcp.Server
 	http     *http.Server
+	ln       net.Listener // closed by us too: Serve may not have taken it yet
 	status   string
 	errText  string
 	token    string
@@ -98,6 +99,8 @@ type McpService struct {
 	closed   bool
 	// openMu lets one call open a saved server's tab while others wait.
 	openMu sync.Mutex
+	// lifeMu runs one start or stop of the listener at a time.
+	lifeMu sync.Mutex
 }
 
 type pendingAsk struct {
@@ -261,9 +264,19 @@ func (s *McpService) currentToken() string {
 	return s.token
 }
 
-// restart (re)starts the listener on the current port.
+// restart (re)starts the listener on the current port, unless Visor is
+// shutting down.
 func (s *McpService) restart() {
-	s.stop()
+	s.lifeMu.Lock()
+	defer s.lifeMu.Unlock()
+	s.shutdownHTTP()
+	s.mu.Lock()
+	closed := s.closed
+	s.mu.Unlock()
+	// A restart that raced a Disable (or Visor quitting) stays stopped.
+	if closed || !s.cfg().Enabled {
+		return
+	}
 	port := s.port()
 	l, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	s.mu.Lock()
@@ -279,7 +292,7 @@ func (s *McpService) restart() {
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", s.srv.Handler(s.currentTokenUnlocked))
 	hs := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-	s.http, s.status, s.errText = hs, McpRunning, ""
+	s.http, s.ln, s.status, s.errText = hs, l, McpRunning, ""
 	go func() {
 		if err := hs.Serve(l); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("visor: MCP server: %v", err)
@@ -291,9 +304,15 @@ func (s *McpService) restart() {
 func (s *McpService) currentTokenUnlocked() string { return s.currentToken() }
 
 func (s *McpService) stop() {
+	s.lifeMu.Lock()
+	defer s.lifeMu.Unlock()
+	s.shutdownHTTP()
+}
+
+func (s *McpService) shutdownHTTP() {
 	s.mu.Lock()
-	hs := s.http
-	s.http, s.status, s.errText = nil, McpOff, ""
+	hs, ln := s.http, s.ln
+	s.http, s.ln, s.status, s.errText = nil, nil, McpOff, ""
 	s.mu.Unlock()
 	if hs != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -301,6 +320,9 @@ func (s *McpService) stop() {
 		if err := hs.Shutdown(ctx); err != nil {
 			_ = hs.Close()
 		}
+	}
+	if ln != nil {
+		_ = ln.Close() // after Shutdown, so Serve sees a closed server, not an Accept error
 	}
 }
 

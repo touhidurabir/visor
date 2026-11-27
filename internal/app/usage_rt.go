@@ -33,9 +33,9 @@ func (r *Runtime) usageSampler() usage.Sampler {
 		return r.opts.Usage
 	}
 	if r.opts.Remote != nil {
-		return usage.SamplerFunc(func(_ context.Context, pids []int) (map[int]usage.Totals, error) {
+		return usage.SamplerFunc(func(ctx context.Context, pids []int) (map[int]usage.Totals, error) {
 			fs, _ := r.serverFS()
-			return fs.Usage(pids)
+			return fs.Usage(ctx, pids)
 		})
 	}
 	return usage.Local()
