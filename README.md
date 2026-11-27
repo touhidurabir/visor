@@ -9,6 +9,8 @@ A free, open-source menu-bar and tray app for [supervisord](http://supervisord.o
 
 See every process at a glance, start, stop and restart them, follow their logs, and edit program configs safely. Do it on your own computer and on your Linux servers over SSH, and let your AI coding tools help through MCP. It's the everyday `supervisorctl` work, in a window, with nothing to install next to supervisord.
 
+**Website:** [getvisor.dev](https://getvisor.dev/), with the downloads and the user guide.
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/dashboard-dark.webp">
   <img src="docs/images/dashboard-light.webp" alt="The dashboard: every config and its processes, their state, CPU and memory, and the ones failing">
@@ -115,6 +117,7 @@ A few things don't work everywhere yet: notifications macOS turned off, the popo
 
 | Read | For |
 |---|---|
+| [getvisor.dev](https://getvisor.dev/) | The website: downloads and the user guide for every screen |
 | [docs/MCP.md](docs/MCP.md) | The MCP server: connecting AI tools, access per machine, every tool, security |
 | [docs/known-issues.md](docs/known-issues.md) | What Visor doesn't do yet, and what to do about it |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each version |
