@@ -162,7 +162,3 @@ Bug reports, ideas and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBU
 Copyright © 2026 Touhidur Rahman.
 
 Visor is free software under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0), version 3 or any later version.
-
-- **You can** use it, change it, share it, and even sell it.
-- **If you distribute a changed Visor, or offer it to others as a network service,** you must share your changes under the same license, with the source, to the people who receive or use it.
-- Using Visor, or changing it for your own use, needs nothing more.
