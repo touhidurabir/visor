@@ -11,8 +11,8 @@ import (
 func TestServersRoundTripHoldsNoSecret(t *testing.T) {
 	dir := t.TempDir()
 	k := &MemoryKeychain{}
-	s := Server{ID: NewServerID(), Name: " cpcsl dev ", Host: "dev.example.com", User: "deploy", UseSudo: true, Tag: TagProduction, Color: "#2f6fd6"}.Normalize()
-	if s.Port != 22 || s.SudoPassword != SudoSameAsSSH || s.Name != "cpcsl dev" {
+	s := Server{ID: NewServerID(), Name: " acme dev ", Host: "dev.example.com", User: "deploy", UseSudo: true, Tag: TagProduction, Color: "#2f6fd6"}.Normalize()
+	if s.Port != 22 || s.SudoPassword != SudoSameAsSSH || s.Name != "acme dev" {
 		t.Fatalf("normalize: %+v", s)
 	}
 	if err := s.Validate(nil); err != nil {
@@ -39,7 +39,7 @@ func TestServersRoundTripHoldsNoSecret(t *testing.T) {
 		t.Fatalf("mode %v", fi.Mode())
 	}
 	got, err := LoadServers(dir)
-	if err != nil || len(got) != 1 || got[0].Name != "cpcsl dev" || !got[0].Production() {
+	if err != nil || len(got) != 1 || got[0].Name != "acme dev" || !got[0].Production() {
 		t.Fatalf("load: %+v %v", got, err)
 	}
 	if pw, _ := ServerSecret(k, s.ID, SecretSudo); pw != "sudo-secret-3" {

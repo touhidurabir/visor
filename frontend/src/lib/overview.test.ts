@@ -124,7 +124,7 @@ describe('opensOnProblems', () => {
 
 describe('placeName', () => {
   it("names a server tab after the server, and this computer's after its profile", () => {
-    expect(placeName({ Host: { Remote: true, Name: 'touhidurabir.dev' }, Server: { Name: 'Local' } } as never)).toBe('touhidurabir.dev')
+    expect(placeName({ Host: { Remote: true, Name: 'app.example.com' }, Server: { Name: 'Local' } } as never)).toBe('app.example.com')
     expect(placeName({ Host: { Remote: false, Name: 'This Mac' }, Server: { Name: 'Local' } } as never)).toBe('Local')
     expect(placeName(null)).toBe('Local')
   })

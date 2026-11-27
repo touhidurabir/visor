@@ -145,8 +145,8 @@ describe('bulkConfirm', () => {
     expect(c.confirmLabel).toBe('Restart all')
   })
   it('names the server on a server tab', () => {
-    expect(bulkConfirm('restart', 2, undefined, 'touhidurabir.dev')!.title).toBe('Restart all processes on touhidurabir.dev?')
-    expect(bulkConfirm('stop', 2, 'site.conf', 'touhidurabir.dev')!.title).toBe('Stop all processes in site.conf on touhidurabir.dev?')
+    expect(bulkConfirm('restart', 2, undefined, 'app.example.com')!.title).toBe('Restart all processes on app.example.com?')
+    expect(bulkConfirm('stop', 2, 'site.conf', 'app.example.com')!.title).toBe('Stop all processes in site.conf on app.example.com?')
   })
 })
 

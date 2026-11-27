@@ -193,11 +193,11 @@ describe('codeTokens', () => {
   const join = (t: ReturnType<typeof codeTokens>) => t.map((x) => x.text).join('')
 
   it('splits a section header into brackets, kind and name', () => {
-    const t = codeTokens('[program:cpcsl-reverb]', 'section')
+    const t = codeTokens('[program:acme-reverb]', 'section')
     expect(t).toEqual([
       { text: '[', part: 'punct' },
       { text: 'program:', part: 'kind' },
-      { text: 'cpcsl-reverb', part: 'name' },
+      { text: 'acme-reverb', part: 'name' },
       { text: ']', part: 'punct' },
     ])
   })

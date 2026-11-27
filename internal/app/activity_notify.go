@@ -163,8 +163,8 @@ func (r *Runtime) flushActivity(b *activityBatch) {
 }
 
 // composeActivity words changes made outside Visor as one notification:
-// "web:web restarted outside Visor on cpcsl dev", or "3 processes restarted
-// outside Visor on cpcsl dev" for several of a kind.
+// "web:web restarted outside Visor on acme dev", or "3 processes restarted
+// outside Visor on acme dev" for several of a kind.
 func composeActivity(events []activity.Event, where string) notify.Message {
 	first := events[0]
 	m := notify.Message{

@@ -8,8 +8,8 @@ beforeEach(() => {
   setCurrentTab('local')
   productionAsk.value = null
   serverTabs.value = [
-    { id: 'sprod', name: 'cpcsl prod', tag: 'production', color: '#E5483A', readOnly: false },
-    { id: 'sdev', name: 'cpcsl dev', tag: 'development', color: '#0A62D0', readOnly: false },
+    { id: 'sprod', name: 'acme prod', tag: 'production', color: '#E5483A', readOnly: false },
+    { id: 'sdev', name: 'acme dev', tag: 'development', color: '#0A62D0', readOnly: false },
   ]
 })
 
@@ -17,18 +17,18 @@ describe('production guard', () => {
   it('asks on a production tab, naming the server, and goes ahead on yes', async () => {
     const p = guard('sprod', 'Restart', ['web:web'])
     await flush()
-    expect(productionAsk.value?.title).toBe('Restart web:web on cpcsl prod?')
+    expect(productionAsk.value?.title).toBe('Restart web:web on acme prod?')
     productionAsk.value!.answer(true)
     await expect(p).resolves.toBeUndefined()
   })
   it('asks before a config change applies (M8), and a dialog that asked names the server', async () => {
     const p = guard('sprod', 'Save', ['/etc/supervisor/conf.d/horizon.conf', 'x', 'hash'])
     await flush()
-    expect(productionAsk.value?.title).toBe('Save horizon.conf on cpcsl prod?')
+    expect(productionAsk.value?.title).toBe('Save horizon.conf on acme prod?')
     productionAsk.value!.answer(true)
     await p
     setCurrentTab('sprod')
-    expect(onProduction()).toBe(' on cpcsl prod')
+    expect(onProduction()).toBe(' on acme prod')
     setCurrentTab('sdev')
     expect(onProduction()).toBe('')
   })
@@ -39,7 +39,7 @@ describe('production guard', () => {
     expect(productionAsk.value).toBeNull()
     const other = guard('sprod', 'Stop', ['web:web'])
     await flush()
-    expect(productionAsk.value?.title).toBe('Stop web:web on cpcsl prod?')
+    expect(productionAsk.value?.title).toBe('Stop web:web on acme prod?')
     productionAsk.value!.answer(false)
     await expect(other).rejects.toSatisfy(isCancelled)
     finish()
