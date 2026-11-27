@@ -33,7 +33,7 @@ body:
     id: visor
     attributes:
       label: Visor version
-      description: Visor → About Visor
+      description: "On macOS, Visor → About Visor. On Linux, `dpkg -s visor`, `rpm -q visor`, or the AppImage's file name"
     validations:
       required: true
   - type: input
